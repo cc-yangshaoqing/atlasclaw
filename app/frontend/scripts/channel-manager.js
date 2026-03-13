@@ -12,6 +12,18 @@ let allChannels = [];
 let editingConnectionId = null;
 let pendingDeleteId = null;
 
+/**
+ * Get localized channel name
+ */
+function getChannelName(channel) {
+    const translatedName = t(`channel.name_${channel.type}`);
+    // If translation exists (not returning the key), use it
+    if (translatedName && !translatedName.startsWith('channel.name_')) {
+        return translatedName;
+    }
+    return channel.name || channel.type;
+}
+
 // ========== URL Routing ==========
 
 /**
@@ -181,7 +193,7 @@ function renderChannelTypes(channels) {
     if (container) {
         container.innerHTML = channels.map(channel => `
             <div class="channel-type-card ${currentChannelType === channel.type ? 'active' : ''}" data-type="${channel.type}">
-                <div class="channel-name">${channel.name || channel.type}</div>
+                <div class="channel-name">${getChannelName(channel)}</div>
                 <div class="channel-status">${channel.connection_count > 0 
                     ? `${channel.connection_count} ${t('channel.connectionsCount')}` 
                     : t('channel.notConfigured')}</div>
@@ -199,7 +211,7 @@ function renderChannelTypes(channels) {
         sidebarContainer.innerHTML = channels.map(channel => `
             <div class="sidebar-channel-item ${currentChannelType === channel.type ? 'active' : ''}" 
                  data-type="${channel.type}">
-                <span class="channel-name">${channel.name || channel.type}</span>
+                <span class="channel-name">${getChannelName(channel)}</span>
             </div>
         `).join('');
         
@@ -264,7 +276,7 @@ async function renderChannelDetailView(type) {
         <div class="channel-detail-header">
             <button class="btn-back" id="btnBackToList">← ${t('channel.backToList')}</button>
             <div class="channel-detail-title">
-                <h2>${channelInfo.name || type}</h2>
+                <h2>${getChannelName(channelInfo)}</h2>
             </div>
             <button class="btn-primary" id="btnAddConnection">
                 <span>+</span> ${t('channel.newConnection')}

@@ -25,6 +25,9 @@
   },
   "channel": {
     "title": "Channel Management",
+    "name_feishu": "Feishu",
+    "name_dingtalk": "DingTalk",
+    "name_wecom": "WeCom",
     "back": "← Back",
     "backToChat": "Back to Chat",
     "available": "Available Channels",

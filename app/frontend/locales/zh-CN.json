@@ -25,6 +25,9 @@
   },
   "channel": {
     "title": "渠道管理",
+    "name_feishu": "飞书",
+    "name_dingtalk": "钉钉",
+    "name_wecom": "企业微信",
     "back": "← 返回",
     "backToChat": "返回对话",
     "available": "可用渠道",
