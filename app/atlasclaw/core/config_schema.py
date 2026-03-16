@@ -205,7 +205,7 @@ class AtlasClawConfig(BaseModel):
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig, description="Workspace configuration")
     agents_dir: str = Field(default="~/.atlasclaw/agents", description="Agent directory (backward compatibility)")
     providers_root: str = Field(
-        default="../atlasclaw-providers/providers",
+        default="../providers",
         description="Root directory for provider templates and skills, resolved relative to atlasclaw.json",
     )
     

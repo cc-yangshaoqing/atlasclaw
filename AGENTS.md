@@ -49,6 +49,27 @@ npm run build:dev
 npm test
 ```
 
+## Required Reading
+
+Before making any feature changes, bug fixes, or architectural decisions, consult these canonical documents:
+
+| Document | Content | Path |
+|----------|---------|------|
+| **Architecture** | Design philosophy, system architecture, bootstrap sequence, request lifecycle, security model, extension points | [docs/architecture.md](docs/architecture.md) |
+| **Module Details** | Per-module API surface, class/method/enum reference, configuration options, dependencies | [docs/module-details.md](docs/module-details.md) |
+| **Development Spec** | Code style, architecture patterns, error handling, security, testing, extension development, deployment & operations, review checklist | [docs/development-spec.md](docs/development-spec.md) |
+
+**All development work MUST be consistent with these documents.** If a proposed change conflicts with documented patterns, update the documentation as part of the same change.
+
+### Additional References
+
+| Document | Content |
+|----------|---------|
+| [Provider Guide](docs/PROVIDER_GUIDE.md) | Creating and deploying provider integrations |
+| [Skill Guide](docs/SKILL_GUIDE.md) | Creating executable, markdown, and hybrid skills |
+| [Channel Guide](docs/Channel%20Guide.md) | Channel handler implementation and integration |
+| [Guide](docs/GUIDE.md) | End-user/developer usage guide |
+
 ## Code Style Guidelines
 
 ### Python
@@ -137,10 +158,11 @@ AtlasClaw-Core/
 │   ├── channels/         # Channel adapters (WebSocket, SSE, REST)
 │   ├── core/             # Config, dependencies, provider registry
 │   ├── memory/           # Memory manager and retrieval
-│   ├── providers/        # Built-in provider integrations
+│   ├── providers/        # Built-in provider integrations (legacy)
 │   ├── session/          # Session management
 │   ├── skills/           # Skill loading and registry
 │   └── tools/            # Built-in tools
+├── providers/             # External provider repository (configured via providers_root, default: ../providers)
 ├── tests/                # Test suite
 │   ├── atlasclaw/          # Python tests
 │   └── frontend/         # JavaScript tests
@@ -155,6 +177,7 @@ AtlasClaw-Core/
 - **Backend config:** `atlasclaw.json` (in project root)
 - **Test config:** `tests/atlasclaw.test.json`
 - **Environment variables:** Use `${VAR_NAME}` format in config
+- **Providers root:** `providers_root` in config (default: `../providers`, resolved relative to atlasclaw.json)
 
 ## Architecture Patterns
 

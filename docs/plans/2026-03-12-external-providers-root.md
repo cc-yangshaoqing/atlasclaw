@@ -19,7 +19,7 @@
 
 **Step 1: Add the new schema field**
 
-Add a top-level `providers_root: str` field to `AtlasClawConfig` with default `../atlasclaw-providers/providers`.
+Add a top-level `providers_root: str` field to `AtlasClawConfig` with default `../providers`.
 
 **Step 2: Update shipped config**
 

@@ -219,7 +219,7 @@ Configure inbound webhooks for provider-qualified skills already loaded from `pr
 
 ```json
 {
-  "providers_root": "../atlasclaw-providers/providers",
+  "providers_root": "../providers",
   "webhook": {
     "enabled": true,
     "header_name": "X-AtlasClaw-SK",
@@ -592,7 +592,7 @@ Agent: Approved successfully!
 3. Register the instance in `atlasclaw.json` under `service_providers`
 4. Restart the service — provider is discovered automatically
 
-See [PROVIDER_GUIDE.md](./PROVIDER_GUIDE.md) for the complete guide.
+See [PROVIDER-GUIDE.MD](./PROVIDER-GUIDE.MD) for the complete guide.
 
 ---
 
@@ -932,7 +932,7 @@ uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8000 --reload
 3. (Optional) Add `scripts/handler.py` for executable logic
 4. Restart the service — the Skill auto-registers
 
-See [SKILL_GUIDE.md](./SKILL_GUIDE.md) for the complete guide.
+See [SKILL-GUIDE.MD](./SKILL-GUIDE.MD) for the complete guide.
 
 ### 11.6 Verify Skill Loading
 
@@ -1035,9 +1035,9 @@ Response Stream (SSE)
 
 | Document | Purpose |
 |----------|---------|
-| [DEPLOYMENT.md](./DEPLOYMENT.md) | Production deployment, Docker, systemd, Nginx |
-| [SKILL_GUIDE.md](./SKILL_GUIDE.md) | Complete Skill development reference |
-| [PROVIDER_GUIDE.md](./PROVIDER_GUIDE.md) | Provider development and deployment |
-| [CODE_STRUCTURE.md](./CODE_STRUCTURE.md) | Detailed module map and import patterns |
-| [CODING_STANDARDS.md](./CODING_STANDARDS.md) | Python style guide and testing standards |
-| [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md) | Architecture deep-dive and design decisions |
+| [DEPLOYMENT.MD](./DEPLOYMENT.MD) | Production deployment, Docker, systemd, Nginx |
+| [SKILL-GUIDE.MD](./SKILL-GUIDE.MD) | Complete Skill development reference |
+| [PROVIDER-GUIDE.MD](./PROVIDER-GUIDE.MD) | Provider development and deployment |
+| [CODE_STRUCTURE.MD](./CODE_STRUCTURE.MD) | Detailed module map and import patterns |
+| [CODING_STANDARDS.MD](./CODING_STANDARDS.MD) | Python style guide and testing standards |
+| [PROJECT_OVERVIEW.MD](./PROJECT_OVERVIEW.MD) | Architecture deep-dive and design decisions |

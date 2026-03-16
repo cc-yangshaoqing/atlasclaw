@@ -1,5 +1,8 @@
 # AtlasClaw Agent Guide
 
+> **DEPRECATED**: This document has been superseded by [Architecture](./ARCHITECTURE.MD) §3 (Directory Structure).
+> Please refer to the canonical architecture document.
+
 This document describes the relationship between Users, Workspaces, Agents, Providers, Skills, and Channels in the AtlasClaw enterprise AI agent framework.
 
 ## Architecture Overview

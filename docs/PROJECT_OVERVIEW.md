@@ -1,5 +1,8 @@
 # AtlasClaw-Core Project Overview
 
+> **DEPRECATED**: This document has been superseded by [Architecture](./ARCHITECTURE.MD).
+> Please refer to the canonical architecture document for up-to-date information.
+
 ## Introduction
 
 **AtlasClaw** is an enterprise-grade AI Agent framework designed to enable employees to interact with multiple enterprise systems through a unified conversational AI interface. It addresses the fragmentation challenges faced by enterprise software teams working across CRM, ITSM, monitoring, HR, finance, and other systems.

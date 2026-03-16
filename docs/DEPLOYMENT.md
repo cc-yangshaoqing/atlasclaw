@@ -1,5 +1,8 @@
 # AtlasClaw-Core Deployment Guide
 
+> **DEPRECATED**: This document has been merged into [Development Specification](./DEVELOPMENT-SPEC.MD) §11 (Deployment & Operations).
+> Please refer to the canonical development spec for up-to-date deployment instructions.
+
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)

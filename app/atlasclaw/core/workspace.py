@@ -14,8 +14,9 @@ from typing import Optional
 class WorkspaceInitializer:
     """Initialize and manage workspace directory structure.
     
-    The workspace directory (default: ./.atlasclaw) contains all AtlasClaw resources
-    including agents, providers, skills, channels, and user data.
+    The workspace directory (default: ./.atlasclaw) contains all AtlasClaw user data
+    including agents, skills, channels, and user data. Providers are stored separately
+    in a sibling directory configured via providers_root.
     """
     
     def __init__(self, workspace_path: str = "./.atlasclaw"):
@@ -33,7 +34,6 @@ class WorkspaceInitializer:
         Creates the following structure:
         <workspace>/                 (default: ./.atlasclaw)
         ├── agents/
-        ├── providers/
         ├── skills/
         ├── channels/
         └── users/
@@ -45,7 +45,6 @@ class WorkspaceInitializer:
             # Create workspace directory structure
             self.workspace_path.mkdir(parents=True, exist_ok=True)
             (self.workspace_path / "agents").mkdir(exist_ok=True)
-            (self.workspace_path / "providers").mkdir(exist_ok=True)
             (self.workspace_path / "skills").mkdir(exist_ok=True)
             (self.workspace_path / "channels").mkdir(exist_ok=True)
             
@@ -180,7 +179,6 @@ agent_id: "main"
         return (
             self.workspace_path.exists()
             and (self.workspace_path / "agents").exists()
-            and (self.workspace_path / "providers").exists()
             and (self.workspace_path / "skills").exists()
             and self.users_dir.exists()
         )

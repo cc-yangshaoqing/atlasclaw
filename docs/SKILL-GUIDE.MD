@@ -705,8 +705,8 @@ tail -f logs/atlasclaw.log
 ### Getting Help
 
 Resources for Skill development:
-- [AtlasClaw Documentation](./PROJECT_OVERVIEW.md)
-- [Provider Guide](./PROVIDER_GUIDE.md)
+- [AtlasClaw Documentation](./PROJECT_OVERVIEW.MD)
+- [Provider Guide](./PROVIDER-GUIDE.MD)
 - [Example Skills](../app/atlasclaw/skills/built_in/)
 - [Community Forum](https://github.com/atlasclaw/atlasclaw/discussions)
 

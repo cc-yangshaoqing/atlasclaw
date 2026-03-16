@@ -765,7 +765,7 @@ Create `PROVIDER.md` with:
 
 #### Step 3: Implement Skills
 
-Create Skills following the [Skill Development Guide](./SKILL_GUIDE.md).
+Create Skills following the [Skill Development Guide](./SKILL-GUIDE.MD).
 
 #### Step 4: Configure Instance
 
@@ -959,5 +959,5 @@ In development mode:
 
 - [OpenSpec Provider Guide](../openspec/PROVIDERS.md)
 - [Jira REST API Documentation](https://developer.atlassian.com/cloud/jira/platform/rest/v2/)
-- [AtlasClaw Core Documentation](./PROJECT_OVERVIEW.md)
-- [Skill Development Guide](./SKILL_GUIDE.md)
+- [AtlasClaw Core Documentation](./PROJECT_OVERVIEW.MD)
+- [Skill Development Guide](./SKILL-GUIDE.MD)

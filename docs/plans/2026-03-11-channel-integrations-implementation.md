@@ -446,7 +446,7 @@ git -C atlasclaw commit -m "feat: add feishu outbound reply flow"
 - Modify: `docs/DEPLOYMENT.md`
 - Modify: `docs/PROJECT_OVERVIEW.md`
 - Modify: `docs/CODE_STRUCTURE.md`
-- Modify: `docs/PROVIDER_GUIDE.md`
+- Modify: `docs/PROVIDER-GUIDE.MD`
 - Test: none
 
 **Step 1: Write the documentation changes**
@@ -465,7 +465,7 @@ Expected: updated references appear in the right docs
 **Step 3: Commit**
 
 ```bash
-git -C atlasclaw add docs/DEPLOYMENT.md docs/PROJECT_OVERVIEW.md docs/CODE_STRUCTURE.md docs/PROVIDER_GUIDE.md
+git -C atlasclaw add docs/DEPLOYMENT.md docs/PROJECT_OVERVIEW.md docs/CODE_STRUCTURE.md docs/PROVIDER-GUIDE.MD
 git -C atlasclaw commit -m "docs: document channel integration architecture"
 ```
 
