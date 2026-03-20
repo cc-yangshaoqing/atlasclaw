@@ -217,6 +217,31 @@ class WorkspaceConfig(BaseModel):
     path: str = Field(default="./.atlasclaw", description="Workspace path, defaults to ./.atlasclaw directory")
 
 
+class SqliteDatabaseConfig(BaseModel):
+    """SQLite database configuration."""
+    path: str = Field(default="./data/atlasclaw.db", description="Path to SQLite database file")
+
+
+class MySqlDatabaseConfig(BaseModel):
+    """MySQL database configuration."""
+    host: str = Field(default="localhost", description="MySQL host")
+    port: int = Field(default=3306, ge=1, le=65535, description="MySQL port")
+    database: str = Field(default="atlasclaw", description="Database name")
+    user: str = Field(default="root", description="Database user")
+    password: str = Field(default="", description="Database password")
+    charset: str = Field(default="utf8mb4", description="Character set")
+
+
+class DatabaseConfig(BaseModel):
+    """Database configuration for SQLite or MySQL."""
+    type: str = Field(default="sqlite", description="Database type: sqlite or mysql")
+    sqlite: Optional[SqliteDatabaseConfig] = Field(default_factory=SqliteDatabaseConfig, description="SQLite configuration")
+    mysql: Optional[MySqlDatabaseConfig] = Field(default=None, description="MySQL configuration")
+    pool_size: int = Field(default=5, ge=1, description="Connection pool size (MySQL only)")
+    max_overflow: int = Field(default=10, ge=0, description="Max overflow connections (MySQL only)")
+    echo: bool = Field(default=False, description="Echo SQL statements for debugging")
+
+
 class UserConfig(BaseModel):
     """User-specific configuration stored in users/<id>/user_setting.json
     
@@ -236,6 +261,7 @@ class AtlasClawConfig(BaseModel):
     """AtlasClaw configuration"""
     log_level: LogLevel = LogLevel.INFO
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig, description="Workspace configuration")
+    database: Optional[DatabaseConfig] = Field(default=None, description="Database configuration")
     agents_dir: str = Field(default="~/.atlasclaw/agents", description="Agent directory (backward compatibility)")
     providers_root: str = Field(
         default="../providers",

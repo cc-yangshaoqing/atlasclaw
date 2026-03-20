@@ -8,10 +8,12 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from .handler import ChannelHandler
 from .models import ChannelConnection, InboundMessage, OutboundMessage
 from .registry import ChannelRegistry
-from .store import ChannelStore
+from app.atlasclaw.db.orm.channel_config import ChannelConfigService
 
 if TYPE_CHECKING:
     from app.atlasclaw.agent.runner import AgentRunner
@@ -27,9 +29,9 @@ class ChannelManager:
         """Initialize channel manager.
 
         Args:
-            workspace_path: Path to workspace directory
+            workspace_path: Path to workspace directory (kept for compatibility)
         """
-        self.store = ChannelStore(workspace_path)
+        self._workspace_path = workspace_path
         self._active_connections: Dict[str, ChannelHandler] = {}
         self._agent_runner: Optional["AgentRunner"] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -67,11 +69,16 @@ class ChannelManager:
             True if initialized successfully
         """
         try:
-            # Get connection config
-            connection = self.store.get_connection(user_id, channel_type, connection_id)
-            if not connection:
-                logger.error(f"Connection not found: {user_id}/{channel_type}/{connection_id}")
-                return False
+            from app.atlasclaw.db import get_db_session
+
+            # Get connection config from database
+            async with get_db_session() as session:
+                channel = await ChannelConfigService.get_by_id(session, connection_id)
+                if not channel or channel.user_id != user_id or channel.type != channel_type:
+                    logger.error(f"Connection not found: {user_id}/{channel_type}/{connection_id}")
+                    return False
+
+                connection_config = ChannelConfigService.to_channel_config(channel)
 
             # Get handler class
             handler_class = ChannelRegistry.get(channel_type)
@@ -84,7 +91,7 @@ class ChannelManager:
             handler = ChannelRegistry.create_instance(
                 instance_key,
                 channel_type,
-                connection.config
+                connection_config["config"]
             )
 
             if not handler:
@@ -92,7 +99,7 @@ class ChannelManager:
                 return False
 
             # Setup handler
-            if not await handler.setup(connection.config):
+            if not await handler.setup(connection_config["config"]):
                 logger.error(f"Handler setup failed: {instance_key}")
                 return False
 
@@ -117,7 +124,14 @@ class ChannelManager:
 
             # Register as active connection
             self._active_connections[instance_key] = handler
-            ChannelRegistry.register_connection(connection)
+            ChannelRegistry.register_connection(ChannelConnection(
+                id=channel.id,
+                name=channel.name,
+                channel_type=channel.type,
+                config=channel.config or {},
+                enabled=channel.is_active,
+                is_default=channel.is_default,
+            ))
 
             logger.info(f"Channel connection initialized: {instance_key}")
             return True
@@ -345,6 +359,9 @@ class ChannelManager:
     ) -> List[Dict[str, Any]]:
         """Get all connections for a user.
 
+        Note: This is a sync wrapper for backwards compatibility.
+        For async usage, use get_user_connections_async instead.
+
         Args:
             user_id: User identifier
             channel_type: Optional channel type filter
@@ -352,31 +369,49 @@ class ChannelManager:
         Returns:
             List of connection info
         """
+        # Return cached active connections for sync access
+        # For full data, use get_user_connections_async
         result = []
+        for key, handler in self._active_connections.items():
+            parts = key.split(":")
+            if len(parts) == 3:
+                conn_user_id, conn_type, conn_id = parts
+                if conn_user_id == user_id:
+                    if channel_type is None or conn_type == channel_type:
+                        result.append({
+                            "id": conn_id,
+                            "channel_type": conn_type,
+                            "enabled": True,  # Active connections are enabled
+                        })
+        return result
 
-        if channel_type:
-            connections = self.store.get_connections(user_id, channel_type)
-            for conn in connections:
-                result.append({
-                    "id": conn.id,
-                    "name": conn.name,
-                    "channel_type": conn.channel_type,
-                    "enabled": conn.enabled,
-                    "is_default": conn.is_default,
-                })
-        else:
-            # Get all channel types
-            channel_types = [c["type"] for c in ChannelRegistry.list_channels()]
-            for ct in channel_types:
-                connections = self.store.get_connections(user_id, ct)
-                for conn in connections:
-                    result.append({
-                        "id": conn.id,
-                        "name": conn.name,
-                        "channel_type": conn.channel_type,
-                        "enabled": conn.enabled,
-                        "is_default": conn.is_default,
-                    })
+    async def get_user_connections_async(
+        self,
+        user_id: str,
+        channel_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """Get all connections for a user from database.
+
+        Args:
+            user_id: User identifier
+            channel_type: Optional channel type filter
+
+        Returns:
+            List of connection info
+        """
+        from app.atlasclaw.db import get_db_session
+
+        result = []
+        async with get_db_session() as session:
+            if channel_type:
+                channels = await ChannelConfigService.list_by_user_and_type(
+                    session, user_id, channel_type
+                )
+            else:
+                channels = await ChannelConfigService.list_by_user(session, user_id)
+
+            for channel in channels:
+                result.append(ChannelConfigService.to_channel_config(channel))
 
         return result
 
@@ -396,8 +431,12 @@ class ChannelManager:
         Returns:
             True if enabled successfully
         """
-        if not self.store.update_connection_status(user_id, channel_type, connection_id, True):
-            return False
+        from app.atlasclaw.db import get_db_session
+
+        async with get_db_session() as session:
+            channel = await ChannelConfigService.update_status(session, connection_id, True)
+            if not channel:
+                return False
 
         return await self.initialize_connection(user_id, channel_type, connection_id)
 
@@ -417,5 +456,10 @@ class ChannelManager:
         Returns:
             True if disabled successfully
         """
+        from app.atlasclaw.db import get_db_session
+
         await self.stop_connection(user_id, channel_type, connection_id)
-        return self.store.update_connection_status(user_id, channel_type, connection_id, False)
+
+        async with get_db_session() as session:
+            channel = await ChannelConfigService.update_status(session, connection_id, False)
+            return channel is not None

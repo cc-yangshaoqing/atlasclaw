@@ -2,6 +2,12 @@
   "workspace": {
     "path": "./.atlasclaw"
   },
+  "database": {
+    "type": "sqlite",
+    "sqlite": {
+      "path": "./data/atlasclaw.db"
+    }
+  },
   "providers_root": "../atlasclaw-providers/providers",
   "skills_root": "../atlasclaw-providers/skills",
   "channels_root": "../atlasclaw-providers/channels",

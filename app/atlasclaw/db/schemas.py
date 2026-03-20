@@ -1,0 +1,231 @@
+# -*- coding: utf-8 -*-
+"""Pydantic schemas for API request/response validation.
+
+These schemas are used for:
+- API request body validation
+- API response serialization
+- Data transfer between layers
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, field_validator
+
+
+# ============== Agent Schemas ==============
+
+
+class AgentBase(BaseModel):
+    """Base schema for Agent."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="Agent unique name")
+    display_name: str = Field(..., min_length=1, max_length=200, description="Agent display name")
+    identity: Optional[Dict[str, Any]] = Field(default=None, description="IDENTITY.md content")
+    user: Optional[Dict[str, Any]] = Field(default=None, description="USER.md content")
+    soul: Optional[Dict[str, Any]] = Field(default=None, description="SOUL.md content")
+    memory: Optional[Dict[str, Any]] = Field(default=None, description="MEMORY.md content")
+    is_active: bool = Field(default=True, description="Whether agent is active")
+
+
+class AgentCreate(AgentBase):
+    """Schema for creating a new Agent."""
+
+    pass
+
+
+class AgentUpdate(BaseModel):
+    """Schema for updating an existing Agent."""
+
+    display_name: Optional[str] = Field(default=None, max_length=200)
+    identity: Optional[Dict[str, Any]] = None
+    user: Optional[Dict[str, Any]] = None
+    soul: Optional[Dict[str, Any]] = None
+    memory: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+
+
+class AgentResponse(AgentBase):
+    """Schema for Agent API response."""
+
+    id: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AgentListResponse(BaseModel):
+    """Schema for Agent list API response."""
+
+    agents: List[AgentResponse]
+    total: int
+
+
+# ============== Token Schemas ==============
+
+
+class TokenBase(BaseModel):
+    """Base schema for Token."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="Token unique name")
+    provider: str = Field(..., min_length=1, max_length=50, description="Provider name (e.g., openai, deepseek)")
+    model: str = Field(..., min_length=1, max_length=100, description="Model name")
+    base_url: Optional[str] = Field(default=None, max_length=500, description="API base URL")
+    priority: int = Field(default=100, ge=0, le=1000, description="Token priority (higher = preferred)")
+    weight: int = Field(default=100, ge=1, le=1000, description="Token weight for weighted selection")
+    is_active: bool = Field(default=True, description="Whether token is active")
+
+
+class TokenCreate(TokenBase):
+    """Schema for creating a new Token."""
+
+    api_key: Optional[str] = Field(default=None, description="API key (will be encrypted)")
+
+
+class TokenUpdate(BaseModel):
+    """Schema for updating an existing Token."""
+
+    name: Optional[str] = Field(default=None, max_length=100)
+    provider: Optional[str] = Field(default=None, max_length=50)
+    model: Optional[str] = Field(default=None, max_length=100)
+    base_url: Optional[str] = Field(default=None, max_length=500)
+    api_key: Optional[str] = Field(default=None, description="New API key (will be encrypted)")
+    priority: Optional[int] = Field(default=None, ge=0, le=1000)
+    weight: Optional[int] = Field(default=None, ge=1, le=1000)
+    is_active: Optional[bool] = None
+
+
+class TokenResponse(TokenBase):
+    """Schema for Token API response."""
+
+    id: str
+    api_key_masked: Optional[str] = Field(default=None, description="Masked API key (e.g., sk-xxx...xxx)")
+    rate_limit_remaining: Optional[int] = None
+    rate_limit_reset: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class TokenListResponse(BaseModel):
+    """Schema for Token list API response."""
+
+    tokens: List[TokenResponse]
+    total: int
+
+
+# ============== User Schemas ==============
+
+
+class UserBase(BaseModel):
+    """Base schema for User."""
+
+    username: str = Field(..., min_length=1, max_length=100, description="Username")
+    email: Optional[str] = Field(default=None, max_length=255, description="Email address")
+    display_name: Optional[str] = Field(default=None, max_length=200, description="Display name")
+    roles: Optional[Dict[str, Any]] = Field(default=None, description="User roles")
+    is_active: bool = Field(default=True, description="Whether user is active")
+    is_admin: bool = Field(default=False, description="Whether user is admin")
+
+
+class UserCreate(UserBase):
+    """Schema for creating a new User."""
+
+    password: Optional[str] = Field(default=None, min_length=8, description="Password (will be hashed)")
+
+
+class UserUpdate(BaseModel):
+    """Schema for updating an existing User."""
+
+    email: Optional[str] = Field(default=None, max_length=255)
+    display_name: Optional[str] = Field(default=None, max_length=200)
+    password: Optional[str] = Field(default=None, min_length=8, description="New password")
+    roles: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+    is_admin: Optional[bool] = None
+
+
+class UserResponse(UserBase):
+    """Schema for User API response."""
+
+    id: str
+    avatar_url: Optional[str] = None
+    last_login_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class UserListResponse(BaseModel):
+    """Schema for User list API response."""
+
+    users: List[UserResponse]
+    total: int
+
+
+# ============== Channel Schemas ==============
+
+
+class ChannelBase(BaseModel):
+    """Base schema for Channel."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="Channel name")
+    type: str = Field(..., min_length=1, max_length=50, description="Channel type (feishu, dingtalk, wecom, etc.)")
+    config: Optional[Dict[str, Any]] = Field(default=None, description="Channel-specific configuration")
+    is_active: bool = Field(default=True, description="Whether channel is active")
+    is_default: bool = Field(default=False, description="Whether this is the default channel for this type")
+
+
+class ChannelCreate(ChannelBase):
+    """Schema for creating a new Channel."""
+
+    user_id: Optional[str] = Field(default=None, description="Owner user ID")
+
+
+class ChannelUpdate(BaseModel):
+    """Schema for updating an existing Channel."""
+
+    name: Optional[str] = Field(default=None, max_length=100)
+    type: Optional[str] = Field(default=None, max_length=50)
+    config: Optional[Dict[str, Any]] = None
+    is_active: Optional[bool] = None
+    is_default: Optional[bool] = None
+    user_id: Optional[str] = None
+
+
+class ChannelResponse(ChannelBase):
+    """Schema for Channel API response."""
+
+    id: str
+    user_id: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChannelListResponse(BaseModel):
+    """Schema for Channel list API response."""
+
+    channels: List[ChannelResponse]
+    total: int
+
+
+# ============== Pagination Schemas ==============
+
+
+class PaginationParams(BaseModel):
+    """Pagination parameters for list endpoints."""
+
+    page: int = Field(default=1, ge=1, description="Page number")
+    page_size: int = Field(default=20, ge=1, le=100, description="Items per page")
+
+    @property
+    def offset(self) -> int:
+        """Calculate offset for database query."""
+        return (self.page - 1) * self.page_size

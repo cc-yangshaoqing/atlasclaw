@@ -31,6 +31,7 @@ from app.atlasclaw.api.webhook_dispatch import WebhookDispatchManager
 from app.atlasclaw.api.channel_hooks import router as channel_hooks_router
 from app.atlasclaw.api.channels import router as channels_router, set_channel_manager
 from app.atlasclaw.api.agent_info import router as agent_info_router
+from app.atlasclaw.api.api_routes import router as db_api_router
 from app.atlasclaw.session.manager import SessionManager
 from app.atlasclaw.session.queue import SessionQueue
 from app.atlasclaw.skills.registry import SkillRegistry
@@ -55,6 +56,7 @@ from app.atlasclaw.agent.token_policy import DynamicTokenPolicy
 from app.atlasclaw.core.token_health_store import TokenHealthStore
 from app.atlasclaw.core.token_interceptor import TokenHealthInterceptor
 from app.atlasclaw.core.token_pool import TokenEntry, TokenPool
+from app.atlasclaw.db.database import DatabaseConfig, DatabaseManager, init_database, get_db_manager
 
 
 
@@ -249,6 +251,90 @@ def _build_token_entries(config) -> tuple[list[TokenEntry], Optional[str]]:
     ], primary_id
 
 
+async def _build_token_entries_from_db(session) -> tuple[list[TokenEntry], Optional[str]]:
+    """Build token entries from database.
+    
+    Returns:
+        tuple of (token_entries, primary_token_id) or (None, None) if database is empty.
+    """
+    from app.atlasclaw.db.orm.model_token_config import ModelTokenConfigService
+    
+    tokens = await ModelTokenConfigService.list_all(session, is_active=True)
+    
+    if not tokens:
+        return None, None
+    
+    token_entries: list[TokenEntry] = []
+    for token in tokens:
+        # Decrypt API key
+        api_key = ModelTokenConfigService.decrypt_api_key(token) or ""
+        token_entries.append(
+            TokenEntry(
+                token_id=token.name,
+                provider=token.provider,
+                model=token.model,
+                base_url=token.base_url or "",
+                api_key=api_key,
+                api_type=token.api_type or "openai",
+                priority=token.priority,
+                weight=token.weight,
+            )
+        )
+    
+    # Use the first active token as primary
+    primary_id = token_entries[0].token_id if token_entries else None
+    return token_entries, primary_id
+
+
+async def _load_agent_config_from_db(session, agent_id: str):
+    """Load agent configuration from database.
+    
+    Returns:
+        AgentConfig object or None if not found in database.
+    """
+    from app.atlasclaw.db.orm.agent_config import AgentConfigService
+    from app.atlasclaw.agent.agent_definition import AgentConfig
+    
+    agent_model = await AgentConfigService.get_by_name(session, agent_id)
+    if agent_model is None:
+        return None
+    
+    # Convert database model to AgentConfig
+    soul = agent_model.soul or {}
+    identity = agent_model.identity or {}
+    user = agent_model.user or {}
+    memory = agent_model.memory or {}
+    
+    return AgentConfig(
+        agent_id=agent_id,
+        name=agent_model.name,
+        display_name=agent_model.display_name,
+        system_prompt=soul.get("system_prompt", ""),
+        capabilities=soul.get("capabilities", []),
+        allowed_providers=soul.get("allowed_providers", []),
+        allowed_skills=soul.get("allowed_skills", []),
+        avatar=identity.get("avatar", "🤖"),
+        tone=identity.get("tone", "professional"),
+        interaction_style=user.get("interaction_style", ""),
+        memory_strategy=memory.get("memory_strategy", ""),
+        max_context_rounds=memory.get("max_context_rounds", 20),
+    )
+
+
+async def _run_db_migrations():
+    """Run database migrations on startup."""
+    try:
+        from alembic.config import Config
+        from alembic import command
+        
+        config = Config("alembic.ini")
+        command.upgrade(config, "head")
+        print("[AtlasClaw] Database migrations completed")
+    except Exception as e:
+        print(f"[AtlasClaw] Warning: Database migration failed: {e}")
+        print("[AtlasClaw] Continuing without migrations (tables may be created by ORM)")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
 
@@ -288,6 +374,37 @@ async def lifespan(app: FastAPI):
         default_user_initializer.initialize()
         print(f"[AtlasClaw] Initialized default user directory")
     
+    # Initialize database if configured
+    db_initialized = False
+    if config.database:
+        try:
+            db_config = DatabaseConfig.from_config({
+                "database": {
+                    "type": config.database.type,
+                    "sqlite": {"path": config.database.sqlite.path} if config.database.sqlite else {},
+                    "mysql": {
+                        "host": config.database.mysql.host,
+                        "port": config.database.mysql.port,
+                        "database": config.database.mysql.database,
+                        "user": config.database.mysql.user,
+                        "password": config.database.mysql.password,
+                        "charset": config.database.mysql.charset,
+                    } if config.database.mysql else {},
+                    "pool_size": config.database.pool_size,
+                    "max_overflow": config.database.max_overflow,
+                    "echo": config.database.echo,
+                }
+            })
+            await init_database(db_config)
+            print(f"[AtlasClaw] Database initialized: {db_config.db_type}")
+            
+            # Run migrations
+            await _run_db_migrations()
+            db_initialized = True
+        except Exception as e:
+            print(f"[AtlasClaw] Warning: Failed to initialize database: {e}")
+            print(f"[AtlasClaw] Falling back to JSON configuration")
+    
     # Register built-in channel handlers (enterprise messaging platforms)
     ChannelRegistry.register("feishu", FeishuHandler)
     ChannelRegistry.register("dingtalk", DingTalkHandler)
@@ -304,10 +421,23 @@ async def lifespan(app: FastAPI):
     scan_results = ProviderScanner.scan_providers(providers_dir)
     print(f"[AtlasClaw] Provider scan complete: {len(scan_results['channels'])} channels, {len(scan_results['auth'])} auth providers")
     
-    # Load agent definitions
+    # Load agent definitions - try database first, fallback to file-based
     agent_loader = AgentLoader(workspace_path)
-    main_agent_config = agent_loader.load_agent("main")
-    print(f"[AtlasClaw] Loaded agent: {main_agent_config.display_name}")
+    main_agent_config = None
+    
+    if db_initialized:
+        try:
+            async with get_db_manager().get_session() as session:
+                main_agent_config = await _load_agent_config_from_db(session, "main")
+                if main_agent_config:
+                    print(f"[AtlasClaw] Loaded agent from database: {main_agent_config.display_name}")
+        except Exception as e:
+            print(f"[AtlasClaw] Warning: Failed to load agent from database: {e}")
+    
+    # Fallback to file-based agent config
+    if main_agent_config is None:
+        main_agent_config = agent_loader.load_agent("main")
+        print(f"[AtlasClaw] Loaded agent from files: {main_agent_config.display_name}")
     
     # Initialize SessionManager with new workspace-based path
     _session_manager = SessionManager(
@@ -358,7 +488,28 @@ async def lifespan(app: FastAPI):
     from pydantic_ai import Agent
     from app.atlasclaw.core.deps import SkillDeps
 
-    token_entries, primary_token_id = _build_token_entries(config)
+    # Load token configurations - try database first, fallback to JSON config
+    token_entries = None
+    primary_token_id = None
+    
+    if db_initialized:
+        try:
+            async with get_db_manager().get_session() as session:
+                token_entries, primary_token_id = await _build_token_entries_from_db(session)
+                if token_entries:
+                    print(f"[AtlasClaw] Loaded {len(token_entries)} tokens from database")
+        except Exception as e:
+            print(f"[AtlasClaw] Warning: Failed to load tokens from database: {e}")
+    
+    # Fallback to JSON config if database is empty or not initialized
+    if not token_entries:
+        token_entries, primary_token_id = _build_token_entries(config)
+        if token_entries:
+            print(f"[AtlasClaw] Loaded {len(token_entries)} tokens from JSON config")
+    
+    if not token_entries:
+        raise RuntimeError("No token configurations found. Please configure tokens in database or atlasclaw.json")
+
     token_pool = TokenPool()
     for token in token_entries:
         token_pool.register_token(token)
@@ -414,10 +565,13 @@ async def lifespan(app: FastAPI):
     _channel_manager.set_agent_runner(_agent_runner)
     
     # Auto-start enabled channel connections for default user
-    async def start_enabled_connections():
+    async def start_enabled_connections(db_ready: bool):
         """Start all enabled channel connections on startup."""
+        if not db_ready:
+            print("[AtlasClaw] Skipping channel auto-start: database not initialized")
+            return
         try:
-            connections = _channel_manager.get_user_connections("default")
+            connections = await _channel_manager.get_user_connections_async("default")
             for conn in connections:
                 if conn.get("enabled"):
                     channel_type = conn.get("channel_type")
@@ -435,7 +589,7 @@ async def lifespan(app: FastAPI):
     
     # Schedule connection startup (will run after event loop starts)
     import asyncio
-    asyncio.create_task(start_enabled_connections())
+    asyncio.create_task(start_enabled_connections(db_initialized))
 
     webhook_manager = WebhookDispatchManager(config.webhook, _skill_registry)
     webhook_manager.validate_startup()
@@ -561,6 +715,9 @@ def create_app() -> FastAPI:
     
     # Include agent info routes
     app.include_router(agent_info_router)
+    
+    # Include database API routes (Agent, Token, User CRUD)
+    app.include_router(db_api_router)
 
     # Register AuthMiddleware — must be done at app creation time
     # (middleware cannot be added after startup)

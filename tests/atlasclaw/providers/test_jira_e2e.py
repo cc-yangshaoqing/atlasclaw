@@ -3,7 +3,13 @@
 JIRA Provider E2E tests.
 
 Live integration tests against real JIRA Server/DC instance.
+
+** IMPORTANT: These tests are SKIPPED by default. **
+To run them, set the environment variable: JIRA_E2E=1
+
 Run:
+    # Enable JIRA E2E tests
+    $env:JIRA_E2E=1
     python -m pytest tests/atlasclaw/providers/test_jira_e2e.py -v -s
 
 Config is read from ATLASCLAW_CONFIG (default: tests/atlasclaw.test.json) -> service_providers.jira -> first instance.
@@ -41,7 +47,15 @@ import pytest
 
 sys.path.insert(0, str(_ROOT))
 
-pytestmark = [pytest.mark.e2e]
+# Skip all tests in this module unless JIRA_E2E=1 is set
+# This prevents errors when JIRA server is not available
+pytestmark = [
+    pytest.mark.e2e,
+    pytest.mark.skipif(
+        os.environ.get("JIRA_E2E", "0") != "1",
+        reason="JIRA E2E tests disabled. Set JIRA_E2E=1 to enable."
+    ),
+]
 
 _ENV_REF_PATTERN = re.compile(r"^\$\{([A-Za-z_][A-Za-z0-9_]*)\}$")
 
