@@ -76,6 +76,7 @@ class SkillDeps:
     session_manager: Optional[Any] = None   # SessionManager injected by caller (per-user scoped)
     memory_manager: Optional[Any] = None    # MemoryManager injected by caller (per-user scoped)
     extra: dict[str, Any] = field(default_factory=dict)
+    cookies: dict[str, str] = field(default_factory=dict)  # All cookies from HTTP request
 
     def __init__(
         self,
@@ -90,6 +91,7 @@ class SkillDeps:
         session_manager: Optional[Any] = None,
         memory_manager: Optional[Any] = None,
         extra: Optional[dict[str, Any]] = None,
+        cookies: Optional[dict[str, str]] = None,
     ) -> None:
         resolved_user = user_info or ANONYMOUS_USER
         token = resolved_user.raw_token if user_token is None else str(user_token)
@@ -119,6 +121,7 @@ class SkillDeps:
         self.session_manager = session_manager
         self.memory_manager = memory_manager
         self.extra = dict(extra or {})
+        self.cookies = dict(cookies or {})
 
     # ------------------------------------------------------------------
     # Backward-compatibility shim

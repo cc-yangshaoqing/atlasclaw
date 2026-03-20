@@ -267,6 +267,8 @@ def _build_scoped_deps(
     user_info: UserInfo,
     session_key: str,
     *,
+    request_cookies: Optional[dict[str, str]] = None,
+    provider_config: Optional[dict[str, Any]] = None,
     extra: Optional[dict[str, Any]] = None,
 ) -> SkillDeps:
     """Create request-scoped dependencies for agent-style execution."""
@@ -285,6 +287,7 @@ def _build_scoped_deps(
         "_service_provider_registry": ctx.service_provider_registry,
         "available_providers": ctx.available_providers,
         "provider_instances": ctx.provider_instances,
+        "provider_config": provider_config or {},
         "skills_snapshot": ctx.skill_registry.snapshot(),
         "md_skills_snapshot": ctx.skill_registry.md_snapshot(),
     }
@@ -296,6 +299,7 @@ def _build_scoped_deps(
         session_key=session_key,
         session_manager=scoped_session_mgr,
         memory_manager=scoped_memory_mgr,
+        cookies=request_cookies or {},
         extra=deps_extra,
     )
 
@@ -311,6 +315,8 @@ async def _execute_agent_run(
     message: str,
     timeout_seconds: int,
     user_info: Optional[UserInfo] = None,
+    request_cookies: Optional[dict[str, str]] = None,
+    provider_config: Optional[dict[str, Any]] = None,
 ) -> None:
     """
     Execute Agent run in background and push events via SSE
@@ -341,7 +347,14 @@ async def _execute_agent_run(
                 "Ensure LLM provider is properly configured in atlasclaw.json"
             )
 
-        deps = _build_scoped_deps(ctx, _user_info, session_key, extra={"agent_id": target_agent_id})
+        deps = _build_scoped_deps(
+            ctx,
+            _user_info,
+            session_key,
+            request_cookies=request_cookies,
+            provider_config=provider_config,
+            extra={"agent_id": target_agent_id},
+        )
 
         async for event in runner.run(
             session_key=session_key,
@@ -413,10 +426,21 @@ async def _execute_webhook_dispatch(
         extra={"system_id": system.system_id},
     )
     user_message = build_webhook_user_message(skill_entry, args, system.system_id)
+
+    # Build provider config for webhook context (no cookies in webhook)
+    provider_config: dict[str, Any] = {}
+    if ctx.service_provider_registry:
+        for pt in ctx.service_provider_registry.list_providers():
+            instances = ctx.service_provider_registry.list_instances(pt)
+            if instances:
+                provider_config[pt] = instances
+
     deps = _build_scoped_deps(
         ctx,
         user_info,
         session_key,
+        request_cookies={},
+        provider_config=provider_config,
         extra={
             "webhook_skill": skill_entry.qualified_name,
             "webhook_args": dict(args),
@@ -567,6 +591,18 @@ def create_router() -> APIRouter:
         
         # Extract UserInfo injected by AuthMiddleware
         user_info: UserInfo = getattr(request_obj.state, "user_info", ANONYMOUS_USER)
+
+        # Get all cookies from request
+        request_cookies = dict(request_obj.cookies)
+
+        # Build provider config from service provider registry
+        provider_config: dict[str, Any] = {}
+        if ctx.service_provider_registry:
+            for pt in ctx.service_provider_registry.list_providers():
+                instances = ctx.service_provider_registry.list_instances(pt)
+                if instances:
+                    provider_config[pt] = instances
+
         logger.info(
             "Accepted agent run: run_id=%s session_key=%s user_id=%s timeout_seconds=%s message_length=%s",
             run_id,
@@ -575,7 +611,7 @@ def create_router() -> APIRouter:
             request.timeout_seconds,
             len(request.message),
         )
-        
+
         # run
         ctx.active_runs[run_id] = {
             "status": "running",
@@ -597,6 +633,8 @@ def create_router() -> APIRouter:
             request.message,
             request.timeout_seconds,
             user_info,
+            request_cookies,
+            provider_config,
         )
         
         return AgentRunResponse(

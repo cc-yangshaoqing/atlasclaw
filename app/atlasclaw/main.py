@@ -77,7 +77,41 @@ def _derive_provider_namespace(provider_dir_name: str) -> str:
     return normalized or provider_dir_name.strip().lower()
 
 
+def _scan_plugin_names(root: Path, *, md_skill_mode: bool = False) -> list[str]:
+    """Collect plugin names from a configured root path for startup logging."""
+    if not root.exists() or not root.is_dir():
+        return []
+
+    names: set[str] = set()
+    if md_skill_mode:
+        for skill_file in root.glob("*/SKILL.md"):
+            if skill_file.is_file():
+                names.add(skill_file.parent.name)
+        for md_file in root.glob("*.md"):
+            if md_file.is_file() and not md_file.name.startswith("_"):
+                names.add(md_file.stem)
+    else:
+        for child in root.iterdir():
+            if child.is_dir():
+                names.add(child.name)
+
+    return sorted(names)
+
+
+def _print_root_plugins(label: str, root: Path, plugins: list[str]) -> None:
+    """Print configured root path and discovered plugin names."""
+    if not root.exists():
+        print(f"[AtlasClaw] {label}: {root} (not found)")
+        return
+
+    if plugins:
+        print(f"[AtlasClaw] {label}: {root} -> {', '.join(plugins)}")
+    else:
+        print(f"[AtlasClaw] {label}: {root} -> (none)")
+
+
 def _check_and_prompt_for_providers_skills(workspace_path: str | Path, providers_root: Path) -> None:
+
     """Check if providers_root and workspace skills directories are empty.
 
     Args:
@@ -225,9 +259,19 @@ async def lifespan(app: FastAPI):
     config_path = get_config_path()
     config_root = config_path.parent if config_path is not None else Path.cwd()
     providers_root = (config_root / config.providers_root).resolve()
-    
+    skills_root = (config_root / config.skills_root).resolve()
+    channels_root = (config_root / config.channels_root).resolve()
+
+    provider_plugins = _scan_plugin_names(providers_root)
+    skill_plugins = _scan_plugin_names(skills_root, md_skill_mode=True)
+    channel_plugins = _scan_plugin_names(channels_root)
+    _print_root_plugins("providers_root plugins", providers_root, provider_plugins)
+    _print_root_plugins("skills_root plugins", skills_root, skill_plugins)
+    _print_root_plugins("channels_root plugins", channels_root, channel_plugins)
+
     # Get workspace path from config
     workspace_path = config.workspace.path
+
     
     # Initialize workspace directory structure
     workspace_initializer = WorkspaceInitializer(workspace_path)

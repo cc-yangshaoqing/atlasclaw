@@ -7,11 +7,10 @@
 > and `DEPLOYMENT.md`. Those files are no longer maintained separately.
 >
 > Related documents:
->
-> - [Architecture](./ARCHITECTURE.MD) — system design, bootstrap, request lifecycle
-> - [Module Details](./MODULE-DETAILS.MD) — per-module API surface and internals
+> - [Architecture](./architecture.md) — system design, bootstrap, request lifecycle
+> - [Module Details](./module-details.md) — per-module API surface and internals
 
-***
+---
 
 ## Table of Contents
 
@@ -29,8 +28,7 @@
 12. [Deployment & Operations](#12-deployment-operations)
 13. [Git & Commit Standards](#13-git-commit-standards)
 14. [Code Review Checklist](#14-code-review-checklist)
-
-***
+---
 
 ## 1. General Principles
 
@@ -69,11 +67,11 @@ def process_data(data):
 
 Each function, class, and module should have one clear purpose.
 
-***
+---
 
 ## 2. Project Structure
 
-> Also see [Architecture](./ARCHITECTURE.MD) §3 for a high-level directory overview.
+> Also see [Architecture](./architecture.md) §3 for a high-level directory overview.
 
 ### 2.1 Directory Tree
 
@@ -101,9 +99,7 @@ AtlasClaw-Core/
 │       │   ├── routing.py          # Multi-agent routing
 │       │   ├── prompt_builder.py   # System prompt builder
 │       │   ├── stream.py           # Streaming events & chunking
-│       │   ├── compaction.py       # Context compaction
-│       │   ├── token_policy.py     # Token selection strategies
-│       │   └── agent_pool.py       # Agent instance caching
+│       │   └── compaction.py       # Context compaction
 │       │
 │       ├── api/                    # API Layer
 │       │   ├── __init__.py
@@ -143,10 +139,7 @@ AtlasClaw-Core/
 │       │   ├── deps.py             # Skill dependency injection
 │       │   ├── execution_context.py
 │       │   ├── provider_registry.py
-│       │   ├── tenant.py
-│       │   ├── token_pool.py       # Multi-token management
-│       │   ├── token_health_store.py # Token health persistence
-│       │   └── token_interceptor.py  # Rate-limit header extraction
+│       │   └── tenant.py
 │       │
 │       ├── hooks/                  # Hook System
 │       │   └── system.py
@@ -280,56 +273,51 @@ Response Stream (SSE)
 
 **Entry Points**:
 
-| File                      | Purpose                   |
-| ------------------------- | ------------------------- |
-| `app/atlasclaw/main.py`   | FastAPI application entry |
-| `app/frontend/index.html` | Web UI entry              |
+| File | Purpose |
+|------|---------|
+| `app/atlasclaw/main.py` | FastAPI application entry |
+| `app/frontend/index.html` | Web UI entry |
 
 **Configuration**:
 
-| File                                  | Purpose                 |
-| ------------------------------------- | ----------------------- |
-| `atlasclaw.json`                      | Main configuration file |
-| `tests/atlasclaw.test.json`           | Test configuration      |
-| `app/atlasclaw/core/config_schema.py` | Configuration schemas   |
+| File | Purpose |
+|------|---------|
+| `atlasclaw.json` | Main configuration file |
+| `tests/atlasclaw.test.json` | Test configuration |
+| `app/atlasclaw/core/config_schema.py` | Configuration schemas |
 
 **Core Logic**:
 
-| File                               | Purpose                       |
-| ---------------------------------- | ----------------------------- |
-| `app/atlasclaw/agent/runner.py`    | Agent execution engine        |
-| `app/atlasclaw/agent/token_policy.py` | Token selection strategies  |
-| `app/atlasclaw/agent/agent_pool.py` | Agent instance caching        |
-| `app/atlasclaw/core/token_pool.py` | Multi-token management        |
-| `app/atlasclaw/core/token_health_store.py` | Token health persistence |
-| `app/atlasclaw/skills/registry.py` | Skills registration           |
-| `app/atlasclaw/session/manager.py` | Session management            |
-| `app/atlasclaw/memory/manager.py`  | Memory management             |
+| File | Purpose |
+|------|---------|
+| `app/atlasclaw/agent/runner.py` | Agent execution engine |
+| `app/atlasclaw/skills/registry.py` | Skills registration |
+| `app/atlasclaw/session/manager.py` | Session management |
+| `app/atlasclaw/memory/manager.py` | Memory management |
 
 **API**:
 
-| File                             | Purpose           |
-| -------------------------------- | ----------------- |
-| `app/atlasclaw/api/routes.py`    | REST API routes   |
-| `app/atlasclaw/api/sse.py`       | SSE streaming     |
+| File | Purpose |
+|------|---------|
+| `app/atlasclaw/api/routes.py` | REST API routes |
+| `app/atlasclaw/api/sse.py` | SSE streaming |
 | `app/atlasclaw/api/websocket.py` | WebSocket handler |
 
 ### 2.5 File Naming Conventions
 
-| Type         | Pattern            | Example           |
-| ------------ | ------------------ | ----------------- |
-| Modules      | `snake_case.py`    | `runner.py`       |
-| Classes      | `PascalCase`       | `AgentRunner`     |
-| Functions    | `snake_case`       | `run_agent`       |
-| Constants    | `UPPER_SNAKE_CASE` | `MAX_RETRY`       |
-| Tests        | `test_*.py`        | `test_runner.py`  |
-| Test Classes | `Test*`            | `TestAgentRunner` |
-| Test Methods | `test_*`           | `test_run`        |
+| Type | Pattern | Example |
+|------|---------|---------|
+| Modules | `snake_case.py` | `runner.py` |
+| Classes | `PascalCase` | `AgentRunner` |
+| Functions | `snake_case` | `run_agent` |
+| Constants | `UPPER_SNAKE_CASE` | `MAX_RETRY` |
+| Tests | `test_*.py` | `test_runner.py` |
+| Test Classes | `Test*` | `TestAgentRunner` |
+| Test Methods | `test_*` | `test_run` |
 
 ### 2.6 Import Patterns
 
 **Standard pattern**:
-
 ```python
 # Standard library
 import asyncio
@@ -346,7 +334,6 @@ from app.atlasclaw.session.manager import SessionManager
 ```
 
 **Relative imports** (within a package):
-
 ```python
 from .base import BaseTool
 from ..core.config import get_config
@@ -355,7 +342,6 @@ from ..core.config import get_config
 ### 2.7 Data Storage Layout
 
 **Session storage**:
-
 ```
 ~/.atlasclaw/agents/<agent_id>/sessions/<user_id>/
 ├── sessions.json
@@ -364,7 +350,6 @@ from ..core.config import get_config
 ```
 
 **Memory storage**:
-
 ```
 ~/.atlasclaw/agents/<agent_id>/memory/
 ├── vector/
@@ -372,20 +357,13 @@ from ..core.config import get_config
 ```
 
 **Configuration storage**:
-
 ```
 ~/.atlasclaw/
 ├── config.json
 └── workspace/
 ```
 
-**Token health storage**:
-
-```
-<workspace>/token_health.json    # Token rate-limit state
-```
-
-***
+---
 
 ## 3. Code Style
 
@@ -394,7 +372,6 @@ from ..core.config import get_config
 **Base**: PEP 8 with the following project conventions.
 
 **File Header**:
-
 ```python
 # -*- coding: utf-8 -*-
 """Module docstring describing purpose."""
@@ -403,8 +380,7 @@ from __future__ import annotations
 ```
 
 **Formatting**:
-
-- Line length: \~100 characters (be reasonable, not dogmatic)
+- Line length: ~100 characters (be reasonable, not dogmatic)
 - Indentation: 4 spaces
 - String quotes: double quotes (`"`) unless single quotes avoid escaping
 - Encoding: UTF-8 with `# -*- coding: utf-8 -*-` header
@@ -420,7 +396,6 @@ result = await some_long_function_name(
 ```
 
 **Imports** (ordered with blank lines between groups):
-
 ```python
 # 1. Standard library
 import asyncio
@@ -449,7 +424,6 @@ if TYPE_CHECKING:
 ```
 
 **Type Hints**:
-
 - Mandatory on all function parameters and return values
 - Use `Optional[T]` for nullable types (preferred over `T | None`)
 - Use `@dataclass` for data containers
@@ -468,13 +442,13 @@ def get_first(items: list[T]) -> T | None:
 
 **Naming Conventions**:
 
-| Element              | Convention             | Example                               |
-| -------------------- | ---------------------- | ------------------------------------- |
-| Functions, variables | `snake_case`           | `resolve_user`, `session_key`         |
-| Classes, exceptions  | `PascalCase`           | `AgentRunner`, `AuthenticationError`  |
-| Constants            | `SCREAMING_SNAKE_CASE` | `ANONYMOUS_USER`, `GROUP_FS`          |
-| Private members      | `_` prefix             | `_hooks`, `_build_prompt`             |
-| Modules              | `snake_case`           | `shadow_store.py`, `config_schema.py` |
+| Element | Convention | Example |
+|---|---|---|
+| Functions, variables | `snake_case` | `resolve_user`, `session_key` |
+| Classes, exceptions | `PascalCase` | `AgentRunner`, `AuthenticationError` |
+| Constants | `SCREAMING_SNAKE_CASE` | `ANONYMOUS_USER`, `GROUP_FS` |
+| Private members | `_` prefix | `_hooks`, `_build_prompt` |
+| Modules | `snake_case` | `shadow_store.py`, `config_schema.py` |
 
 Use verb-noun format for functions:
 
@@ -489,7 +463,6 @@ def validation(): ...
 ```
 
 **Documentation**:
-
 - Docstrings on all public classes and methods
 - Module docstrings on every module
 - Triple quotes on separate lines
@@ -543,7 +516,7 @@ count += 1
 - No semicolons (be consistent with existing code)
 - Use `const` by default, `let` when reassignment is needed
 
-***
+---
 
 ## 4. Architecture Patterns
 
@@ -552,7 +525,6 @@ count += 1
 The core framework handles routing, lifecycle, and coordination. Domain-specific logic goes in providers.
 
 **When to put logic in core**:
-
 - Request routing and session management
 - Configuration loading and merging
 - Authentication pipeline orchestration
@@ -560,7 +532,6 @@ The core framework handles routing, lifecycle, and coordination. Domain-specific
 - Tool/skill registration infrastructure
 
 **When to put logic in a provider**:
-
 - External system API calls
 - Business domain workflows
 - Custom data transformations
@@ -629,7 +600,7 @@ The `HookSystem` provides cross-cutting concern injection at 17+ lifecycle phase
 
 **Priority conventions**: Lower values run first. Use `50` for core hooks, `100` (default) for standard hooks, `999` for logging/observability hooks.
 
-***
+---
 
 ## 5. Error Handling
 
@@ -726,7 +697,7 @@ deps.abort()
 - Use `print()` for hook system errors (current pattern)
 - Include the original exception when re-raising
 
-***
+---
 
 ## 6. Security Requirements
 
@@ -753,7 +724,6 @@ if user.has_role("admin"):  # Never do this
 ### 6.3 Tool Filtering
 
 Use `ToolPolicy` to restrict tool access per agent:
-
 - `allow: ["*"]` — All tools (default)
 - `deny: ["exec", "process"]` — Block specific tools
 - Deny takes priority over allow
@@ -805,7 +775,7 @@ def process_user_input(data: dict[str, Any]) -> None:
 6. Use strong authentication for admin access
 7. Monitor logs for suspicious activity
 
-***
+---
 
 ## 7. Async Patterns
 
@@ -874,18 +844,18 @@ async def test_resolve_user():
     assert user.user_id != "anonymous"
 ```
 
-***
+---
 
 ## 8. Testing Standards
 
 ### 8.1 File Structure
 
-| Convention   | Pattern              | Example                       |
-| ------------ | -------------------- | ----------------------------- |
-| Test files   | `test_<module>.py`   | `test_agent.py`               |
-| Test classes | `Test<PascalCase>`   | `TestStreamEvent`             |
+| Convention | Pattern | Example |
+|---|---|---|
+| Test files | `test_<module>.py` | `test_agent.py` |
+| Test classes | `Test<PascalCase>` | `TestStreamEvent` |
 | Test methods | `test_<description>` | `test_create_lifecycle_start` |
-| Fixtures     | `conftest.py`        | Shared fixtures at test root  |
+| Fixtures | `conftest.py` | Shared fixtures at test root |
 
 ### 8.2 Test Organization
 
@@ -915,13 +885,13 @@ class TestUserService:
 
 ### 8.3 Test Markers
 
-| Marker                     | Usage                                            |
-| -------------------------- | ------------------------------------------------ |
-| `@pytest.mark.slow`        | Tests taking > 1 second                          |
-| `@pytest.mark.integration` | Integration tests requiring running services     |
-| `@pytest.mark.e2e`         | End-to-end tests requiring full stack            |
-| `@pytest.mark.llm`         | Tests requiring LLM API calls                    |
-| `@pytest.mark.asyncio`     | Async tests (required for all `async def` tests) |
+| Marker | Usage |
+|---|---|
+| `@pytest.mark.slow` | Tests taking > 1 second |
+| `@pytest.mark.integration` | Integration tests requiring running services |
+| `@pytest.mark.e2e` | End-to-end tests requiring full stack |
+| `@pytest.mark.llm` | Tests requiring LLM API calls |
+| `@pytest.mark.asyncio` | Async tests (required for all `async def` tests) |
 
 ### 8.4 Fixture Guidelines
 
@@ -993,16 +963,15 @@ pytest -m "not slow"
 cd app/frontend && npm test
 ```
 
-***
+---
 
 ## 9. Extension Development
 
 ### 9.1 Adding a Provider
 
 **Directory structure**:
-
 ```
-<providers_root>/<provider_name>/    # Default: ../providers/<provider_name>/
+<providers_root>/<provider_name>/
 ├── PROVIDER.md       # Required: documentation + LLM context
 └── skills/
     ├── skill-one/
@@ -1012,18 +981,7 @@ cd app/frontend && npm test
         └── SKILL.md  # Markdown-only skill
 ```
 
-**Configuration roots** (in `atlasclaw.json`):
-
-| Config Field | Default | Description |
-|-------------|---------|-------------|
-| `providers_root` | `../atlasclaw-providers/providers` | Enterprise integrations |
-| `skills_root` | `../atlasclaw-providers/skills` | Third-party standalone skills |
-| `channels_root` | `../atlasclaw-providers/channels` | System-level channel configs |
-
-All paths are resolved relative to the `atlasclaw.json` file location.
-
 **PROVIDER.md frontmatter**:
-
 ```yaml
 ---
 name: my-provider
@@ -1042,7 +1000,6 @@ avoid_when:
 ```
 
 **Instance configuration** (in `atlasclaw.json`):
-
 ```json
 {
   "service_providers": {
@@ -1059,7 +1016,6 @@ avoid_when:
 ### 9.2 Adding a Skill
 
 **SKILL.md frontmatter**:
-
 ```yaml
 ---
 name: my-skill
@@ -1080,7 +1036,6 @@ parameters:
 ```
 
 **Executable skill handler** (`handler.py`):
-
 ```python
 from pydantic_ai import RunContext
 from app.atlasclaw.core.deps import SkillDeps
@@ -1151,7 +1106,7 @@ AuthRegistry.register("my-auth", MyAuthProvider)
 2. Implement tool in appropriate subdirectory under `tools/`
 3. Register in `tools/registration.py`
 
-***
+---
 
 ## 10. Configuration Standards
 
@@ -1166,7 +1121,7 @@ class MyFeatureConfig(BaseModel):
     max_retries: int = Field(default=3, ge=1, description="Maximum retry attempts")
 ```
 
-1. Add the field to `AtlasClawConfig`:
+2. Add the field to `AtlasClawConfig`:
 
 ```python
 class AtlasClawConfig(BaseModel):
@@ -1174,7 +1129,7 @@ class AtlasClawConfig(BaseModel):
     my_feature: MyFeatureConfig = Field(default_factory=MyFeatureConfig)
 ```
 
-1. Access in code via `get_config()`:
+3. Access in code via `get_config()`:
 
 ```python
 config = get_config()
@@ -1187,7 +1142,6 @@ if config.my_feature.enabled:
 Pattern: `ATLASCLAW_<SECTION>__<KEY>` (double underscore for nesting)
 
 Examples:
-
 - `ATLASCLAW_LOG_LEVEL=debug`
 - `ATLASCLAW_AGENT_DEFAULTS__TIMEOUT_SECONDS=300`
 - `ATLASCLAW_MODEL__PRIMARY=openai/gpt-4o`
@@ -1203,39 +1157,22 @@ Use `${VAR_NAME}` or `${VAR_NAME:default_value}` in config files:
 }
 ```
 
-### 10.4 Per-User Configuration
+### 10.4 Per-User Overrides
 
-Per-user configuration is stored in `<workspace>/users/<user_id>/user_setting.json`:
+Per-user configuration in `<workspace>/users/<user_id>/atlasclaw.json` is merged with the global config. Only include fields that differ from the default.
 
-```json
-{
-  "channels": {
-    "feishu": {
-      "connections": [...]
-    }
-  },
-  "preferences": {
-    "language": "zh-CN"
-  }
-}
-```
-
-**Backward compatibility**: The system also checks for legacy `atlasclaw.json` in user directories.
-
-**Note**: User-specific config is separate from the core `atlasclaw.json` (which is workspace-level). Only include fields that differ from the default. Providers are system-level configuration, not user-level.
-
-***
+---
 
 ## 11. Tools & Automation
 
 ### 11.1 Recommended Tools
 
-| Tool           | Purpose                          |
-| -------------- | -------------------------------- |
-| **Ruff**       | Fast Python linter and formatter |
-| **mypy**       | Static type checker              |
-| **pytest**     | Testing framework                |
-| **pre-commit** | Git hooks for code quality       |
+| Tool | Purpose |
+|---|---|
+| **Ruff** | Fast Python linter and formatter |
+| **mypy** | Static type checker |
+| **pytest** | Testing framework |
+| **pre-commit** | Git hooks for code quality |
 
 ### 11.2 Pre-commit Configuration
 
@@ -1255,7 +1192,7 @@ repos:
       - id: mypy
 ```
 
-***
+---
 
 ## 12. Deployment & Operations
 
@@ -1264,11 +1201,11 @@ repos:
 **System Requirements**:
 
 | Component | Minimum | Recommended |
-| --------- | ------- | ----------- |
-| CPU       | 2 cores | 4+ cores    |
-| RAM       | 4 GB    | 8+ GB       |
-| Disk      | 10 GB   | 50+ GB SSD  |
-| Python    | 3.10+   | 3.11+       |
+|-----------|---------|-------------|
+| CPU | 2 cores | 4+ cores |
+| RAM | 4 GB | 8+ GB |
+| Disk | 10 GB | 50+ GB SSD |
+| Python | 3.10+ | 3.11+ |
 
 **Required Software**: Python 3.10+, pip or uv, Git
 
@@ -1313,27 +1250,6 @@ Configure LLM provider in `atlasclaw.json`:
     "primary": "deepseek/deepseek-chat",
     "fallbacks": [],
     "temperature": 0.7,
-    "selection_strategy": "health",
-    "tokens": [
-      {
-        "id": "token-1",
-        "provider": "deepseek",
-        "model": "deepseek-chat",
-        "base_url": "https://api.deepseek.com",
-        "api_key": "${DEEPSEEK_API_KEY_1}",
-        "priority": 100,
-        "weight": 100
-      },
-      {
-        "id": "token-2",
-        "provider": "deepseek",
-        "model": "deepseek-chat",
-        "base_url": "https://api.deepseek.com",
-        "api_key": "${DEEPSEEK_API_KEY_2}",
-        "priority": 50,
-        "weight": 100
-      }
-    ],
     "providers": {
       "deepseek": {
         "base_url": "https://api.deepseek.com",
@@ -1344,12 +1260,6 @@ Configure LLM provider in `atlasclaw.json`:
   }
 }
 ```
-
-**Token Selection Strategies**:
-- `health` — Select by health score (highest first), then priority/weight
-- `priority` — Select by priority (highest first), then weight
-- `random` — Weighted random selection
-- `round_robin` — Rotate through available tokens
 
 Create `.env` file for secrets:
 
@@ -1364,7 +1274,6 @@ ATLASCLAW_CONFIG=/path/to/atlasclaw.json
 ### 12.4 Running the Application
 
 **Development mode**:
-
 ```bash
 # Set environment variables (Windows PowerShell)
 $env:NO_PROXY="*"
@@ -1375,7 +1284,6 @@ uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **Production mode**:
-
 ```bash
 export NO_PROXY="*"
 export ATLASCLAW_CONFIG="atlasclaw.json"
@@ -1385,13 +1293,11 @@ uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
 **Using Gunicorn**:
-
 ```bash
 gunicorn app.atlasclaw.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
 ```
 
 **Verify deployment**:
-
 ```bash
 curl http://localhost:8000/api/health
 # Expected: {"status": "healthy"}
@@ -1400,7 +1306,6 @@ curl http://localhost:8000/api/health
 ### 12.5 Docker Deployment
 
 **Dockerfile**:
-
 ```dockerfile
 FROM python:3.11-slim
 
@@ -1428,7 +1333,6 @@ docker run -d \
 ```
 
 **Docker Compose**:
-
 ```yaml
 # docker-compose.yml
 version: '3.8'
@@ -1461,7 +1365,6 @@ services:
 ### 12.6 Production Deployment
 
 **Nginx reverse proxy**:
-
 ```nginx
 server {
     listen 80;
@@ -1491,14 +1394,12 @@ server {
 ```
 
 **SSL/TLS with Let's Encrypt**:
-
 ```bash
 sudo apt-get install certbot python3-certbot-nginx
 sudo certbot --nginx -d your-domain.com
 ```
 
 **Systemd service**:
-
 ```ini
 # /etc/systemd/system/atlasclaw.service
 [Unit]
@@ -1528,7 +1429,6 @@ sudo systemctl start atlasclaw
 ```
 
 **Log rotation**:
-
 ```bash
 # /etc/logrotate.d/atlasclaw
 /opt/atlasclaw/logs/*.log {
@@ -1546,32 +1446,31 @@ sudo systemctl start atlasclaw
 
 **Core Variables**:
 
-| Variable           | Description                | Default          |
-| ------------------ | -------------------------- | ---------------- |
+| Variable | Description | Default |
+|----------|-------------|---------|
 | `ATLASCLAW_CONFIG` | Path to configuration file | `atlasclaw.json` |
-| `NO_PROXY`         | Proxy bypass               | `*`              |
-| `LOG_LEVEL`        | Logging level              | `INFO`           |
+| `NO_PROXY` | Proxy bypass | `*` |
+| `LOG_LEVEL` | Logging level | `INFO` |
 
 **LLM Provider Variables**:
 
-| Variable            | Description       | Required                |
-| ------------------- | ----------------- | ----------------------- |
-| `DEEPSEEK_API_KEY`  | DeepSeek API key  | Yes (if using DeepSeek) |
-| `ANTHROPIC_API_KEY` | Anthropic API key | Optional                |
-| `OPENAI_API_KEY`    | OpenAI API key    | Optional                |
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DEEPSEEK_API_KEY` | DeepSeek API key | Yes (if using DeepSeek) |
+| `ANTHROPIC_API_KEY` | Anthropic API key | Optional |
+| `OPENAI_API_KEY` | OpenAI API key | Optional |
 
 **Security Variables**:
 
-| Variable        | Description            | Default |
-| --------------- | ---------------------- | ------- |
-| `SECRET_KEY`    | Application secret key | Random  |
-| `ALLOWED_HOSTS` | Allowed hostnames      | `*`     |
-| `CORS_ORIGINS`  | CORS allowed origins   | `*`     |
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SECRET_KEY` | Application secret key | Random |
+| `ALLOWED_HOSTS` | Allowed hostnames | `*` |
+| `CORS_ORIGINS` | CORS allowed origins | `*` |
 
 ### 12.8 Troubleshooting
 
 **Port already in use**:
-
 ```bash
 lsof -i :8000       # Find process
 kill -9 <PID>        # Kill it
@@ -1580,21 +1479,18 @@ uvicorn app.atlasclaw.main:app --port 8080
 ```
 
 **Configuration not loading**:
-
 ```bash
 echo $ATLASCLAW_CONFIG
 python -c "import json; json.load(open('atlasclaw.json'))"
 ```
 
 **LLM API errors**:
-
 ```bash
 curl -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
   https://api.deepseek.com/v1/models
 ```
 
 **Debug mode**:
-
 ```bash
 export LOG_LEVEL=DEBUG
 uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8000 --reload
@@ -1603,14 +1499,12 @@ uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8000 --reload
 ### 12.9 Monitoring & Backup
 
 **Health check**:
-
 ```bash
 curl http://localhost:8000/api/health
 curl http://localhost:8000/api/health?detailed=true
 ```
 
 **Backup**:
-
 ```bash
 tar -czf atlasclaw-backup-$(date +%Y%m%d).tar.gz \
   ~/.atlasclaw \
@@ -1618,12 +1512,11 @@ tar -czf atlasclaw-backup-$(date +%Y%m%d).tar.gz \
 ```
 
 **Restore**:
-
 ```bash
 tar -xzf atlasclaw-backup-20240310.tar.gz -C /
 ```
 
-***
+---
 
 ## 13. Git & Commit Standards
 
@@ -1633,19 +1526,18 @@ Format: `<type>(<scope>): <summary>`
 
 **Types**:
 
-| Type       | Usage                                                   |
-| ---------- | ------------------------------------------------------- |
-| `feat`     | New feature                                             |
-| `fix`      | Bug fix                                                 |
-| `docs`     | Documentation only                                      |
+| Type | Usage |
+|---|---|
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `docs` | Documentation only |
 | `refactor` | Code change that neither fixes a bug nor adds a feature |
-| `test`     | Adding or modifying tests                               |
-| `chore`    | Build process or tooling changes                        |
+| `test` | Adding or modifying tests |
+| `chore` | Build process or tooling changes |
 
 **Scope**: Module or area affected (e.g., `config`, `auth`, `agent`, `channels`, `tools`, `session`, `memory`, `skills`, `hooks`, `api`, `frontend`)
 
 **Examples**:
-
 ```
 feat(channels): add WeChat Work channel handler
 fix(auth): handle expired JWKS key rotation
@@ -1655,14 +1547,13 @@ test(tools): add sandbox path validation tests
 chore(deps): bump pydantic-ai to 0.3.x
 ```
 
-***
+---
 
 ## 14. Code Review Checklist
 
 Before approving any change, verify:
 
 ### Correctness
-
 - [ ] Type hints present on all function parameters and return values
 - [ ] Async patterns correct (all I/O operations are async, proper `await`)
 - [ ] No bare `except:` — all exceptions are specific
@@ -1670,7 +1561,6 @@ Before approving any change, verify:
 - [ ] No `print()` statements (use logging, except in hook system)
 
 ### Security
-
 - [ ] Permission inheritance maintained — no internal RBAC bypass
 - [ ] No hardcoded secrets (API keys, passwords, tokens)
 - [ ] User tokens propagated via `SkillDeps.user_token` for upstream calls
@@ -1679,21 +1569,18 @@ Before approving any change, verify:
 - [ ] External input validated at system boundaries
 
 ### Architecture
-
 - [ ] Follows thin core / rich providers principle
 - [ ] New dependencies passed via `SkillDeps` (not global state)
 - [ ] Registry pattern used for new pluggable components
 - [ ] Hook phases used for cross-cutting concerns (not inline logic)
 
 ### Testing
-
 - [ ] Tests added for new functionality
 - [ ] Existing tests pass (`pytest tests/atlasclaw -q`)
 - [ ] Async tests use `@pytest.mark.asyncio`
 - [ ] Appropriate test markers applied (`slow`, `integration`, `e2e`, `llm`)
 
 ### Documentation
-
 - [ ] Public classes and methods have docstrings
 - [ ] Module docstrings present on new modules
 - [ ] SKILL.md / PROVIDER.md updated for new skills/providers
@@ -1701,26 +1588,24 @@ Before approving any change, verify:
 - [ ] Configuration changes documented with environment variable format
 
 ### Style
-
-- [ ] Follows naming conventions (snake\_case, PascalCase, SCREAMING\_SNAKE\_CASE)
-- [ ] Line length \~100 characters
+- [ ] Follows naming conventions (snake_case, PascalCase, SCREAMING_SNAKE_CASE)
+- [ ] Line length ~100 characters
 - [ ] Import order correct (stdlib → third-party → local)
 - [ ] `from __future__ import annotations` present in new files
 - [ ] No commented-out code
 - [ ] No wildcard imports
 
-***
+---
 
 > **Cross-Reference Index**
 >
-> | Topic                    | Document                              | Section                    |
-> | ------------------------ | ------------------------------------- | -------------------------- |
-> | System architecture      | [Architecture](./ARCHITECTURE.MD)     | §2 High-Level Architecture |
-> | Directory structure      | [Architecture](./ARCHITECTURE.MD)     | §3 Directory Structure     |
-> | Request lifecycle        | [Architecture](./ARCHITECTURE.MD)     | §5 Request Lifecycle       |
-> | Per-module API reference | [Module Details](./MODULE-DETAILS.MD) | All sections               |
-> | Configuration schema     | [Module Details](./MODULE-DETAILS.MD) | §1.3 Configuration Schema  |
-> | Provider creation guide  | [Provider Guide](./PROVIDER-GUIDE.MD) | Full document              |
-> | Skill creation guide     | [Skill Guide](./SKILL-GUIDE.MD)       | Full document              |
-> | Channel integration      | [Channel Guide](./CHANNEL-GUIDE.MD)   | Full document              |
-
+> | Topic | Document | Section |
+> |---|---|---|
+> | System architecture | [Architecture](./architecture.md) | §2 High-Level Architecture |
+> | Directory structure | [Architecture](./architecture.md) | §3 Directory Structure |
+> | Request lifecycle | [Architecture](./architecture.md) | §5 Request Lifecycle |
+> | Per-module API reference | [Module Details](./module-details.md) | All sections |
+> | Configuration schema | [Module Details](./module-details.md) | §1.3 Configuration Schema |
+> | Provider creation guide | [Provider Guide](./PROVIDER_GUIDE.md) | Full document |
+> | Skill creation guide | [Skill Guide](./SKILL_GUIDE.md) | Full document |
+> | Channel integration | [Channel Guide](./Channel%20Guide.md) | Full document |

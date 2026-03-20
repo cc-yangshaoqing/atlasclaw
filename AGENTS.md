@@ -55,9 +55,9 @@ Before making any feature changes, bug fixes, or architectural decisions, consul
 
 | Document | Content | Path |
 |----------|---------|------|
-| **Architecture** | Design philosophy, system architecture, bootstrap sequence, request lifecycle, security model, extension points | [docs/ARCHITECTURE.MD](docs/ARCHITECTURE.MD) |
-| **Module Details** | Per-module API surface, class/method/enum reference, configuration options, dependencies | [docs/MODULE-DETAILS.MD](docs/MODULE-DETAILS.MD) |
-| **Development Spec** | Code style, architecture patterns, error handling, security, testing, extension development, deployment & operations, review checklist | [docs/DEVELOPMENT-SPEC.MD](docs/DEVELOPMENT-SPEC.MD) |
+| **Architecture** | Design philosophy, system architecture, bootstrap sequence, request lifecycle, security model, extension points | [docs/architecture.md](docs/architecture.md) |
+| **Module Details** | Per-module API surface, class/method/enum reference, configuration options, dependencies | [docs/module-details.md](docs/module-details.md) |
+| **Development Spec** | Code style, architecture patterns, error handling, security, testing, extension development, deployment & operations, review checklist | [docs/development-spec.md](docs/development-spec.md) |
 
 **All development work MUST be consistent with these documents.** If a proposed change conflicts with documented patterns, update the documentation as part of the same change.
 
@@ -65,10 +65,10 @@ Before making any feature changes, bug fixes, or architectural decisions, consul
 
 | Document | Content |
 |----------|---------|
-| [Provider Guide](docs/PROVIDER-GUIDE.MD) | Creating and deploying provider integrations |
-| [Skill Guide](docs/SKILL-GUIDE.MD) | Creating executable, markdown, and hybrid skills |
-| [Channel Guide](docs/CHANNEL-GUIDE.MD) | Channel handler implementation and integration |
-| [Overview](docs/OVERVIEW.md) | End-user/developer usage guide |
+| [Provider Guide](docs/PROVIDER_GUIDE.md) | Creating and deploying provider integrations |
+| [Skill Guide](docs/SKILL_GUIDE.md) | Creating executable, markdown, and hybrid skills |
+| [Channel Guide](docs/Channel%20Guide.md) | Channel handler implementation and integration |
+| [Guide](docs/GUIDE.md) | End-user/developer usage guide |
 
 ## Code Style Guidelines
 
@@ -158,17 +158,17 @@ AtlasClaw-Core/
 │   ├── channels/         # Channel adapters (WebSocket, SSE, REST)
 │   ├── core/             # Config, dependencies, provider registry
 │   ├── memory/           # Memory manager and retrieval
-│   ├── providers/        # Built-in provider integrations (legacy)
+│   ├── providers/        # Built-in provider integrations
 │   ├── session/          # Session management
 │   ├── skills/           # Skill loading and registry
 │   └── tools/            # Built-in tools
-├── tests/                 # Test suite
-│   ├── atlasclaw/         # Python tests
-│   └── frontend/          # JavaScript tests
-├── app/frontend/          # Frontend application
-├── docs/                  # Documentation
-└── openspec/              # Specification-driven development
-    └── AGENTS.md          # OpenSpec workflow guide
+├── tests/                # Test suite
+│   ├── atlasclaw/          # Python tests
+│   └── frontend/         # JavaScript tests
+├── app/frontend/         # Frontend application
+├── docs/                 # Documentation
+└── openspec/             # Specification-driven development
+    └── AGENTS.md         # OpenSpec workflow guide
 ```
 
 ## Configuration
@@ -176,10 +176,6 @@ AtlasClaw-Core/
 - **Backend config:** `atlasclaw.json` (in project root)
 - **Test config:** `tests/atlasclaw.test.json`
 - **Environment variables:** Use `${VAR_NAME}` format in config
-- **External roots** (resolved relative to atlasclaw.json):
-  - `providers_root`: External provider repository (default: `../atlasclaw-providers/providers`)
-  - `skills_root`: External standalone skills (default: `../atlasclaw-providers/skills`)
-  - `channels_root`: External system-level channel configs (default: `../atlasclaw-providers/channels`)
 
 ## Architecture Patterns
 

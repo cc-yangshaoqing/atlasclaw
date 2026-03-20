@@ -672,7 +672,29 @@ single MD Skill.
             """
             # Build environment variables
             env = os.environ.copy()
-            
+
+            # NEW: Inject all cookies from ctx.deps if available
+            if ctx is not None and hasattr(ctx, 'deps') and hasattr(ctx.deps, 'cookies'):
+                cookies = ctx.deps.cookies
+                if cookies:
+                    try:
+                        env['ATLASCLAW_COOKIES'] = json.dumps(cookies)
+                        if hasattr(ctx.deps, 'user_info') and ctx.deps.user_info:
+                            print(f"[DEBUG] Set ATLASCLAW_COOKIES for user={ctx.deps.user_info.user_id}, cookies={list(cookies.keys())}")
+                    except (TypeError, ValueError) as e:
+                        print(f"[WARNING] Failed to serialize cookies: {e}")
+
+            # NEW: Inject provider config from ctx.deps.extra if available
+            if ctx is not None and hasattr(ctx, 'deps') and hasattr(ctx.deps, 'extra'):
+                extra = ctx.deps.extra
+                provider_config = extra.get('provider_config', {}) if extra else {}
+                if provider_config:
+                    try:
+                        env['ATLASCLAW_PROVIDER_CONFIG'] = json.dumps(provider_config)
+                        print(f"[DEBUG] Set ATLASCLAW_PROVIDER_CONFIG with providers: {list(provider_config.keys())}")
+                    except (TypeError, ValueError) as e:
+                        print(f"[WARNING] Failed to serialize provider_config: {e}")
+
             # Inject provider instance configuration from ctx.deps.extra if available
             if ctx is not None and hasattr(ctx, 'deps') and hasattr(ctx.deps, 'extra'):
                 extra = ctx.deps.extra
