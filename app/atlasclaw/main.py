@@ -153,8 +153,11 @@ def _check_and_prompt_for_providers_skills(workspace_path: str | Path, providers
         if skills_empty:
             print(f"  - Workspace skills directory is empty: {skills_dir}")
 
-        print("\nTo get started with providers and skills, please run:")
-        print("\n  git clone https://github.com/CloudChef/atlasclaw-providers.git")
+        print("\nTo get started with providers and skills, please download:")
+        print("\n  # Download and extract the providers repository:")
+        print("  curl -L -o atlasclaw-providers.zip https://github.com/CloudChef/atlasclaw-providers/archive/refs/heads/main.zip")
+        print("  unzip atlasclaw-providers.zip -d .")
+        print("  mv atlasclaw-providers-main atlasclaw-providers")
         print(f"  # Configure atlasclaw.json with \"providers_root\": \"{providers_dir}\"")
         print("\nOr manually place provider folders under the providers_root directory above.")
         print("=" * 70 + "\n")

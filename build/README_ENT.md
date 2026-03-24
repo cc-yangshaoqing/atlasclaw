@@ -11,38 +11,47 @@ This guide describes how to deploy AtlasClaw Enterprise Edition using Docker ima
 | CPU | 2 cores | 4+ cores |
 | RAM | 4 GB | 8+ GB |
 | Disk | 20 GB SSD | 100+ GB SSD |
-| OS | Linux (CentOS 7+, Ubuntu 18.04+, or equivalent) | Latest LTS |
+| OS | Linux (CentOS Stream 9+, RHEL 8+, Ubuntu 22.04+, Debian 12+) | Latest LTS |
 
 ### Required Software
 
-- **Docker** 20.10 or higher
-- **Docker Compose** 2.0 or higher
+- **Docker Engine** 24.0 or higher
+- **Docker Compose** 2.0 or higher (included as Docker plugin)
 
 ### Install Docker
 
-**CentOS/RHEL:**
+**CentOS Stream 9 / RHEL 8+ / RHEL 9:**
 ```bash
-sudo yum install -y yum-utils
-sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-sudo yum install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
-sudo systemctl start docker
-sudo systemctl enable docker
+sudo dnf -y install dnf-plugins-core
+
+# CentOS Stream 9:
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+# RHEL 8 / RHEL 9:
+# sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+
+sudo dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+sudo systemctl enable --now docker
 ```
 
-**Ubuntu/Debian:**
+**Ubuntu 22.04+ / Debian 12+:**
 ```bash
 sudo apt-get update
-sudo apt-get install -y ca-certificates curl gnupg
+sudo apt-get install -y ca-certificates curl
 sudo install -m 0755 -d /etc/apt/keyrings
-curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-sudo chmod a+r /etc/apt/keyrings/docker.gpg
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+sudo chmod a+r /etc/apt/keyrings/docker.asc
 
-echo "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
-  sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+# For Debian, replace "ubuntu" with "debian" in the URLs above and below
+sudo tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
 
 sudo apt-get update
-sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 ```
 
 **Verify Installation:**
@@ -92,8 +101,11 @@ Download providers, skills, and channels from the official repository:
 ```bash
 cd /opt/atlasclaw/extensions
 
-# Clone the repository
-git clone https://github.com/CloudChef/atlasclaw-providers.git src
+# Download and extract the repository (no git required)
+curl -L -o atlasclaw-providers.zip https://github.com/CloudChef/atlasclaw-providers/archive/refs/heads/main.zip
+unzip atlasclaw-providers.zip
+mv atlasclaw-providers-main src
+rm atlasclaw-providers.zip
 
 # Copy providers (optional)
 cp -r src/providers/* ./providers/ 2>/dev/null || true
