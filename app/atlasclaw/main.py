@@ -258,8 +258,10 @@ def _build_token_entries(config) -> tuple[list[TokenEntry], Optional[str]]:
     provider_config = config.model.providers.get(provider, {})
     if not provider_config:
         raise RuntimeError(
-            f"Provider '{provider}' not configured in atlasclaw.json. "
-            f"Please add provider config under model.providers.{provider}"
+            "No valid token configurations found in atlasclaw.json. "
+            "Please configure model.tokens[] with at least one token entry, e.g.:\n"
+            '  "tokens": [{"id": "main", "provider": "openai", "model": "gpt-4", '
+            '"base_url": "https://api.openai.com/v1", "api_key": "sk-xxx", "api_type": "openai"}]'
         )
 
     base_url = _expand_env_value(provider_config.get("base_url", ""))
@@ -446,8 +448,8 @@ async def lifespan(app: FastAPI):
     _print_root_plugins("skills_root plugins", skills_root, skill_plugins)
     _print_root_plugins("channels_root plugins", channels_root, channel_plugins)
 
-    # Get workspace path from config
-    workspace_path = config.workspace.path
+    # Get workspace path from config and resolve to absolute path
+    workspace_path = str(Path(config.workspace.path).resolve())
 
     
     # Initialize workspace directory structure
@@ -516,7 +518,7 @@ async def lifespan(app: FastAPI):
     print(f"[AtlasClaw] Registered built-in channel handlers")
     
     # Initialize ChannelManager
-    _channel_manager = ChannelManager(workspace_path)
+    _channel_manager = ChannelManager(Path(workspace_path))
     set_channel_manager(_channel_manager)
     print(f"[AtlasClaw] Channel manager initialized")
     
@@ -638,7 +640,25 @@ async def lifespan(app: FastAPI):
             print(f"[AtlasClaw] Warning: Failed to load tokens from database: {e}")
 
     if not token_entries:
-        raise RuntimeError("No token configurations found. Please configure tokens in database or atlasclaw.json")
+        raise RuntimeError(
+            "No LLM token configurations found. AtlasClaw requires at least one model token to start.\n"
+            "Please configure model.tokens in atlasclaw.json before starting the service.\n"
+            "\nExample configuration:\n"
+            '  "model": {\n'
+            '    "primary": "deepseek-main",\n'
+            '    "tokens": [\n'
+            '      {\n'
+            '        "id": "deepseek-main",\n'
+            '        "provider": "deepseek",\n'
+            '        "model": "deepseek-chat",\n'
+            '        "base_url": "https://api.deepseek.com",\n'
+            '        "api_key": "sk-your-api-key-here",\n'
+            '        "api_type": "openai"\n'
+            '      }\n'
+            '    ]\n'
+            '  }\n'
+            "\nSee README.md for more configuration examples."
+        )
 
     if primary_token_id and not any(t.token_id == primary_token_id for t in token_entries):
         print(f"[AtlasClaw] Warning: primary token '{primary_token_id}' not found, using first token")

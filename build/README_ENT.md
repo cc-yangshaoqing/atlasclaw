@@ -1,6 +1,6 @@
-# AtlasClaw
+# AtlasClaw Enterprise Deployment Guide
 
-This guide describes how to deploy AtlasClaw in your own environment using pre-built Docker images.
+This guide describes how to deploy AtlasClaw Enterprise Edition using Docker images with MySQL support, high availability, and OIDC authentication.
 
 ## Prerequisites
 
@@ -58,7 +58,7 @@ docker compose version
 ### 1. Create Deployment Directory
 
 ```bash
-mkdir -p /opt/atlasclaw/{workspace,data,extensions/{providers,skills,channels}}
+mkdir -p /opt/atlasclaw/{workspace,data,secrets,extensions/{providers,skills,channels}}
 cd /opt/atlasclaw
 ```
 
@@ -67,9 +67,12 @@ cd /opt/atlasclaw
 ```
 /opt/atlasclaw/
 ├── docker-compose.yml      # Docker Compose orchestration file
+├── secrets/                # MySQL passwords
+│   ├── mysql_root_password.txt
+│   └── mysql_password.txt
 ├── workspace/              # Configuration, logs, user data
 │   └── atlasclaw.json      # Main configuration file
-├── data/                   # SQLite database and runtime data
+├── data/                   # Database runtime data
 └── extensions/
     ├── providers/          # Provider extensions
     ├── skills/             # Custom skills
@@ -79,7 +82,7 @@ cd /opt/atlasclaw
 ### 2. Download Compose File
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/CloudChef/AtlasClaw-Core/main/build/docker-compose.opensource.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/CloudChef/AtlasClaw-Core/main/build/docker-compose.enterprise.yml
 ```
 
 ### 3. Download Extensions (Optional)
@@ -123,7 +126,17 @@ The service will fail to start without a valid model configuration. Tokens can b
 | OpenAI | gpt-4 | https://api.openai.com/v1 | openai |
 | Moonshot (Kimi) | kimi-k2.5 | https://api.moonshot.cn/v1 | openai |
 
-### 4. Create Configuration
+### 5. Create MySQL Secrets
+
+Create password files:
+
+```bash
+echo "your-mysql-root-password" > /opt/atlasclaw/secrets/mysql_root_password.txt
+echo "your-mysql-password" > /opt/atlasclaw/secrets/mysql_password.txt
+chmod 600 /opt/atlasclaw/secrets/*.txt
+```
+
+### 6. Create Configuration
 
 Create `/opt/atlasclaw/workspace/atlasclaw.json`:
 
@@ -133,9 +146,14 @@ Create `/opt/atlasclaw/workspace/atlasclaw.json`:
     "path": "/app/data"
   },
   "database": {
-    "type": "sqlite",
-    "sqlite": {
-      "path": "/app/data/atlasclaw.db"
+    "type": "mysql",
+    "mysql": {
+      "host": "mysql",
+      "port": 3306,
+      "database": "atlasclaw",
+      "user": "atlasclaw",
+      "password": "your-mysql-password",
+      "charset": "utf8mb4"
     }
   },
   "providers_root": "/app/extensions/providers",
@@ -155,14 +173,12 @@ Create `/opt/atlasclaw/workspace/atlasclaw.json`:
     ]
   },
   "auth": {
-    "provider": "api_key",
-    "api_key": {
-      "keys": {
-        "sk-your-secret-key": {
-          "user_id": "admin",
-          "roles": ["admin"]
-        }
-      }
+    "provider": "oidc",
+    "oidc": {
+      "issuer": "https://auth.your-company.com",
+      "client_id": "atlasclaw-client",
+      "client_secret": "your-client-secret",
+      "redirect_uri": "https://atlasclaw.your-company.com/api/auth/callback"
     }
   }
 }
@@ -173,8 +189,7 @@ Create `/opt/atlasclaw/workspace/atlasclaw.json`:
 1. **You MUST replace `YOUR_API_KEY_HERE`** with your actual LLM API key (e.g., DeepSeek, OpenAI)
 2. **`model.tokens` cannot be empty** - At least one token entry is **required** for startup
 3. **`providers_root`** can be set to `/app/extensions/providers` (container path) or left empty
-4. Database path uses container path `/app/data/atlasclaw.db`
-5. `workspace.path` uses container path `/app/data`
+4. MySQL host is `mysql` (service name in docker-compose)
 
 **Example with real API key:**
 ```json
@@ -200,14 +215,20 @@ Set proper permissions:
 chmod 600 /opt/atlasclaw/workspace/atlasclaw.json
 ```
 
-### 5. Start AtlasClaw
+### 7. Start AtlasClaw
 
 ```bash
 cd /opt/atlasclaw
 docker compose up -d
 ```
 
-### 6. Verify Deployment
+### 8. Run Database Migrations
+
+```bash
+docker compose exec atlasclaw alembic upgrade head
+```
+
+### 9. Verify Deployment
 
 ```bash
 curl http://localhost:8000/api/health
@@ -219,6 +240,20 @@ Expected response:
 ```
 
 Access the web UI at: `http://your-server-ip:8000`
+
+---
+
+## Enterprise Edition
+
+- **Image**: `registry.cn-shanghai.aliyuncs.com/atlasclaw/atlasclaw-official:latest`
+- **Features**: MySQL support, multi-container, high availability, OIDC authentication
+- **Best for**: Production, large organizations
+
+### Pull Image Manually
+
+```bash
+docker pull registry.cn-shanghai.aliyuncs.com/atlasclaw/atlasclaw-official:latest
+```
 
 ---
 
@@ -246,6 +281,16 @@ Skills and channels in `/opt/atlasclaw/extensions/` are automatically loaded on 
     ├── skill.py             # Python implementation
     ├── requirements.txt     # Dependencies
     └── config.json
+```
+
+To restrict available skills, edit `/opt/atlasclaw/workspace/atlasclaw.json`:
+
+```json
+{
+  "security": {
+    "allowed_tools": ["deployment.deploy_k8s", "monitoring.check_health"]
+  }
+}
 ```
 
 ### Channel Configuration
@@ -276,6 +321,21 @@ docker compose exec atlasclaw atlasclaw reload all
 docker compose restart atlasclaw
 ```
 
+### Verifying Extensions
+
+Check loaded extensions:
+
+```bash
+# List providers
+curl http://localhost:8000/api/providers
+
+# List skills
+curl http://localhost:8000/api/skills
+
+# List channels
+curl http://localhost:8000/api/channels
+```
+
 ---
 
 ## Operations
@@ -295,14 +355,23 @@ docker compose down
 ### Update to Latest Version
 
 ```bash
+# Pull latest images
 docker compose pull
+
+# Restart services
 docker compose up -d
+
+# Run migrations
+docker compose exec atlasclaw alembic upgrade head
 ```
 
 ### Backup
 
 ```bash
-# Backup data and config
+# Backup database
+docker exec atlasclaw-mysql mysqldump -u root -p atlasclaw > atlasclaw-db-$(date +%Y%m%d).sql
+
+# Backup files
 tar -czf atlasclaw-backup-$(date +%Y%m%d).tar.gz /opt/atlasclaw/data /opt/atlasclaw/workspace
 ```
 
@@ -329,19 +398,16 @@ tar -czf atlasclaw-backup-$(date +%Y%m%d).tar.gz /opt/atlasclaw/data /opt/atlasc
 }
 ```
 
-### Authentication (API Key)
+### Authentication (OIDC/OAuth2)
 
 ```json
 {
   "auth": {
-    "provider": "api_key",
-    "api_key": {
-      "keys": {
-        "sk-your-key": {
-          "user_id": "admin",
-          "roles": ["admin"]
-        }
-      }
+    "provider": "oidc",
+    "oidc": {
+      "issuer": "https://auth.company.com",
+      "client_id": "your-client-id",
+      "client_secret": "your-client-secret"
     }
   }
 }
@@ -358,7 +424,7 @@ tar -czf atlasclaw-backup-$(date +%Y%m%d).tar.gz /opt/atlasclaw/data /opt/atlasc
 docker compose logs atlasclaw
 
 # Verify config syntax
-docker run --rm -v /opt/atlasclaw/workspace/atlasclaw.json:/app/atlasclaw.json:ro registry.cn-shanghai.aliyuncs.com/atlasclaw/atlasclaw:latest python -c "import json; json.load(open('/app/atlasclaw.json'))"
+docker run --rm -v /opt/atlasclaw/workspace/atlasclaw.json:/app/atlasclaw.json:ro registry.cn-shanghai.aliyuncs.com/atlasclaw/atlasclaw-official:latest python -c "import json; json.load(open('/app/atlasclaw.json'))"
 ```
 
 ### Providers Not Loading
@@ -369,6 +435,17 @@ ls -la /opt/atlasclaw/extensions/providers/
 
 # Verify providers_root in config
 cat /opt/atlasclaw/workspace/atlasclaw.json | grep -A 1 providers_root
+```
+
+### Database Connection Failed
+
+```bash
+# Check MySQL container
+docker compose ps mysql
+docker compose logs mysql
+
+# Test MySQL connection
+docker compose exec mysql mysql -u atlasclaw -p -e "SELECT 1"
 ```
 
 ### Port Already in Use
@@ -384,6 +461,7 @@ ports:
 
 ```bash
 chmod 600 /opt/atlasclaw/workspace/atlasclaw.json
+chmod 600 /opt/atlasclaw/secrets/*.txt
 chown -R $(id -u):$(id -g) /opt/atlasclaw/data
 ```
 

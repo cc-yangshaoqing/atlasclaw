@@ -373,11 +373,10 @@ echo "Image has been pushed to:"
 echo "  - $IMAGE_NAME:$TAG"
 echo "  - $IMAGE_NAME:latest"
 echo ""
-echo "To deploy on target server:"
-echo "  1. Create directories: mkdir -p /opt/atlasclaw/{workspace,data,extensions/{providers,skills,channels}}"
-echo "  2. Copy config: cp $BUILD_DIR/config/atlasclaw.json /opt/atlasclaw/workspace/"
-echo "  3. Run: cd $BUILD_DIR && docker-compose up -d"
+echo "To deploy on target server, please refer to the README for detailed deployment steps:"
 if [[ "$MODE" == "enterprise" ]]; then
-    echo "  4. Run migrations: docker-compose exec atlasclaw alembic upgrade head"
+    echo "  - See: $BUILD_DIR/README_ENT.md"
+else
+    echo "  - See: $BUILD_DIR/README.md"
 fi
 echo ""
