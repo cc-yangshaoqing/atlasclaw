@@ -2,15 +2,39 @@
 
 This directory contains build scripts and configurations for both OpenSource and Enterprise editions of AtlasClaw.
 
+## Container Directory Structure
+
+AtlasClaw container uses the following internal directory structure:
+
+```
+/app/
+├── workspace/          # Configuration, user data, logs, agents
+│   ├── atlasclaw.json  # Main configuration file
+│   └── logs/           # Application logs
+├── data/               # Database files
+└── extensions/         # Custom extensions
+    ├── providers/      # Service provider integrations
+    ├── skills/         # Custom skills
+    └── channels/       # Channel integrations
+```
+
+**Host Mount Points:**
+- Host `/opt/atlasclaw/workspace` → Container `/app/workspace`
+- Host `/opt/atlasclaw/data` → Container `/app/data`
+- Host `/opt/atlasclaw/extensions/providers` → Container `/app/extensions/providers`
+- Host `/opt/atlasclaw/extensions/skills` → Container `/app/extensions/skills`
+- Host `/opt/atlasclaw/extensions/channels` → Container `/app/extensions/channels`
+
 ## Quick Comparison
 
 | Feature | OpenSource | Enterprise |
 |---------|------------|------------|
-| Database | SQLite (built-in) | MySQL 8.5 |
+| Database | SQLite (built-in) | MySQL 8.4 |
 | Deployment | Single container | Multi-container |
 | Best for | Development / Small teams | Production / Large organizations |
 | Resources | Minimal | Configurable limits |
 | High Availability | No | Yes (with external MySQL) |
+| Base Image | python:3.11-slim | python:3.11-slim |
 
 ## Files
 
@@ -39,25 +63,37 @@ This directory contains build scripts and configurations for both OpenSource and
 ### Build Options
 
 ```bash
-./build.sh --mode opensource|enterprise [--tag VERSION] [--repo REGISTRY]
+./build.sh --mode opensource|enterprise [--tag VERSION] [--push] [--username USER] [--password PASS]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--mode opensource` | Build OpenSource edition (image: `atlasclaw`) |
 | `--mode enterprise` | Build Enterprise edition (image: `atlasclaw-official`) |
-| `--tag` | Version tag (default: `latest`) |
-| `--repo` | Docker registry prefix (optional, e.g., `registry.example.com`) |
+| `--tag, -t` | Version tag (default: `v0.6.1`) |
+| `--push` | Push image to registry after build |
+| `--username, -u` | Registry username (required with --push) |
+| `--password, -p` | Registry password (required with --push) |
+| `--registry` | Custom registry URL (default: `registry.cn-shanghai.aliyuncs.com`) |
+| `--namespace` | Custom namespace (default: `atlasclaw`) |
+
+### Default Registry
+
+By default, images are tagged for Aliyun Container Registry (ACR) Shanghai:
+- **Registry**: `registry.cn-shanghai.aliyuncs.com`
+- **Namespace**: `atlasclaw`
+- **Full image path**: `registry.cn-shanghai.aliyuncs.com/atlasclaw/atlasclaw:{tag}`
 
 ### OpenSource Edition
 
 ```bash
 # Build locally
-./build.sh --mode opensource --tag v1.0.0
+./build.sh --mode opensource --tag v0.6.1
 
-# Build with registry prefix
-./build.sh --mode opensource --tag v1.0.0 --repo registry.example.com
-# Creates image: registry.example.com/atlasclaw:v1.0.0
+# Build and push to ACR
+./build.sh --mode opensource --tag v0.6.1 --push --username your-user --password your-pass
+
+# Creates image: registry.cn-shanghai.aliyuncs.com/atlasclaw/atlasclaw:v0.6.1
 ```
 
 **Features:**
@@ -70,6 +106,14 @@ This directory contains build scripts and configurations for both OpenSource and
 **Deploy:**
 ```bash
 cd build
+
+# Create host directories
+mkdir -p /opt/atlasclaw/{workspace,data,extensions/{providers,skills,channels}}
+
+# Copy config to workspace
+cp config/atlasclaw.json /opt/atlasclaw/workspace/
+
+# Start container
 docker-compose up -d
 ```
 
@@ -77,16 +121,17 @@ docker-compose up -d
 
 ```bash
 # Build locally
-./build.sh --mode enterprise --tag v1.0.0
+./build.sh --mode enterprise --tag v0.6.1
 
-# Build with registry prefix
-./build.sh --mode enterprise --tag v1.0.0 --repo registry.example.com
-# Creates image: registry.example.com/atlasclaw-official:v1.0.0
+# Build and push to ACR
+./build.sh --mode enterprise --tag v0.6.1 --push --username your-user --password your-pass
+
+# Creates image: registry.cn-shanghai.aliyuncs.com/atlasclaw/atlasclaw-official:v0.6.1
 ```
 
 **Features:**
 - Image name: `atlasclaw-official`
-- MySQL 8.5 LTS database
+- MySQL 8.4 LTS database
 - Docker secrets for passwords
 - Resource limits (4 CPU / 8GB RAM)
 - Health checks
@@ -95,7 +140,17 @@ docker-compose up -d
 **Deploy:**
 ```bash
 cd build
+
+# Create host directories
+mkdir -p /opt/atlasclaw/{workspace,data,extensions/{providers,skills,channels}}
+
+# Copy config to workspace
+cp config/atlasclaw.json /opt/atlasclaw/workspace/
+
+# Start container
 docker-compose up -d
+
+# Run database migrations
 docker-compose exec atlasclaw alembic upgrade head
 ```
 
@@ -103,11 +158,11 @@ docker-compose exec atlasclaw alembic upgrade head
 
 The `build.sh` script automates:
 
-1. **Prerequisites check** - Docker, Docker Compose
-2. **Python validation** - Installs dependencies locally to verify
-3. **Configuration generation** - Creates `atlasclaw.json`
-4. **Secret generation** (Enterprise) - Auto-generates MySQL passwords
-5. **Docker build** - Builds the appropriate image
+1. **Prerequisites check** - Docker
+2. **Configuration generation** - Creates `atlasclaw.json` with correct paths
+3. **Secret generation** (Enterprise) - Auto-generates MySQL passwords
+4. **Docker build** - Builds the appropriate image with tags
+5. **Image push** (optional) - Pushes to registry with credentials
 6. **Cleanup** - Removes temporary files
 
 ### Generated Files
@@ -117,15 +172,14 @@ After running build script:
 ```
 build/
 ├── config/
-│   └── atlasclaw.json          # Main configuration
+│   └── atlasclaw.json          # Main configuration (with /app paths)
 ├── secrets/                    # Enterprise only
 │   ├── mysql_root_password.txt
 │   └── mysql_password.txt
-├── data/                       # SQLite/Volume data
-├── logs/                       # Application logs
-├── mysql-data/                 # Enterprise MySQL data
 └── docker-compose.yml -> docker-compose.{mode}.yml
 ```
+
+**Note:** Data directories are created on the host at `/opt/atlasclaw/` during first deployment.
 
 ## Configuration
 

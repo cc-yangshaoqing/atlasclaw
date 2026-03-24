@@ -237,6 +237,283 @@ docker pull your-registry.com/atlasclaw-official:latest
 
 ---
 
+## Custom Providers, Skills & Channels
+
+AtlasClaw supports loading custom providers, skills, and channels from external directories. This allows you to extend AtlasClaw functionality without modifying the core image.
+
+### Directory Structure
+
+Create the following directory structure on your host:
+
+```bash
+mkdir -p /opt/atlasclaw/extensions/{providers,skills,channels}
+```
+
+**Directory Layout:**
+```
+/opt/atlasclaw/
+├── workspace/              # Configuration, logs, user data
+├── data/                   # Database files
+└── extensions/
+    ├── providers/          # Custom providers (e.g., cloud, monitoring)
+    ├── skills/             # Custom skills (e.g., deployment, automation)
+    └── channels/           # Custom channels (e.g., wecom, feishu)
+```
+
+### Loading Custom Providers
+
+Providers extend AtlasClaw with new capabilities for cloud services, monitoring systems, etc.
+
+#### 1. Download Providers
+
+Download providers from the official repository:
+
+```bash
+cd /opt/atlasclaw/extensions
+
+# Clone the providers repository
+git clone https://github.com/CloudChef/atlasclaw-providers.git providers-src
+
+# Copy specific provider to extensions directory
+cp -r providers-src/providers/aws ./providers/
+cp -r providers-src/providers/kubernetes ./providers/
+
+# Or copy all providers
+cp -r providers-src/providers/* ./providers/
+
+# Remove source directory (optional)
+rm -rf providers-src
+```
+
+#### 2. Provider Structure
+
+Each provider should follow this structure:
+```
+/opt/atlasclaw/extensions/providers/
+└── aws/
+    ├── __init__.py
+    ├── provider.py          # Main provider implementation
+    ├── requirements.txt     # Dependencies
+    ├── config/
+    │   └── config.json      # Provider configuration
+    └── README.md
+```
+
+#### 3. Install Dependencies
+
+Install provider dependencies (optional):
+
+```bash
+docker compose exec atlasclaw pip install -r /app/extensions/providers/aws/requirements.txt
+```
+
+#### 4. Configure Provider
+
+Add provider configuration to `/opt/atlasclaw/workspace/atlasclaw.json`:
+
+```json
+{
+  "service_providers": {
+    "aws-prod": {
+      "type": "aws",
+      "config": {
+        "region": "cn-north-1",
+        "access_key": "YOUR_ACCESS_KEY",
+        "secret_key": "YOUR_SECRET_KEY"
+      }
+    }
+  }
+}
+```
+
+### Loading Custom Skills
+
+Skills enable AtlasClaw to perform specific tasks and workflows.
+
+#### 1. Download Skills
+
+Download skills from the official repository:
+
+```bash
+cd /opt/atlasclaw/extensions
+
+# Clone the skills repository
+git clone https://github.com/CloudChef/atlasclaw-providers.git skills-src
+
+# Copy specific skill to extensions directory
+cp -r skills-src/skills/deployment ./skills/
+cp -r skills-src/skills/monitoring ./skills/
+
+# Or copy all skills
+cp -r skills-src/skills/* ./skills/
+
+# Remove source directory (optional)
+rm -rf skills-src
+```
+
+#### 2. Skill Structure
+
+Each skill should follow one of these structures:
+
+**Markdown Skill:**
+```
+/opt/atlasclaw/extensions/skills/
+└── deployment/
+    ├── SKILL.md             # Skill definition (name, description, tools)
+    ├── requirements.txt     # Dependencies (optional)
+    └── scripts/
+        └── deploy.sh        # Helper scripts (optional)
+```
+
+**Executable Skill:**
+```
+/opt/atlasclaw/extensions/skills/
+└── monitoring/
+    ├── __init__.py
+    ├── skill.py             # Python skill implementation
+    ├── requirements.txt     # Dependencies
+    └── config.json          # Default configuration
+```
+
+**Example SKILL.md:**
+```yaml
+---
+name: deployment
+version: "1.0.0"
+description: Deploy applications to various platforms
+tools:
+  - name: deploy_k8s
+    description: Deploy to Kubernetes cluster
+    parameters:
+      namespace: Target namespace
+      image: Container image
+---
+
+# Deployment Skill
+
+This skill enables AtlasClaw to deploy applications...
+
+## Usage
+
+```
+@atlasclaw deploy to kubernetes namespace:default image:myapp:v1.0
+```
+```
+
+#### 3. Install Skill Dependencies
+
+```bash
+# For Python-based skills
+docker compose exec atlasclaw pip install -r /app/extensions/skills/monitoring/requirements.txt
+
+# Or install all skill dependencies at once
+for req in /app/extensions/skills/*/requirements.txt; do
+  docker compose exec atlasclaw pip install -r "$req"
+done
+```
+
+#### 4. Enable Skills in Configuration
+
+Skills in `/opt/atlasclaw/extensions/skills/` are automatically discovered. No additional configuration needed.
+
+To restrict available skills, edit `/opt/atlasclaw/workspace/atlasclaw.json`:
+
+```json
+{
+  "security": {
+    "allowed_tools": ["deployment.deploy_k8s", "monitoring.check_health"]
+  }
+}
+```
+
+### Loading Custom Channels
+
+Channels enable AtlasClaw to communicate through different messaging platforms.
+
+#### 1. Download Channels
+
+```bash
+cd /opt/atlasclaw/extensions
+
+git clone https://github.com/CloudChef/atlasclaw-providers.git channels-src
+
+# Copy specific channel
+cp -r channels-src/channels/slack ./channels/
+
+# Or copy all channels
+cp -r channels-src/channels/* ./channels/
+
+rm -rf channels-src
+```
+
+#### 2. Channel Structure
+
+```
+/opt/atlasclaw/extensions/channels/
+└── slack/
+    ├── __init__.py
+    ├── channel.py           # Channel implementation
+    ├── requirements.txt     # Dependencies
+    └── config/
+        └── config.json      # Channel configuration
+```
+
+#### 3. Configure Channel
+
+Add channel to `/opt/atlasclaw/workspace/atlasclaw.json`:
+
+```json
+{
+  "channels": {
+    "slack-bot": {
+      "type": "slack",
+      "config": {
+        "token": "xoxb-your-bot-token",
+        "signing_secret": "your-signing-secret"
+      }
+    }
+  }
+}
+```
+
+### Reload Extensions Without Restart
+
+After adding or modifying extensions, you can reload them:
+
+```bash
+# Reload providers
+docker compose exec atlasclaw atlasclaw reload providers
+
+# Reload skills
+docker compose exec atlasclaw atlasclaw reload skills
+
+# Reload all extensions
+docker compose exec atlasclaw atlasclaw reload all
+```
+
+Or simply restart the container:
+
+```bash
+docker compose restart atlasclaw
+```
+
+### Verifying Extensions
+
+Check loaded extensions:
+
+```bash
+# List providers
+curl http://localhost:8000/api/providers
+
+# List skills
+curl http://localhost:8000/api/skills
+
+# List channels
+curl http://localhost:8000/api/channels
+```
+
+---
+
 ## Operations
 
 ### View Logs
