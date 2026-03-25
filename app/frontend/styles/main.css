@@ -113,6 +113,38 @@ body {
     font-weight: 600;
 }
 
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.logout-btn {
+    width: 36px;
+    height: 36px;
+    border: 1px solid #e1e1e1;
+    background: #fff;
+    color: #666;
+    border-radius: 8px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.logout-btn:hover {
+    color: #d9534f;
+    border-color: #f1c0be;
+    background: #fff5f5;
+}
+
+.logout-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+
 /* Language Switcher */
 .language-switcher {
     display: flex;
@@ -643,6 +675,23 @@ deep-chat::part(container) {
     font-size: 12px;
     color: #888;
     margin-top: 6px;
+}
+
+.form-hint-box {
+    background: #e8f4fd;
+    border: 1px solid #b8daff;
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #004085;
+}
+
+.form-hint-box .hint-icon {
+    font-size: 16px;
 }
 
 .form-actions {

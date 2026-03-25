@@ -7,6 +7,8 @@ import { getSessionKey, initSession } from './session-manager.js';
 import { createStreamHandler } from './stream-handler.js';
 import { buildApiUrl } from './config.js';
 import { t, isLocaleLoaded } from './i18n.js';
+import { getAuthToken } from './auth.js';
+
 
 let chatElement = null;
 let currentStreamHandler = null;
@@ -55,13 +57,20 @@ async function loadAgentInfo(element) {
 }
 
 function configureChatConnection(element) {
+    const token = getAuthToken();
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    if (token) {
+        headers['AtlasClaw-Authenticate'] = token;
+    }
+
     element.connect = {
         url: buildApiUrl('/api/agent/run'),
         method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        }
+        headers
     };
+
 
     if (typeof element.render === 'function') {
         element.render();

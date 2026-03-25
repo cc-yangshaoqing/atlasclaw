@@ -2,7 +2,7 @@
 
 **Context**
 
-AtlasClaw currently hardcodes provider skill discovery to `app/atlasclaw/providers`, while provider templates are not loaded from any configured location at startup. The repository now keeps providers in a separate sibling directory, `../atlasclaw-providers/providers`.
+AtlasClaw currently hardcodes provider skill discovery to `app/atlasclaw/providers`, while provider templates are not loaded from any configured location at startup. The repository now keeps providers in a separate sibling directory, `../providers`.
 
 **Decision**
 
@@ -12,7 +12,7 @@ Add a top-level `providers_root` field to `atlasclaw.json` and `atlasclaw.json.e
 
 - Add `providers_root` to the runtime config schema.
 - Update startup to load provider templates and provider skills from `providers_root`.
-- Update shipped config files to use `../atlasclaw-providers/providers`.
+- Update shipped config files to use `../providers`.
 - Remove `atlasclaw/app/atlasclaw/providers`.
 
 **Compatibility**

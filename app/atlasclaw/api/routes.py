@@ -19,17 +19,21 @@ from typing import Any, Optional
 from fastapi import FastAPI
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Header, status
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse, Response
 from pydantic import BaseModel, Field
 
 from ..session.manager import SessionManager
 from ..session.context import SessionKey, SessionScope, ChatType as SessionChatType
+from ..agent.routing import AgentRouter
+
 from ..session.queue import SessionQueue, QueueMode
 from ..skills.registry import SkillRegistry
 from ..memory.manager import MemoryManager
 from ..core.deps import SkillDeps
-from ..auth.models import UserInfo, ANONYMOUS_USER
+from ..auth.models import UserInfo, ANONYMOUS_USER, AuthenticationError
+from ..auth.jwt_token import issue_atlas_token, verify_atlas_token
 from .sse import SSEManager, SSEEvent, SSEEventType
+
 from .webhook_dispatch import (
     WebhookDispatchManager,
     WebhookSystemIdentity,
@@ -137,7 +141,15 @@ class QueueModeRequest(BaseModel):
     mode: str  # collect / steer / followup / steer-backlog / interrupt
 
 
+class LocalLoginRequest(BaseModel):
+    """Local username/password login request."""
+
+    username: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=1)
+
+
 class StatusResponse(BaseModel):
+
     """"""
     session_key: str
     context_tokens: int
@@ -183,8 +195,11 @@ API context
     skill_registry: SkillRegistry
     memory_manager: Optional[MemoryManager] = None
     sse_manager: Optional[SSEManager] = None
-    agent_runner: Optional[Any] = None  # AgentRunner instance
+    agent_runner: Optional[Any] = None  # Backward compatibility: main runner
+    agent_runners: dict[str, Any] | None = None
+    agent_router: Optional[AgentRouter] = None
     service_provider_registry: Optional[Any] = None  # ServiceProviderRegistry instance
+
     available_providers: dict[str, list[str]] = None
     provider_instances: dict[str, dict[str, dict[str, Any]]] = None
     webhook_manager: Optional[WebhookDispatchManager] = None
@@ -201,6 +216,11 @@ API context
             self.available_providers = {}
         if self.provider_instances is None:
             self.provider_instances = {}
+        if self.agent_runners is None:
+            self.agent_runners = {}
+        if self.agent_runner is None and self.agent_runners:
+            self.agent_runner = self.agent_runners.get("main") or next(iter(self.agent_runners.values()), None)
+
 
 
 # context(apply)
@@ -252,11 +272,42 @@ def install_request_validation_logging(app: FastAPI) -> None:
         return JSONResponse(status_code=422, content={"detail": exc.errors()})
 
 
+def _extract_atlas_token_from_request(request: Request, header_name: str, cookie_name: str) -> str:
+    token = request.headers.get(header_name, "").strip()
+    if token:
+        return token
+
+    token = request.headers.get("AtlasClaw-Authenticate", "").strip()
+    if token:
+        return token
+
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        return auth_header[7:].strip()
+
+    token = request.cookies.get(cookie_name, "").strip()
+    if token:
+        return token
+
+    token = request.cookies.get("AtlasClaw-Authenticate", "").strip()
+    if token:
+        return token
+
+    return ""
+
+
+def _is_admin_from_roles(roles: list[str]) -> bool:
+    return any(str(role).lower() == "admin" for role in roles)
+
+
 def _build_scoped_deps(
     ctx: APIContext,
     user_info: UserInfo,
     session_key: str,
+
     *,
+    request_cookies: Optional[dict[str, str]] = None,
+    provider_config: Optional[dict[str, Any]] = None,
     extra: Optional[dict[str, Any]] = None,
 ) -> SkillDeps:
     """Create request-scoped dependencies for agent-style execution."""
@@ -275,7 +326,8 @@ def _build_scoped_deps(
         "_service_provider_registry": ctx.service_provider_registry,
         "available_providers": ctx.available_providers,
         "provider_instances": ctx.provider_instances,
-        "skills_snapshot": ctx.skill_registry.snapshot(),
+        "provider_config": provider_config or {},
+        "skills_snapshot": ctx.skill_registry.snapshot_builtins(),
         "md_skills_snapshot": ctx.skill_registry.md_snapshot(),
     }
     if extra:
@@ -286,6 +338,7 @@ def _build_scoped_deps(
         session_key=session_key,
         session_manager=scoped_session_mgr,
         memory_manager=scoped_memory_mgr,
+        cookies=request_cookies or {},
         extra=deps_extra,
     )
 
@@ -301,6 +354,8 @@ async def _execute_agent_run(
     message: str,
     timeout_seconds: int,
     user_info: Optional[UserInfo] = None,
+    request_cookies: Optional[dict[str, str]] = None,
+    provider_config: Optional[dict[str, Any]] = None,
 ) -> None:
     """
     Execute Agent run in background and push events via SSE
@@ -318,21 +373,35 @@ async def _execute_agent_run(
     _user_info = user_info or ANONYMOUS_USER
     
     try:
-        # AgentRunner must be configured
-        if not ctx.agent_runner:
+        target_agent_id = SessionKey.from_string(session_key).agent_id or "main"
+        runner = None
+        if ctx.agent_runners:
+            runner = ctx.agent_runners.get(target_agent_id) or ctx.agent_runners.get("main")
+        if runner is None:
+            runner = ctx.agent_runner
+
+        if not runner:
             raise RuntimeError(
                 "AgentRunner not configured. "
                 "Ensure LLM provider is properly configured in atlasclaw.json"
             )
-        
-        deps = _build_scoped_deps(ctx, _user_info, session_key)
 
-        async for event in ctx.agent_runner.run(
+        deps = _build_scoped_deps(
+            ctx,
+            _user_info,
+            session_key,
+            request_cookies=request_cookies,
+            provider_config=provider_config,
+            extra={"agent_id": target_agent_id},
+        )
+
+        async for event in runner.run(
             session_key=session_key,
             user_message=message,
             deps=deps,
             timeout_seconds=timeout_seconds
         ):
+
             # Convert StreamEvent to SSE event
             if event.type == "lifecycle":
                 ctx.sse_manager.push_lifecycle(run_id, event.phase)
@@ -396,10 +465,21 @@ async def _execute_webhook_dispatch(
         extra={"system_id": system.system_id},
     )
     user_message = build_webhook_user_message(skill_entry, args, system.system_id)
+
+    # Build provider config for webhook context (no cookies in webhook)
+    provider_config: dict[str, Any] = {}
+    if ctx.service_provider_registry:
+        for pt in ctx.service_provider_registry.list_providers():
+            instances = ctx.service_provider_registry.list_instances(pt)
+            if instances:
+                provider_config[pt] = instances
+
     deps = _build_scoped_deps(
         ctx,
         user_info,
         session_key,
+        request_cookies={},
+        provider_config=provider_config,
         extra={
             "webhook_skill": skill_entry.qualified_name,
             "webhook_args": dict(args),
@@ -550,6 +630,18 @@ def create_router() -> APIRouter:
         
         # Extract UserInfo injected by AuthMiddleware
         user_info: UserInfo = getattr(request_obj.state, "user_info", ANONYMOUS_USER)
+
+        # Get all cookies from request
+        request_cookies = dict(request_obj.cookies)
+
+        # Build provider config from service provider registry
+        provider_config: dict[str, Any] = {}
+        if ctx.service_provider_registry:
+            for pt in ctx.service_provider_registry.list_providers():
+                instances = ctx.service_provider_registry.list_instances(pt)
+                if instances:
+                    provider_config[pt] = instances
+
         logger.info(
             "Accepted agent run: run_id=%s session_key=%s user_id=%s timeout_seconds=%s message_length=%s",
             run_id,
@@ -558,7 +650,7 @@ def create_router() -> APIRouter:
             request.timeout_seconds,
             len(request.message),
         )
-        
+
         # run
         ctx.active_runs[run_id] = {
             "status": "running",
@@ -580,6 +672,8 @@ def create_router() -> APIRouter:
             request.message,
             request.timeout_seconds,
             user_info,
+            request_cookies,
+            provider_config,
         )
         
         return AgentRunResponse(
@@ -664,7 +758,7 @@ def create_router() -> APIRouter:
     ) -> dict[str, Any]:
         """available Skills"""
         # Get executable skills (Python handlers)
-        executable_skills = ctx.skill_registry.snapshot()
+        executable_skills = ctx.skill_registry.snapshot_builtins()
         # Get markdown skills
         md_skills = ctx.skill_registry.md_snapshot()
         
@@ -917,11 +1011,115 @@ def create_router() -> APIRouter:
         }
     
     # ============================================================================
+    # Auth Login Flow
+    # ============================================================================
+
+    @router.post("/auth/local/login")
+    async def local_login(request: Request, body: LocalLoginRequest) -> Response:
+        """Authenticate local user, issue AtlasClaw JWT, and establish browser session."""
+        from ..auth.config import AuthConfig
+        from ..auth.providers.local import LocalAuthProvider
+
+        auth_config: AuthConfig = getattr(request.app.state.config, "auth", None)
+        if not auth_config or auth_config.provider.lower() != "local":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Local provider not configured",
+            )
+
+        jwt_cfg = auth_config.jwt.expanded()
+
+        provider = LocalAuthProvider()
+        try:
+            auth_result = await provider.authenticate(f"{body.username}:{body.password}")
+
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Local authentication failed: {exc}",
+            )
+
+        ctx = get_api_context()
+        key = SessionKey(
+            agent_id="main",
+            channel="web",
+            chat_type=SessionChatType.DM,
+            user_id=auth_result.subject,
+        )
+        session_key_str = key.to_string(scope=SessionScope.MAIN)
+        session = await ctx.session_manager.get_or_create(session_key_str)
+
+        roles = auth_result.roles if isinstance(auth_result.roles, list) else []
+        auth_type = auth_result.extra.get("auth_type", "local")
+        is_admin = _is_admin_from_roles(roles)
+
+        session.display_name = auth_result.display_name or body.username
+        if not isinstance(session.extra, dict):
+            session.extra = {}
+        session.extra["auth_type"] = auth_type
+        session.extra["roles"] = roles
+        session.extra["is_admin"] = is_admin
+
+        atlas_token = issue_atlas_token(
+            subject=auth_result.subject,
+            is_admin=is_admin,
+            roles=roles,
+            auth_type=auth_type,
+            secret_key=jwt_cfg.secret_key,
+            expires_minutes=jwt_cfg.expires_minutes,
+            issuer=jwt_cfg.issuer,
+        )
+
+        secure_cookie = request.url.scheme == "https"
+
+        response = JSONResponse(
+            content={
+                "success": True,
+                "user": {
+                    "id": auth_result.subject,
+                    "username": body.username,
+                    "display_name": auth_result.display_name or body.username,
+                    "auth_type": auth_type,
+                    "roles": roles,
+                    "is_admin": is_admin,
+                },
+                "session": {
+                    "key": session_key_str,
+                    "created_at": session.created_at.isoformat(),
+                },
+                "token": atlas_token,
+                "token_type": "Bearer",
+                "header_name": jwt_cfg.header_name,
+
+            }
+        )
+        response.set_cookie(
+            key="atlasclaw_session",
+            value=session_key_str,
+            path="/",
+            httponly=True,
+            secure=secure_cookie,
+            samesite="lax",
+        )
+        response.set_cookie(
+            key=jwt_cfg.cookie_name,
+            value=atlas_token,
+            path="/",
+            httponly=True,
+            secure=secure_cookie,
+            samesite="lax",
+        )
+
+        return response
+
+
+    # ============================================================================
     # SSO OIDC Login Flow
     # ============================================================================
-    
+
     @router.get("/auth/login")
     async def sso_login(request: Request):
+
         """Initiate OIDC SSO login flow with PKCE — redirects browser to IdP."""
         from ..auth.config import AuthConfig
         from ..auth.providers.oidc_sso import OIDCSSOProvider
@@ -1037,8 +1235,10 @@ def create_router() -> APIRouter:
             )
         
         oidc_config = auth_config.oidc.expanded()
-        
+        jwt_cfg = auth_config.jwt.expanded()
+
         # Create SSO provider
+
         provider = OIDCSSOProvider(
             issuer=oidc_config.issuer,
             client_id=oidc_config.client_id,
@@ -1074,38 +1274,46 @@ def create_router() -> APIRouter:
         session_key_str = key.to_string(scope=SessionScope.MAIN)
         session = await ctx.session_manager.get_or_create(session_key_str)
         
-        # Build response with session info
-        response_data = {
-            "status": "success",
-            "user": {
-                "id": auth_result.subject,
-                "name": auth_result.display_name,
-                "email": auth_result.email,
-                "roles": auth_result.roles,
-            },
-            "session": {
-                "key": session_key_str,
-                "created_at": session.created_at.isoformat(),
-            }
-        }
-        
-        # secure=True only for HTTPS deployments; HTTP (local dev) uses False
+        roles = auth_result.roles if isinstance(auth_result.roles, list) else []
+        auth_type = auth_result.extra.get("auth_type", "oidc")
+        is_admin = _is_admin_from_roles(roles)
+
+        if not isinstance(session.extra, dict):
+            session.extra = {}
+        session.extra["auth_type"] = auth_type
+        session.extra["roles"] = roles
+        session.extra["is_admin"] = is_admin
+
+        atlas_token = issue_atlas_token(
+            subject=auth_result.subject,
+            is_admin=is_admin,
+            roles=roles,
+            auth_type=auth_type,
+            secret_key=jwt_cfg.secret_key,
+            expires_minutes=jwt_cfg.expires_minutes,
+            issuer=jwt_cfg.issuer,
+        )
+
+
         _secure = oidc_config.redirect_uri.startswith("https://")
-        
-        # Redirect to home page after successful SSO login
+
         response = RedirectResponse(url="/", status_code=302)
-        
-        # Set session cookie (session key for session lookup)
         response.set_cookie(
             key="atlasclaw_session",
             value=session_key_str,
             httponly=True,
             secure=_secure,
             samesite="lax",
-            max_age=86400  # 24 hours
         )
-        
-        # Set auth token cookie so AuthMiddleware can validate subsequent requests
+        response.set_cookie(
+            key=jwt_cfg.cookie_name,
+            value=atlas_token,
+            httponly=True,
+            secure=_secure,
+            samesite="lax",
+        )
+
+
         if auth_result.raw_token:
             response.set_cookie(
                 key="CloudChef-Authenticate",
@@ -1113,53 +1321,163 @@ def create_router() -> APIRouter:
                 httponly=True,
                 secure=_secure,
                 samesite="lax",
-                max_age=86400
             )
-        
-        # Clear SSO cookies
+
+        if auth_result.id_token:
+            response.set_cookie(
+                key="oidc_id_token",
+                value=auth_result.id_token,
+                httponly=True,
+                secure=_secure,
+                samesite="lax",
+            )
+
         response.delete_cookie("sso_state")
         response.delete_cookie("pkce_verifier")
-        
+
         return response
     
     @router.get("/auth/me")
     async def auth_me(request: Request) -> dict[str, Any]:
-        """Get current authenticated user info."""
+        """Get current authenticated user info based on AtlasClaw JWT + session key."""
+        from ..auth.config import AuthConfig
+
+        auth_config: AuthConfig = getattr(request.app.state.config, "auth", None)
+        if not auth_config:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+            )
+
+        jwt_cfg = auth_config.jwt.expanded()
+
+        token = _extract_atlas_token_from_request(
+            request,
+            jwt_cfg.header_name,
+            jwt_cfg.cookie_name,
+        )
+
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+            )
+
+        try:
+            jwt_payload = verify_atlas_token(
+                token=token,
+                secret_key=jwt_cfg.secret_key,
+                issuer=jwt_cfg.issuer,
+            )
+
+        except AuthenticationError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Invalid token: {exc}",
+            ) from exc
+
         session_key = request.cookies.get("atlasclaw_session")
         if not session_key:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not authenticated"
+                detail="Session missing",
             )
-        
-        session_manager: SessionManager = request.app.state.session_manager
-        session = await session_manager.get(session_key)
+
+        ctx = get_api_context()
+        session = await ctx.session_manager.get_session(session_key)
         if not session:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session expired or invalid"
+                detail="Session expired or invalid",
             )
-        
+
+        parsed_key = SessionKey.from_string(session.session_key)
+        session_user_id = parsed_key.user_id or "default"
+        jwt_user_id = str(jwt_payload.get("sub", "")).strip() or "default"
+        if session_user_id != jwt_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session user mismatch",
+            )
+
+        roles = jwt_payload.get("roles", [])
+        if not isinstance(roles, list):
+            roles = []
+
         return {
-            "user_id": session.user_id,
-            "session_key": session.key,
-            "metadata": session.metadata,
+            "user_id": jwt_user_id,
+            "session_key": session.session_key,
+            "auth_type": str(jwt_payload.get("auth_type", "")),
+            "roles": roles,
+            "display_name": session.display_name or jwt_user_id,
+            "is_admin": bool(jwt_payload.get("is_admin", jwt_payload.get("admin", False))),
+            "login_time": jwt_payload.get("login_time", ""),
+            "metadata": session.to_dict(),
         }
-    
-    @router.post("/auth/logout")
-    async def auth_logout(request: Request) -> JSONResponse:
-        """Logout and clear session."""
+
+
+
+
+
+    @router.get("/auth/logout")
+    async def auth_logout(request: Request, redirect: bool = True) -> Response:
+        """
+        Logout and clear session.
+
+        Args:
+            redirect: If True (default), redirect to IdP logout for single logout.
+                     Set to False for AJAX/API calls that just need local logout.
+        """
+        from ..auth.config import AuthConfig
+
         session_key = request.cookies.get("atlasclaw_session")
-        
+
         if session_key:
-            session_manager: SessionManager = request.app.state.session_manager
-            await session_manager.delete(session_key)
-        
-        response = JSONResponse(content={"status": "logged_out"})
+            ctx = get_api_context()
+            await ctx.session_manager.delete_session(session_key)
+
+        # Check if OIDC with end_session_endpoint is configured
+        auth_config: AuthConfig = request.app.state.config.auth
+        idp_logout_url = None
+        if (
+                auth_config
+                and auth_config.provider == "oidc"
+                and redirect
+        ):
+            oidc_config = auth_config.oidc.expanded()
+            if oidc_config.end_session_endpoint:
+                # Build Keycloak logout URL
+                # After Keycloak logout, redirect back to our SSO login to re-authenticate
+                post_logout_uri = str(request.base_url).rstrip("/") + "/api/auth/login"
+                id_token_hint = request.cookies.get("oidc_id_token", "")
+                logout_params = (
+                    f"?post_logout_redirect_uri={post_logout_uri}"
+                    f"&client_id={oidc_config.client_id}"
+                )
+                if id_token_hint:
+                    logout_params += f"&id_token_hint={id_token_hint}"
+                idp_logout_url = f"{oidc_config.end_session_endpoint}{logout_params}"
+
+        if idp_logout_url:
+            # Redirect to IdP logout for single logout
+            response = RedirectResponse(url=idp_logout_url, status_code=302)
+        else:
+            # Local logout only
+            response = JSONResponse(content={"status": "logged_out"})
+
+        # Always clear local cookies
         response.delete_cookie("atlasclaw_session")
+        if auth_config and getattr(auth_config, "jwt", None):
+            response.delete_cookie(auth_config.jwt.expanded().cookie_name)
+
+        response.delete_cookie("AtlasClaw-Authenticate")
+        response.delete_cookie("CloudChef-Authenticate")
+        response.delete_cookie("oidc_id_token")
         response.delete_cookie("sso_state")
         response.delete_cookie("pkce_verifier")
-        
+
+
         return response
-        
+
     return router
+

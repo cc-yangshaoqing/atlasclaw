@@ -6,5 +6,8 @@ from __future__ import annotations
 from .websocket import WebSocketHandler
 from .sse import SSEHandler
 from .rest import RESTHandler
+from .feishu import FeishuHandler
+from .dingtalk import DingTalkHandler
+from .wecom import WeComHandler
 
-__all__ = ["WebSocketHandler", "SSEHandler", "RESTHandler"]
+__all__ = ["WebSocketHandler", "SSEHandler", "RESTHandler", "FeishuHandler", "DingTalkHandler", "WeComHandler"]

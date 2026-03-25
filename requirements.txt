@@ -9,6 +9,19 @@ sse-starlette>=2.0.0
 httpx>=0.26.0
 aiofiles>=23.2.0
 
+# Database
+sqlalchemy[asyncio]>=2.0
+aiosqlite>=0.19.0
+aiomysql>=0.2.0
+alembic>=1.13.0
+cryptography>=42.0.0
+bcrypt>=4.1.0
+
+# Enterprise Messaging SDKs
+lark-oapi>=1.5.0
+dingtalk-stream>=0.24.0
+wecom-aibot-sdk>=1.0.0
+
 # Testing
 pytest>=8.0.0
 pytest-asyncio>=0.23.0

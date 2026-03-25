@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title data-i18n="login.title">AtlasClaw Login</title>
+  <link rel="stylesheet" href="/styles/login.css">
+</head>
+<body>
+  <main class="login-page">
+    <section class="login-card">
+      <header class="login-header">
+        <img
+          class="logo"
+          src="https://placehold.co/56x56/667eea/ffffff?text=A"
+          alt="AtlasClaw"
+          onerror="this.style.display='none'"
+        >
+        <h1 data-i18n="login.welcome">Welcome</h1>
+      </header>
+
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="username" data-i18n="login.username">Username</label>
+          <input id="username" name="username" autocomplete="username" required>
+        </div>
+        <div class="form-group">
+          <label for="password" data-i18n="login.password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+        </div>
+        <button id="submitBtn" class="login-btn" type="submit" data-i18n="login.submit">Login</button>
+        <p id="errorMessage" class="error-message"></p>
+      </form>
+
+    </section>
+  </main>
+
+  <script type="module">
+    import { checkAuth, login } from '/scripts/auth.js'
+    import { initI18n, t, updatePageTranslations } from '/scripts/i18n.js'
+
+    // Initialize i18n first
+    await initI18n()
+    updatePageTranslations()
+
+    const form = document.getElementById('loginForm')
+    const submitBtn = document.getElementById('submitBtn')
+    const errorMessage = document.getElementById('errorMessage')
+    const params = new URLSearchParams(window.location.search)
+    const redirect = params.get('redirect') || '/'
+
+    const already = await checkAuth({ redirect: false })
+    if (already) {
+      window.location.href = redirect
+    }
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault()
+      errorMessage.textContent = ''
+
+      const username = form.username.value.trim()
+      const password = form.password.value
+      if (!username || !password) {
+        errorMessage.textContent = t('login.emptyFields')
+        return
+      }
+
+      try {
+        submitBtn.disabled = true
+        submitBtn.textContent = t('login.submitting')
+        await login(username, password)
+        window.location.href = redirect
+      } catch (error) {
+        errorMessage.textContent = error?.message || t('login.failed')
+      } finally {
+        submitBtn.disabled = false
+        submitBtn.textContent = t('login.submit')
+      }
+    })
+  </script>
+</body>
+</html>

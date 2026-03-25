@@ -4,17 +4,18 @@
 from __future__ import annotations
 
 import logging
-import uuid
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.atlasclaw.channels.manager import ChannelManager
-from app.atlasclaw.channels.models import ChannelConnection
 from app.atlasclaw.channels.registry import ChannelRegistry
+from app.atlasclaw.db import get_db_session
+from app.atlasclaw.db.orm.channel_config import ChannelConfigService
+from app.atlasclaw.db.schemas import ChannelCreate, ChannelUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,7 @@ class ValidationResponse(BaseModel):
 @router.get("")
 async def list_channel_types(
     request: Request,
-    manager: ChannelManager = Depends(get_channel_manager)
+    session: AsyncSession = Depends(get_db_session)
 ) -> List[ChannelTypeResponse]:
     """List all available channel types with connection counts.
     
@@ -107,8 +108,10 @@ async def list_channel_types(
     
     result = []
     for channel in channels:
-        # Count connections for this channel type
-        connections = manager.store.get_connections(user_id, channel["type"])
+        # Count connections for this channel type from database
+        connections, _ = await ChannelConfigService.list_all(
+            session, user_id=user_id, channel_type=channel["type"]
+        )
         
         result.append(ChannelTypeResponse(
             type=channel["type"],
@@ -152,7 +155,7 @@ async def get_channel_schema(channel_type: str) -> Dict[str, Any]:
 async def list_connections(
     channel_type: str,
     request: Request,
-    manager: ChannelManager = Depends(get_channel_manager)
+    session: AsyncSession = Depends(get_db_session)
 ) -> Dict[str, Any]:
     """List all connections for a channel type.
     
@@ -168,19 +171,14 @@ async def list_connections(
     if not handler_class:
         raise HTTPException(status_code=404, detail=f"Channel type not found: {channel_type}")
     
-    connections = manager.store.get_connections(user_id, channel_type)
+    connections = await ChannelConfigService.list_by_user_and_type(
+        session, user_id, channel_type
+    )
     
     return {
         "channel_type": channel_type,
         "connections": [
-            {
-                "id": conn.id,
-                "name": conn.name,
-                "channel_type": conn.channel_type,
-                "config": conn.config,
-                "enabled": conn.enabled,
-                "is_default": conn.is_default,
-            }
+            ChannelConfigService.to_channel_config(conn)
             for conn in connections
         ]
     }
@@ -191,7 +189,7 @@ async def create_connection(
     channel_type: str,
     data: ConnectionCreateRequest,
     request: Request,
-    manager: ChannelManager = Depends(get_channel_manager)
+    session: AsyncSession = Depends(get_db_session)
 ) -> ConnectionResponse:
     """Create a new channel connection.
     
@@ -208,28 +206,25 @@ async def create_connection(
     if not handler_class:
         raise HTTPException(status_code=404, detail=f"Channel type not found: {channel_type}")
     
-    # Generate unique ID
-    connection_id = f"{channel_type}-{uuid.uuid4().hex[:8]}"
-    
-    connection = ChannelConnection(
-        id=connection_id,
+    # Create channel config in database
+    channel_data = ChannelCreate(
+        user_id=user_id,
         name=data.name,
-        channel_type=channel_type,
+        type=channel_type,
         config=data.config,
-        enabled=data.enabled,
+        is_active=data.enabled,
         is_default=data.is_default,
     )
     
-    if not manager.store.save_connection(user_id, channel_type, connection):
-        raise HTTPException(status_code=500, detail="Failed to save connection")
+    channel = await ChannelConfigService.create(session, channel_data)
     
     return ConnectionResponse(
-        id=connection.id,
-        name=connection.name,
-        channel_type=connection.channel_type,
-        config=connection.config,
-        enabled=connection.enabled,
-        is_default=connection.is_default,
+        id=channel.id,
+        name=channel.name,
+        channel_type=channel.type,
+        config=channel.config or {},
+        enabled=channel.is_active,
+        is_default=channel.is_default,
     )
 
 
@@ -239,7 +234,7 @@ async def update_connection(
     connection_id: str,
     data: ConnectionUpdateRequest,
     request: Request,
-    manager: ChannelManager = Depends(get_channel_manager)
+    session: AsyncSession = Depends(get_db_session)
 ) -> ConnectionResponse:
     """Update an existing channel connection.
     
@@ -253,30 +248,30 @@ async def update_connection(
     """
     user_id = get_current_user_id(request)
     
-    connection = manager.store.get_connection(user_id, channel_type, connection_id)
-    if not connection:
+    channel = await ChannelConfigService.get_by_id(session, connection_id)
+    if not channel or channel.user_id != user_id or channel.type != channel_type:
         raise HTTPException(status_code=404, detail=f"Connection not found: {connection_id}")
     
-    # Update fields
+    # Build update data
+    update_data = ChannelUpdate()
     if data.name is not None:
-        connection.name = data.name
+        update_data.name = data.name
     if data.config is not None:
-        connection.config = data.config
+        update_data.config = data.config
     if data.enabled is not None:
-        connection.enabled = data.enabled
+        update_data.is_active = data.enabled
     if data.is_default is not None:
-        connection.is_default = data.is_default
+        update_data.is_default = data.is_default
     
-    if not manager.store.save_connection(user_id, channel_type, connection):
-        raise HTTPException(status_code=500, detail="Failed to update connection")
+    channel = await ChannelConfigService.update(session, connection_id, update_data)
     
     return ConnectionResponse(
-        id=connection.id,
-        name=connection.name,
-        channel_type=connection.channel_type,
-        config=connection.config,
-        enabled=connection.enabled,
-        is_default=connection.is_default,
+        id=channel.id,
+        name=channel.name,
+        channel_type=channel.type,
+        config=channel.config or {},
+        enabled=channel.is_active,
+        is_default=channel.is_default,
     )
 
 
@@ -285,7 +280,8 @@ async def delete_connection(
     channel_type: str,
     connection_id: str,
     request: Request,
-    manager: ChannelManager = Depends(get_channel_manager)
+    manager: ChannelManager = Depends(get_channel_manager),
+    session: AsyncSession = Depends(get_db_session)
 ) -> JSONResponse:
     """Delete a channel connection.
     
@@ -298,10 +294,16 @@ async def delete_connection(
     """
     user_id = get_current_user_id(request)
     
+    # Verify ownership
+    channel = await ChannelConfigService.get_by_id(session, connection_id)
+    if not channel or channel.user_id != user_id or channel.type != channel_type:
+        raise HTTPException(status_code=404, detail=f"Connection not found: {connection_id}")
+    
     # Stop connection if active
     await manager.stop_connection(user_id, channel_type, connection_id)
     
-    if not manager.store.delete_connection(user_id, channel_type, connection_id):
+    # Delete from database
+    if not await ChannelConfigService.delete(session, connection_id):
         raise HTTPException(status_code=404, detail=f"Connection not found: {connection_id}")
     
     return JSONResponse(content={"status": "ok", "message": "Connection deleted"})
@@ -312,7 +314,7 @@ async def verify_connection(
     channel_type: str,
     connection_id: str,
     request: Request,
-    manager: ChannelManager = Depends(get_channel_manager)
+    session: AsyncSession = Depends(get_db_session)
 ) -> ValidationResponse:
     """Verify a connection's configuration.
     
@@ -325,8 +327,8 @@ async def verify_connection(
     """
     user_id = get_current_user_id(request)
     
-    connection = manager.store.get_connection(user_id, channel_type, connection_id)
-    if not connection:
+    channel = await ChannelConfigService.get_by_id(session, connection_id)
+    if not channel or channel.user_id != user_id or channel.type != channel_type:
         raise HTTPException(status_code=404, detail=f"Connection not found: {connection_id}")
     
     handler_class = ChannelRegistry.get(channel_type)
@@ -335,8 +337,9 @@ async def verify_connection(
     
     # Create handler instance and validate
     try:
-        handler = handler_class(connection.config)
-        result = await handler.validate_config(connection.config)
+        config = channel.config or {}
+        handler = handler_class(config)
+        result = await handler.validate_config(config)
         return ValidationResponse(valid=result.valid, errors=result.errors)
     except Exception as e:
         logger.error(f"Validation failed for {connection_id}: {e}")

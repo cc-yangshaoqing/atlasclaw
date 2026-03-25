@@ -4,7 +4,7 @@
  */
 
 const DEFAULT_CONFIG = {
-    apiBaseUrl: 'http://127.0.0.1:8000'
+    apiBaseUrl: ''
 };
 
 let config = { ...DEFAULT_CONFIG };
@@ -56,10 +56,26 @@ export function getApiBaseUrl() {
  * @returns {string} Full URL
  */
 export function buildApiUrl(path) {
-    const base = config.apiBaseUrl.replace(/\/$/, '');
     const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    const baseRaw = String(config.apiBaseUrl || '').trim();
+    if (!baseRaw) {
+        return cleanPath;
+    }
+
+    try {
+        const target = new URL(baseRaw, window.location.origin);
+        if (target.origin !== window.location.origin) {
+            console.warn('[Config] Cross-origin apiBaseUrl detected, fallback to same-origin:', target.origin);
+            return cleanPath;
+        }
+    } catch (_error) {
+        return cleanPath;
+    }
+
+    const base = baseRaw.replace(/\/$/, '');
     return `${base}${cleanPath}`;
 }
+
 
 export default {
     loadConfig,

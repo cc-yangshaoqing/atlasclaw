@@ -1,7 +1,9 @@
-﻿# AtlasClaw
-
 > [!NOTE]
-> This repository contains the AtlasClaw core implementation, including the agent runtime, API layer, channel adapters, provider registry, skills, tools, and session/memory management.
+> This repository contains the AtlasClaw core implementation, including the agent runtime, API layer, channel adapters, provider registry, skills, tools, and session/memory management，see [atlasclaw.ai](https://atlasclaw.ai/).
+
+# AtlasClaw
+
+![AtlasClaw logo](docs/images/atlasclaw-logo.png)
 
 AtlasClaw is an enterprise agent framework that lets employees interact with multiple enterprise systems through one conversational AI interface. Instead of switching between separate consoles, dashboards, and approval portals, users can use natural language to trigger workflows, query operational data, and complete cross-system tasks from a single entry point.
 
@@ -227,7 +229,7 @@ npm test
 - Entry point: `app/atlasclaw/main.py` - FastAPI application with lifespan management
 - The API surface lives under `app/atlasclaw/api/`
 - Core orchestration logic lives under `app/atlasclaw/agent/`, `app/atlasclaw/workflow/`, and `app/atlasclaw/tools/`
-- Provider integrations are loaded from `providers_root` (for example `../atlasclaw-providers/providers/`)
+- Provider integrations are loaded from `providers_root` (default: `../providers`)
 
 If you are integrating AtlasClaw into a host service, start by wiring the API layer, execution context, provider registry, and session manager together in your application bootstrap.
 

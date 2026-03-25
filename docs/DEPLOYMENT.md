@@ -1,542 +1,320 @@
-# AtlasClaw-Core Deployment Guide
+# AtlasClaw Enterprise Deployment Guide
 
-## Table of Contents
-
-1. [Prerequisites](#prerequisites)
-2. [Installation](#installation)
-3. [Configuration](#configuration)
-4. [Running the Application](#running-the-application)
-5. [Docker Deployment](#docker-deployment)
-6. [Production Deployment](#production-deployment)
-7. [Environment Variables](#environment-variables)
-8. [Troubleshooting](#troubleshooting)
+> **For Enterprise Customers**: This guide provides instructions for deploying AtlasClaw using Docker Compose with MySQL 8.5.
 
 ---
 
 ## Prerequisites
 
-### System Requirements
-
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
-| CPU | 2 cores | 4+ cores |
-| RAM | 4 GB | 8+ GB |
-| Disk | 10 GB | 50+ GB SSD |
-| Python | 3.10+ | 3.11+ |
-
-### Required Software
-
-- Python 3.10 or higher
-- pip or uv (Python package manager)
-- Git
-
-### Optional Software
-
-- Docker and Docker Compose
-- Nginx or Apache (for reverse proxy)
-- Redis (for caching)
+| CPU | 4 cores | 8+ cores |
+| RAM | 8 GB | 16+ GB |
+| Disk | 50 GB SSD | 200+ GB SSD |
+| Docker | 20.10+ | Latest |
+| Docker Compose | 2.0+ | Latest |
+| MySQL | 8.5 LTS | 8.5 LTS |
 
 ---
 
-## Installation
+## Quick Start
 
-### 1. Clone the Repository
-
-```bash
-git clone <repository-url>
-cd AtlasClaw-Core
-```
-
-### 2. Create Virtual Environment
+### 1. Prepare Directory Structure
 
 ```bash
-# Using venv
-python -m venv venv
-
-# Activate on Windows
-venv\Scripts\activate
-
-# Activate on Linux/macOS
-source venv/bin/activate
+mkdir -p /opt/atlasclaw/{config,data,logs,backups}
+cd /opt/atlasclaw
 ```
 
-### 3. Install Dependencies
+### 2. Create Configuration File
 
-```bash
-# Using pip
-pip install -r requirements.txt
-
-# Using uv (faster)
-uv pip install -r requirements.txt
-```
-
-### 4. Verify Installation
-
-```bash
-python -c "import app.atlasclaw; print('Installation successful')"
-```
-
----
-
-## Configuration
-
-### 1. Create Configuration File
-
-Copy the example configuration:
-
-```bash
-cp atlasclaw.json.example atlasclaw.json
-```
-
-### 2. Configure LLM Provider
-
-Edit `atlasclaw.json`:
+Create `/opt/atlasclaw/config/atlasclaw.json`:
 
 ```json
 {
+  "workspace": {
+    "path": "./data"
+  },
+  "database": {
+    "type": "mysql",
+    "mysql": {
+      "host": "mysql",
+      "port": 3306,
+      "database": "atlasclaw",
+      "user": "atlasclaw",
+      "password": "change-to-secure-password",
+      "charset": "utf8mb4"
+    },
+    "pool_size": 20,
+    "max_overflow": 30
+  },
   "model": {
-    "primary": "deepseek/deepseek-chat",
+    "primary": "deepseek-main",
     "fallbacks": [],
-    "temperature": 0.7,
-    "providers": {
-      "deepseek": {
+    "temperature": 0.2,
+    "selection_strategy": "health",
+    "tokens": [
+      {
+        "id": "deepseek-main",
+        "provider": "deepseek",
+        "model": "deepseek-chat",
         "base_url": "https://api.deepseek.com",
-        "api_key": "${DEEPSEEK_API_KEY}",
-        "api_type": "openai"
+        "api_key": "your-api-key-here",
+        "api_type": "openai",
+        "priority": 100,
+        "weight": 100
+      }
+    ]
+  },
+  "service_providers": {},
+  "auth": {
+    "provider": "api_key",
+    "api_key": {
+      "keys": {
+        "sk-production-key": {
+          "user_id": "admin",
+          "roles": ["admin"]
+        }
       }
     }
   }
 }
 ```
 
-### 3. Configure Service Providers (Optional)
+### 3. Create Docker Compose File
 
-Add Jira, ServiceNow, or other providers:
-
-```json
-{
-  "service_providers": {
-    "jira": {
-      "dev": {
-        "base_url": "https://jira.company.com",
-        "username": "${JIRA_USERNAME}",
-        "password": "${JIRA_PASSWORD}",
-        "api_version": "2",
-        "default_project": "PROJ"
-      }
-    }
-  }
-}
-```
-
-### 4. Environment Variables
-
-Create `.env` file:
-
-```bash
-# LLM API Keys
-DEEPSEEK_API_KEY=your-api-key-here
-
-# Jira Credentials
-JIRA_USERNAME=your-username
-JIRA_PASSWORD=your-password
-
-# Optional: Custom config path
-ATLASCLAW_CONFIG=/path/to/atlasclaw.json
-```
-
----
-
-## Running the Application
-
-### Development Mode
-
-```bash
-# Set environment variables (Windows PowerShell)
-$env:NO_PROXY="*"
-$env:ATLASCLAW_CONFIG="atlasclaw.json"
-
-# Run development server
-uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### Production Mode
-
-```bash
-# Set environment variables
-export NO_PROXY="*"
-export ATLASCLAW_CONFIG="atlasclaw.json"
-
-# Run with multiple workers
-uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8000 --workers 4
-```
-
-### Using Gunicorn
-
-```bash
-gunicorn app.atlasclaw.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
-```
-
-### Verify Deployment
-
-```bash
-# Health check
-curl http://localhost:8000/api/health
-
-# Expected response:
-# {"status": "healthy"}
-```
-
----
-
-## Docker Deployment
-
-### 1. Build Docker Image
-
-```dockerfile
-# Dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application
-COPY . .
-
-# Expose port
-EXPOSE 8000
-
-# Run application
-CMD ["uvicorn", "app.atlasclaw.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-Build:
-
-```bash
-docker build -t atlasclaw-core .
-```
-
-### 2. Run Container
-
-```bash
-docker run -d \
-  --name atlasclaw \
-  -p 8000:8000 \
-  -v $(pwd)/atlasclaw.json:/app/atlasclaw.json \
-  -e DEEPSEEK_API_KEY=your-api-key \
-  atlasclaw-core
-```
-
-### 3. Docker Compose
+Create `/opt/atlasclaw/docker-compose.yml`:
 
 ```yaml
-# docker-compose.yml
 version: '3.8'
 
 services:
   atlasclaw:
-    build: .
-    container_name: atlasclaw-core
+    image: atlasclaw-core:latest
+    container_name: atlasclaw
     ports:
       - "8000:8000"
-    environment:
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - JIRA_USERNAME=${JIRA_USERNAME}
-      - JIRA_PASSWORD=${JIRA_PASSWORD}
     volumes:
-      - ./atlasclaw.json:/app/atlasclaw.json
+      - ./config/atlasclaw.json:/app/atlasclaw.json:ro
       - ./data:/app/data
-    restart: unless-stopped
-
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./logs:/app/logs
     depends_on:
-      - atlasclaw
+      mysql:
+        condition: service_healthy
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  mysql:
+    image: mysql:8.5
+    container_name: atlasclaw-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: change-to-secure-root-password
+      MYSQL_DATABASE: atlasclaw
+      MYSQL_USER: atlasclaw
+      MYSQL_PASSWORD: change-to-secure-password
+    volumes:
+      - ./mysql-data:/var/lib/mysql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-pchange-to-secure-root-password"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
 ```
 
-Run:
+### 4. Start Services
 
 ```bash
+cd /opt/atlasclaw
 docker-compose up -d
 ```
 
----
-
-## Production Deployment
-
-### 1. Nginx Reverse Proxy
-
-```nginx
-# nginx.conf
-server {
-    listen 80;
-    server_name your-domain.com;
-
-    location / {
-        proxy_pass http://localhost:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-
-    location /api/agent/runs/ {
-        proxy_pass http://localhost:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Connection '';
-        proxy_buffering off;
-        proxy_cache off;
-    }
-}
-```
-
-### 2. SSL/TLS with Let's Encrypt
+### 5. Run Database Migrations
 
 ```bash
-# Install certbot
-sudo apt-get install certbot python3-certbot-nginx
-
-# Obtain certificate
-sudo certbot --nginx -d your-domain.com
+docker-compose exec atlasclaw alembic upgrade head
 ```
 
-### 3. Systemd Service
-
-```ini
-# /etc/systemd/system/atlasclaw.service
-[Unit]
-Description=AtlasClaw Core Service
-After=network.target
-
-[Service]
-Type=simple
-User=atlasclaw
-Group=atlasclaw
-WorkingDirectory=/opt/atlasclaw/AtlasClaw-Core
-Environment="PATH=/opt/atlasclaw/venv/bin"
-Environment="NO_PROXY=*"
-Environment="ATLASCLAW_CONFIG=/opt/atlasclaw/AtlasClaw-Core/atlasclaw.json"
-ExecStart=/opt/atlasclaw/venv/bin/uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8000 --workers 4
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
+### 6. Verify Deployment
 
 ```bash
-sudo systemctl daemon-reload
-sudo systemctl enable atlasclaw
-sudo systemctl start atlasclaw
-sudo systemctl status atlasclaw
-```
+# Check container status
+docker-compose ps
 
-### 4. Log Rotation
-
-```bash
-# /etc/logrotate.d/atlasclaw
-/opt/atlasclaw/logs/*.log {
-    daily
-    rotate 14
-    compress
-    delaycompress
-    missingok
-    notifempty
-    create 0644 atlasclaw atlasclaw
-    sharedscripts
-    postrotate
-        systemctl reload atlasclaw
-    endscript
-}
+# Health check
+curl http://localhost:8000/api/health
+# Expected: {"status": "healthy", "timestamp": "..."}
 ```
 
 ---
 
-## Environment Variables
+## Configuration Reference
 
-### Core Variables
+### Database
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ATLASCLAW_CONFIG` | Path to configuration file | `atlasclaw.json` |
-| `NO_PROXY` | Proxy bypass | `*` |
-| `LOG_LEVEL` | Logging level | `INFO` |
+```json
+{
+  "database": {
+    "type": "mysql",
+    "mysql": {
+      "host": "mysql",
+      "port": 3306,
+      "database": "atlasclaw",
+      "user": "atlasclaw",
+      "password": "secure-password",
+      "charset": "utf8mb4"
+    },
+    "pool_size": 20,
+    "max_overflow": 30
+  }
+}
+```
 
-### LLM Provider Variables
+### LLM Provider
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `DEEPSEEK_API_KEY` | DeepSeek API key | Yes |
-| `ANTHROPIC_API_KEY` | Anthropic API key | Optional |
-| `OPENAI_API_KEY` | OpenAI API key | Optional |
+```json
+{
+  "model": {
+    "primary": "deepseek-main",
+    "fallbacks": [],
+    "temperature": 0.2,
+    "tokens": [
+      {
+        "id": "deepseek-main",
+        "provider": "deepseek",
+        "model": "deepseek-chat",
+        "base_url": "https://api.deepseek.com",
+        "api_key": "your-api-key",
+        "api_type": "openai"
+      }
+    ]
+  }
+}
+```
 
-### Service Provider Variables
+### Authentication
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `JIRA_USERNAME` | Jira username | Optional |
-| `JIRA_PASSWORD` | Jira password | Optional |
-| `SERVICENOW_INSTANCE` | ServiceNow instance | Optional |
-| `SERVICENOW_USERNAME` | ServiceNow username | Optional |
-| `SERVICENOW_PASSWORD` | ServiceNow password | Optional |
+**API Key:**
+```json
+{
+  "auth": {
+    "provider": "api_key",
+    "api_key": {
+      "keys": {
+        "sk-your-key": {
+          "user_id": "admin",
+          "roles": ["admin"]
+        }
+      }
+    }
+  }
+}
+```
 
-### Security Variables
+**OIDC/OAuth2:**
+```json
+{
+  "auth": {
+    "provider": "oidc",
+    "oidc": {
+      "issuer": "https://auth.company.com",
+      "client_id": "atlasclaw-client",
+      "client_secret": "client-secret",
+      "redirect_uri": "https://atlasclaw.company.com/api/auth/callback"
+    }
+  }
+}
+```
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `SECRET_KEY` | Application secret key | Random |
-| `ALLOWED_HOSTS` | Allowed hostnames | `*` |
-| `CORS_ORIGINS` | CORS allowed origins | `*` |
+---
+
+## Operations
+
+### View Logs
+
+```bash
+docker-compose logs -f atlasclaw
+docker-compose logs -f mysql
+```
+
+### Backup
+
+```bash
+#!/bin/bash
+# /opt/atlasclaw/backup.sh
+
+DATE=$(date +%Y%m%d_%H%M%S)
+
+# Backup database
+docker exec atlasclaw-mysql mysqldump -u root -p'root-password' atlasclaw | gzip > ./backups/atlasclaw_${DATE}.sql.gz
+
+# Backup config and data
+tar -czf ./backups/atlasclaw_data_${DATE}.tar.gz ./config ./data
+
+# Keep only last 30 days
+find ./backups -name "*.gz" -mtime +30 -delete
+```
+
+### Update
+
+```bash
+# Pull latest image
+docker-compose pull atlasclaw
+
+# Restart with migrations
+docker-compose up -d
+docker-compose exec atlasclaw alembic upgrade head
+```
+
+### Stop
+
+```bash
+docker-compose down
+```
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
-
-#### 1. Port Already in Use
+### Service Not Starting
 
 ```bash
-# Find process using port 8000
-lsof -i :8000
-
-# Kill process
-kill -9 <PID>
-
-# Or use different port
-uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8080
-```
-
-#### 2. Permission Denied
-
-```bash
-# Fix permissions
-sudo chown -R $USER:$USER /opt/atlasclaw
-chmod -R 755 /opt/atlasclaw
-```
-
-#### 3. Module Not Found
-
-```bash
-# Reinstall dependencies
-pip install -r requirements.txt --force-reinstall
-```
-
-#### 4. Configuration Not Loading
-
-```bash
-# Verify config path
-echo $ATLASCLAW_CONFIG
+# Check logs
+docker-compose logs atlasclaw
 
 # Check config syntax
-python -c "import json; json.load(open('atlasclaw.json'))"
+docker-compose exec atlasclaw python -c "import json; json.load(open('atlasclaw.json'))"
 ```
 
-#### 5. LLM API Errors
+### Database Connection Failed
 
 ```bash
-# Test API connectivity
-curl -H "Authorization: Bearer $DEEPSEEK_API_KEY" \
-  https://api.deepseek.com/v1/models
-```
+# Check MySQL is healthy
+docker-compose ps mysql
 
-### Debug Mode
-
-```bash
-# Enable debug logging
-export LOG_LEVEL=DEBUG
-uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-### Health Check Script
-
-```bash
-#!/bin/bash
-# health-check.sh
-
-HEALTH_URL="http://localhost:8000/api/health"
-RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL)
-
-if [ $RESPONSE -eq 200 ]; then
-    echo "✓ AtlasClaw is healthy"
-    exit 0
-else
-    echo "✗ AtlasClaw is unhealthy (HTTP $RESPONSE)"
-    exit 1
-fi
-```
-
-### Backup and Restore
-
-```bash
-# Backup data
-tar -czf atlasclaw-backup-$(date +%Y%m%d).tar.gz \
-  ~/.atlasclaw \
-  atlasclaw.json
-
-# Restore data
-tar -xzf atlasclaw-backup-20240310.tar.gz -C /
+# Test connection manually
+docker-compose exec mysql mysql -u atlasclaw -p -e "SELECT 1"
 ```
 
 ---
 
-## Monitoring
+## Security Notes
 
-### Prometheus Metrics (Optional)
-
-Add to `atlasclaw.json`:
-
-```json
-{
-  "monitoring": {
-    "enabled": true,
-    "metrics_port": 9090
-  }
-}
-```
-
-### Health Check Endpoint
-
-```bash
-# Basic health check
-curl http://localhost:8000/api/health
-
-# Detailed health check
-curl http://localhost:8000/api/health?detailed=true
-```
+1. Change all default passwords in `atlasclaw.json` and `docker-compose.yml`
+2. Restrict file permissions: `chmod 600 config/atlasclaw.json`
+3. Use HTTPS in production (place a reverse proxy in front)
+4. Regularly backup data directory and database
 
 ---
 
-## Security Best Practices
-
-1. **Never commit secrets** to version control
-2. **Use environment variables** for sensitive data
-3. **Enable HTTPS** in production
-4. **Set up firewall rules** to restrict access
-5. **Regularly update dependencies**
-6. **Use strong authentication** for admin access
-7. **Monitor logs** for suspicious activity
-
----
-
-## Next Steps
-
-- [Configure Skills](../README.md#skills)
-- [Set up Authentication](../README.md#authentication)
-- [Customize UI](../app/frontend/README.md)
-- [Add Providers](../openspec/AGENTS.md)
+For detailed configuration options, refer to `atlasclaw.json.example` in the source repository.

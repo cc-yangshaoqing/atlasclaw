@@ -40,10 +40,15 @@ def create_provider(config: AuthConfig) -> AuthProvider:
         from app.atlasclaw.auth.providers.api_key import APIKeyProvider
         return APIKeyProvider(keys=config.api_key.keys)
 
+    if provider_type == "local":
+        from app.atlasclaw.auth.providers.local import LocalAuthProvider
+        return LocalAuthProvider()
+
     raise ValueError(
         f"Unknown auth provider: {config.provider!r}. "
-        "Supported values: 'none', 'smartcmp', 'oidc', 'api_key'."
+        "Supported values: 'none', 'smartcmp', 'oidc', 'api_key', 'local'."
     )
+
 
 
 __all__ = ["create_provider"]

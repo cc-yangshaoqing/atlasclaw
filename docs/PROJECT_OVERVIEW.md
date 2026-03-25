@@ -1,5 +1,8 @@
 # AtlasClaw-Core Project Overview
 
+> **DEPRECATED**: This document has been superseded by [Architecture](./ARCHITECTURE.MD).
+> Please refer to the canonical architecture document for up-to-date information.
+
 ## Introduction
 
 **AtlasClaw** is an enterprise-grade AI Agent framework designed to enable employees to interact with multiple enterprise systems through a unified conversational AI interface. It addresses the fragmentation challenges faced by enterprise software teams working across CRM, ITSM, monitoring, HR, finance, and other systems.
@@ -88,6 +91,9 @@ AtlasClaw-Core/
 │       ├── skills/            # Skills system
 │       ├── tools/             # Built-in tools
 │       └── workflow/          # Workflow engine
+├── providers/                 # External providers (default: ../providers)
+├── skills/                    # Standalone skills (default: ../skills)
+├── channels/                  # System-level channel configs (default: ../channels)
 ├── tests/                     # Test suite
 ├── docs/                      # Documentation
 └── openspec/                  # OpenSpec specifications
@@ -269,13 +275,29 @@ class HookPhase(str, Enum):
 Providers are the primary extension point:
 
 ```
-providers/<provider-name>/
+providers/<provider-name>/          # External directory (providers_root)
 ├── PROVIDER.md           # Provider documentation
 ├── README.md             # Description
 └── skills/
     └── <skill-name>/
         ├── SKILL.md      # Skill definition
         └── scripts/      # Execution scripts
+
+skills/<skill-name>/               # Standalone skills (skills_root)
+├── SKILL.md
+└── scripts/
+
+channels/<channel-name>/           # System-level channels (channels_root)
+└── config.json
+
+<workspace>/                       # User data only (default: ./.atlasclaw)
+├── atlasclaw.json               # Core configuration
+├── agents/
+└── users/
+    └── <user_id>/
+        ├── user_setting.json    # User config
+        ├── sessions/
+        └── memory/
 ```
 
 ### Skills Extension

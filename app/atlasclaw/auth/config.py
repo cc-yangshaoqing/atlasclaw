@@ -38,14 +38,17 @@ class OIDCAuthConfig(BaseModel):
     client_secret: str = ""
     jwks_uri: str = ""
     scopes: list[str] = ["openid", "profile", "email"]
-    
+    ocbc_enabled: bool = True
+
     # SSO login flow settings
     authorization_endpoint: str = ""
     token_endpoint: str = ""
     userinfo_endpoint: str = ""
     redirect_uri: str = ""
+    end_session_endpoint: str = ""  # Keycloak logout URL
     pkce_enabled: bool = True
     pkce_method: str = "S256"
+
 
     def expanded(self) -> "OIDCAuthConfig":
         return OIDCAuthConfig(
@@ -54,13 +57,16 @@ class OIDCAuthConfig(BaseModel):
             client_secret=expand_env(self.client_secret),
             jwks_uri=expand_env(self.jwks_uri),
             scopes=self.scopes,
+            ocbc_enabled=self.ocbc_enabled,
             authorization_endpoint=expand_env(self.authorization_endpoint),
             token_endpoint=expand_env(self.token_endpoint),
             userinfo_endpoint=expand_env(self.userinfo_endpoint),
+            end_session_endpoint=expand_env(self.end_session_endpoint),
             redirect_uri=expand_env(self.redirect_uri),
             pkce_enabled=self.pkce_enabled,
             pkce_method=self.pkce_method,
         )
+
 
 
 class APIKeyAuthConfig(BaseModel):
@@ -74,17 +80,52 @@ class NoneAuthConfig(BaseModel):
     default_user_id: str = "default"
 
 
+class LocalAuthConfig(BaseModel):
+    """Local username/password auth provider configuration."""
+
+    enabled: bool = True
+    default_admin_username: str = "admin"
+    default_admin_password: str = "admin"
+
+
+class JWTAuthConfig(BaseModel):
+    """AtlasClaw local JWT configuration."""
+
+    header_name: str = "AtlasClaw-Authenticate"
+    cookie_name: str = "AtlasClaw-Authenticate"
+    issuer: str = "atlasclaw"
+    secret_key: str = "atlasclaw-dev-secret"
+    expires_minutes: int = 480
+
+    def expanded(self) -> "JWTAuthConfig":
+        return JWTAuthConfig(
+            header_name=expand_env(self.header_name),
+            cookie_name=expand_env(self.cookie_name),
+            issuer=expand_env(self.issuer),
+            secret_key=expand_env(self.secret_key),
+            expires_minutes=self.expires_minutes,
+        )
+
+
+
 class AuthConfig(BaseModel):
+
     """Top-level auth configuration block in atlasclaw.json."""
+    enabled: bool = True          # Set to false to disable auth (anonymous mode)
     provider: str = "none"
-    header_name: str = "CloudChef-Authenticate"
+    header_name: str = "AtlasClaw-Authenticate"
     token_prefix: str = ""
     cache_ttl_seconds: int = 300
+
 
     smartcmp: SmartCMPAuthConfig = SmartCMPAuthConfig()
     oidc: OIDCAuthConfig = OIDCAuthConfig()
     api_key: APIKeyAuthConfig = APIKeyAuthConfig()
     none: NoneAuthConfig = NoneAuthConfig()
+    local: LocalAuthConfig = LocalAuthConfig()
+    jwt: JWTAuthConfig = JWTAuthConfig()
+
+
 
     def validate_provider_config(self) -> None:
         """
@@ -108,3 +149,16 @@ class AuthConfig(BaseModel):
                 raise ValueError(
                     "auth.smartcmp.validate_url is required when auth.provider='smartcmp'"
                 )
+        elif p == "local":
+            if self.local.enabled and not self.local.default_admin_username:
+                raise ValueError(
+                    "auth.local.default_admin_username is required when auth.provider='local'"
+                )
+
+        jwt_cfg = self.jwt.expanded()
+        if p in {"local", "oidc"} and not jwt_cfg.secret_key:
+            raise ValueError(
+                "auth.jwt.secret_key is required when auth.provider is 'local' or 'oidc'"
+            )
+
+

@@ -7,6 +7,10 @@ import { loadConfig } from './config.js';
 import { initSession, startNewSession, clearSession } from './session-manager.js';
 import { initChat, abortCurrentStream } from './chat-ui.js';
 import { initI18n, t, setLocale, getCurrentLocale, updatePageTranslations } from './i18n.js';
+import { checkAuth, installAuthFetchInterceptor, logout } from './auth.js';
+
+
+
 
 /**
  * Initialize application
@@ -15,10 +19,20 @@ async function init() {
     console.log('[App] Initializing...');
     
     try {
-        // 1. Load configuration
+        installAuthFetchInterceptor();
+
+        // 1. Check authentication
+        const authInfo = await checkAuth({ redirect: true });
+
+        if (!authInfo) {
+            return;
+        }
+
+        // 2. Load configuration
         await loadConfig();
         
-        // 2. Initialize i18n
+        // 3. Initialize i18n
+
         await initI18n();
         updatePageTranslations();
         
@@ -70,12 +84,26 @@ function bindGlobalEvents() {
             }
         });
     }
+
+    const logoutBtn = document.getElementById('logoutBtn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', handleLogout);
+    }
+}
+
+
+/**
+ * Handle logout
+ */
+async function handleLogout() {
+    await logout({ redirect: true });
 }
 
 /**
  * Handle new chat creation
  */
 async function handleNewChat() {
+
     console.log('[App] Starting new chat...');
     
     // Abort current stream

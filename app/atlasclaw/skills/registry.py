@@ -193,6 +193,27 @@ class SkillRegistry:
             }
             for meta, _ in self._skills.values()
         ]
+
+    def snapshot_builtins(self) -> list[dict]:
+        """Return a snapshot of built-in skills only, excluding tools derived from MD skills.
+
+        MD-skill-derived tools are already exposed via md_snapshot() and shown in the
+        MD Skills section of the system prompt / /skills API.  Including them again in
+        the executable-skills listing causes every such skill to appear twice.
+        """
+        md_derived: set[str] = set()
+        for tool_names in self._md_skill_tools.values():
+            md_derived.update(tool_names)
+        return [
+            {
+                "name": meta.name,
+                "description": meta.description,
+                "category": meta.category,
+                "location": meta.location,
+            }
+            for meta, _ in self._skills.values()
+            if meta.name not in md_derived
+        ]
     
     def to_tool_definitions(self) -> list[dict]:
         """Convert registered skills into tool-definition dictionaries."""
@@ -672,7 +693,29 @@ single MD Skill.
             """
             # Build environment variables
             env = os.environ.copy()
-            
+
+            # NEW: Inject all cookies from ctx.deps if available
+            if ctx is not None and hasattr(ctx, 'deps') and hasattr(ctx.deps, 'cookies'):
+                cookies = ctx.deps.cookies
+                if cookies:
+                    try:
+                        env['ATLASCLAW_COOKIES'] = json.dumps(cookies)
+                        if hasattr(ctx.deps, 'user_info') and ctx.deps.user_info:
+                            print(f"[DEBUG] Set ATLASCLAW_COOKIES for user={ctx.deps.user_info.user_id}, cookies={list(cookies.keys())}")
+                    except (TypeError, ValueError) as e:
+                        print(f"[WARNING] Failed to serialize cookies: {e}")
+
+            # NEW: Inject provider config from ctx.deps.extra if available
+            if ctx is not None and hasattr(ctx, 'deps') and hasattr(ctx.deps, 'extra'):
+                extra = ctx.deps.extra
+                provider_config = extra.get('provider_config', {}) if extra else {}
+                if provider_config:
+                    try:
+                        env['ATLASCLAW_PROVIDER_CONFIG'] = json.dumps(provider_config)
+                        print(f"[DEBUG] Set ATLASCLAW_PROVIDER_CONFIG with providers: {list(provider_config.keys())}")
+                    except (TypeError, ValueError) as e:
+                        print(f"[WARNING] Failed to serialize provider_config: {e}")
+
             # Inject provider instance configuration from ctx.deps.extra if available
             if ctx is not None and hasattr(ctx, 'deps') and hasattr(ctx.deps, 'extra'):
                 extra = ctx.deps.extra

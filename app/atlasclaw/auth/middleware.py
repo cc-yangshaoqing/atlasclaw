@@ -1,88 +1,93 @@
 """
 AuthMiddleware — FastAPI/Starlette middleware for request authentication.
-
-Extracts credential from CloudChef-Authenticate header / Authorization Bearer /
-Cookie and injects a UserInfo into request.state.user_info.
-
-Setup example:
-    from app.atlasclaw.auth.middleware import setup_auth_middleware
-    setup_auth_middleware(app, auth_config)
 """
 
 from __future__ import annotations
 
 import logging
 from typing import Optional
+from urllib.parse import quote
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, RedirectResponse
 
-from app.atlasclaw.auth.models import UserInfo, ANONYMOUS_USER, AuthenticationError
+from app.atlasclaw.auth.config import AuthConfig
+from app.atlasclaw.auth.jwt_token import verify_atlas_token
+from app.atlasclaw.auth.models import ANONYMOUS_USER, AuthenticationError, UserInfo
 from app.atlasclaw.auth.strategy import AuthStrategy
 
 logger = logging.getLogger(__name__)
 
-# Paths that bypass authentication entirely
-_SKIP_PATHS = frozenset({"/health", "/ping", "/favicon.ico", "/docs", "/openapi.json"})
+_SKIP_PATHS = frozenset({"/api/health", "/ping", "/favicon.ico", "/docs", "/openapi.json"})
 
-# SSO paths — must not be intercepted by auth checks
-_SSO_PATHS = frozenset({"/api/auth/login", "/api/auth/callback", "/api/auth/logout", "/api/auth/me"})
+_SSO_PATHS = frozenset({
+    "/api/auth/login",
+    "/api/auth/local/login",
+    "/api/auth/callback",
+    "/api/auth/logout",
+    "/api/auth/me",
+})
 
-# Static asset path prefixes — always pass through (no auth, no redirect)
-_STATIC_PREFIXES = ("/static/", "/styles/", "/scripts/", "/locales/", "/config.json", "/index.html")
+_STATIC_PREFIXES = (
+    "/static/",
+    "/styles/",
+    "/scripts/",
+    "/locales/",
+    "/config.json",
+    "/index.html",
+    "/login.html",
+)
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """
-    Starlette middleware that resolves user identity for every request.
-
-    Modes:
-    - ``anonymous_fallback=True``: no auth configured → always inject
-      ``user_id="anonymous"`` and skip all credential checks.
-    - ``strategy.provider.provider_name() == "none"``: NoneProvider → resolve
-      with empty credential (returns the configured ``default_user_id``).
-    - Any real provider: extract credential, call strategy.resolve_user(),
-      return 401 on AuthenticationError.
-    """
-
     def __init__(
         self,
         app,
         strategy: AuthStrategy,
+        auth_config: Optional[AuthConfig] = None,
         anonymous_fallback: bool = False,
         oidc_redirect_uri: str = "",
     ) -> None:
         super().__init__(app)
         self._strategy = strategy
+        self._auth_config = auth_config or AuthConfig(enabled=False)
         self._anonymous_fallback = anonymous_fallback
-        # Non-empty means standalone deployment: middleware can redirect to SSO
         self._oidc_redirect_uri = oidc_redirect_uri
 
+        jwt_cfg = self._auth_config.jwt.expanded()
+        oidc_cfg = self._auth_config.oidc.expanded()
+        self._atlas_header_name = (jwt_cfg.header_name or "AtlasClaw-Authenticate").strip()
+        self._atlas_cookie_name = (jwt_cfg.cookie_name or "AtlasClaw-Authenticate").strip()
+        self._atlas_issuer = jwt_cfg.issuer
+        self._atlas_secret = jwt_cfg.secret_key
+        self._ocbc_enabled = bool(oidc_cfg.ocbc_enabled)
+
+
     async def dispatch(self, request: Request, call_next):
-        # Skip non-API / health paths
+        if request.method == "OPTIONS":
+            request.state.user_info = ANONYMOUS_USER
+            return await call_next(request)
+
         if request.url.path in _SKIP_PATHS:
             request.state.user_info = ANONYMOUS_USER
             return await call_next(request)
 
-        # Static assets — always pass through without auth
+
         if request.url.path.startswith(_STATIC_PREFIXES):
             request.state.user_info = ANONYMOUS_USER
             return await call_next(request)
 
-        # SSO flow paths — always pass through without auth
         if request.url.path in _SSO_PATHS:
             request.state.user_info = ANONYMOUS_USER
             return await call_next(request)
 
-        # Anonymous mode: no auth configured in atlasclaw.json
         if self._anonymous_fallback:
             request.state.user_info = ANONYMOUS_USER
             return await call_next(request)
 
         provider_name = self._strategy.provider.provider_name()
 
-        # NoneProvider: always succeeds without a credential
         if provider_name == "none":
             try:
                 request.state.user_info = await self._strategy.resolve_user("")
@@ -90,71 +95,147 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.state.user_info = ANONYMOUS_USER
             return await call_next(request)
 
-        # Real provider: extract and validate credential
-        credential = self._extract_credential(request)
-        if not credential:
-            # If a redirect_uri is configured (standalone deployment),
-            # redirect browser navigations to SSO login.
-            # Root path "/" always redirects to SSO regardless of Accept header.
-            if self._oidc_redirect_uri and (
-                request.url.path == "/" or self._is_browser_request(request)
-            ):
-                logger.debug(
-                    "No credential → redirecting to SSO login: %s",
-                    request.url.path,
+        if provider_name in {"local", "oidc"}:
+            atlas_token = self._extract_atlas_token(request)
+            if not atlas_token:
+                return self._auth_failed_response(request)
+
+            try:
+                payload = verify_atlas_token(
+                    token=atlas_token,
+                    secret_key=self._atlas_secret,
+                    issuer=self._atlas_issuer,
                 )
-                return RedirectResponse(url="/api/auth/login", status_code=302)
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid or expired token"},
-            )
+
+            except AuthenticationError as exc:
+                logger.debug("Atlas token verification failed: %s", exc)
+                return self._auth_failed_response(request)
+
+            jwt_user_info = self._build_user_info_from_payload(payload, atlas_token)
+
+            if provider_name == "oidc" and self._ocbc_enabled:
+                oidc_token = self._extract_oidc_token(request)
+                if not oidc_token:
+                    return self._auth_failed_response(request)
+
+                try:
+                    oidc_user = await self._strategy.resolve_user(oidc_token)
+                except AuthenticationError as exc:
+                    logger.debug("OIDC token verification failed (OCBC): %s", exc)
+                    return self._auth_failed_response(request)
+
+                provider_subject = oidc_user.provider_subject or ""
+                oidc_subject = provider_subject.split(":", 1)[1] if ":" in provider_subject else ""
+                if oidc_subject and oidc_subject != jwt_user_info.user_id:
+                    logger.debug(
+                        "OIDC subject mismatch (OCBC): oidc_subject=%s jwt_sub=%s",
+                        oidc_subject,
+                        jwt_user_info.user_id,
+                    )
+                    return self._auth_failed_response(request)
+
+            request.state.user_info = jwt_user_info
+            return await call_next(request)
+
+        credential = self._extract_provider_credential(request)
+        if not credential:
+            return self._auth_failed_response(request)
 
         try:
             request.state.user_info = await self._strategy.resolve_user(credential)
             return await call_next(request)
         except AuthenticationError as exc:
             logger.debug("Auth failed for %s: %s", request.url.path, exc)
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid or expired token"},
-            )
+            return self._auth_failed_response(request)
 
-    @staticmethod
-    def _is_browser_request(request: Request) -> bool:
-        """
-        Heuristic: a request is considered a browser navigation when
-        the ``Accept`` header includes ``text/html`` AND there is no
-        ``X-Requested-With: XMLHttpRequest`` header (which SPA/iframe
-        XHR calls usually set).
-        """
-        accept = request.headers.get("accept", "")
-        xhr = request.headers.get("x-requested-with", "")
-        return "text/html" in accept and xhr.lower() != "xmlhttprequest"
+    def _build_user_info_from_payload(self, payload: dict, raw_token: str) -> UserInfo:
+        roles = payload.get("roles", [])
+        if not isinstance(roles, list):
+            roles = []
 
-    @staticmethod
-    def _extract_credential(request: Request) -> str:
-        """
-        Precedence:
-          1. CloudChef-Authenticate header
-          2. Authorization: Bearer <token>
-          3. CloudChef-Authenticate cookie
-        """
-        # 1. Header
-        token = request.headers.get("CloudChef-Authenticate", "").strip()
-        if token:
-            return token
+        user_id = str(payload.get("sub", "")).strip() or "default"
+        auth_type = str(payload.get("auth_type", "local")).strip() or "local"
 
-        # 2. Authorization Bearer
+        return UserInfo(
+            user_id=user_id,
+            display_name=user_id,
+            tenant_id="default",
+            roles=roles,
+            raw_token=raw_token,
+            provider_subject=f"{auth_type}:{user_id}",
+            extra={"login_time": payload.get("login_time", "")},
+            auth_type=auth_type,
+        )
+
+    def _auth_failed_response(self, request: Request):
+        if request.url.path == "/" or self._is_browser_request(request):
+            provider_name = self._strategy.provider.provider_name()
+            if provider_name == "oidc" and self._oidc_redirect_uri:
+                return RedirectResponse(url="/api/auth/login", status_code=302)
+
+            original = f"{request.url.path}"
+            if request.url.query:
+                original = f"{original}?{request.url.query}"
+            redirect_url = f"/login.html?redirect={quote(original, safe='')}"
+            return RedirectResponse(url=redirect_url, status_code=302)
+        return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+
+
+    def _extract_atlas_token(self, request: Request) -> str:
+        for header_name in (self._atlas_header_name, "AtlasClaw-Authenticate"):
+            token = request.headers.get(header_name, "").strip()
+            if token:
+                return token
+
         auth_header = request.headers.get("Authorization", "")
         if auth_header.lower().startswith("bearer "):
             return auth_header[7:].strip()
 
-        # 3. Cookie
+        for cookie_name in (self._atlas_cookie_name, "AtlasClaw-Authenticate"):
+            token = request.cookies.get(cookie_name, "").strip()
+            if token:
+                return token
+
+        return ""
+
+    @staticmethod
+    def _extract_oidc_token(request: Request) -> str:
+        token = request.headers.get("CloudChef-Authenticate", "").strip()
+        if token:
+            return token
+        token = request.cookies.get("CloudChef-Authenticate", "").strip()
+        if token:
+            return token
+        return ""
+
+    def _extract_provider_credential(self, request: Request) -> str:
+        token = request.headers.get(self._auth_config.header_name, "").strip()
+        if token:
+            return token
+
+        token = request.headers.get("CloudChef-Authenticate", "").strip()
+        if token:
+            return token
+
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.lower().startswith("bearer "):
+            return auth_header[7:].strip()
+
+        token = request.cookies.get(self._auth_config.header_name, "").strip()
+        if token:
+            return token
+
         token = request.cookies.get("CloudChef-Authenticate", "").strip()
         if token:
             return token
 
         return ""
+
+    @staticmethod
+    def _is_browser_request(request: Request) -> bool:
+        accept = request.headers.get("accept", "")
+        xhr = request.headers.get("x-requested-with", "")
+        return "text/html" in accept and xhr.lower() != "xmlhttprequest"
 
 
 def setup_auth_middleware(
@@ -162,32 +243,20 @@ def setup_auth_middleware(
     auth_config: Optional[object],
     shadow_store: Optional[object] = None,
 ) -> None:
-    """
-    Attach AuthMiddleware to a FastAPI application.
-
-    Args:
-        app: FastAPI application instance.
-        auth_config: AuthConfig loaded from atlasclaw.json, or None for anonymous.
-        shadow_store: Optional ShadowUserStore override (for testing).
-    """
-    from app.atlasclaw.auth.strategy import create_auth_strategy
     from app.atlasclaw.auth.config import AuthConfig
+    from app.atlasclaw.auth.strategy import create_auth_strategy
 
     if auth_config is None:
-        # No auth section in atlasclaw.json → anonymous fallback
         from app.atlasclaw.auth.providers.none import NoneProvider
         from app.atlasclaw.auth.shadow_store import ShadowUserStore
 
         _store = shadow_store or ShadowUserStore()
         _provider = NoneProvider(default_user_id="anonymous")
-        strategy = AuthStrategy(
-            provider=_provider, shadow_store=_store, cache_ttl_seconds=0
-        )
-        app.add_middleware(AuthMiddleware, strategy=strategy, anonymous_fallback=True)
+        strategy = AuthStrategy(provider=_provider, shadow_store=_store, cache_ttl_seconds=0)
+        app.add_middleware(AuthMiddleware, strategy=strategy, auth_config=None, anonymous_fallback=True)
         logger.info("AuthMiddleware: anonymous fallback mode (no auth config)")
         return
 
-    # Coerce raw dict from atlasclaw.json into AuthConfig if needed
     if isinstance(auth_config, dict):
         auth_config = AuthConfig(**auth_config)
 
@@ -204,11 +273,11 @@ def setup_auth_middleware(
                     "app.atlasclaw.auth.shadow_store", fromlist=["ShadowUserStore"]
                 ).ShadowUserStore(),
             ),
+            auth_config=None,
             anonymous_fallback=True,
         )
         return
 
-    # Pass redirect_uri so middleware can auto-detect standalone vs embedded mode
     oidc_redirect_uri = ""
     if auth_config.provider.lower() == "oidc":
         oidc_redirect_uri = auth_config.oidc.expanded().redirect_uri
@@ -216,11 +285,13 @@ def setup_auth_middleware(
     app.add_middleware(
         AuthMiddleware,
         strategy=strategy,
+        auth_config=auth_config,
         anonymous_fallback=False,
         oidc_redirect_uri=oidc_redirect_uri,
     )
     logger.info(
-        "AuthMiddleware: registered with provider=%r, standalone_sso=%s",
+        "AuthMiddleware: registered with provider=%r, standalone_sso=%s, ocbc=%s",
         auth_config.provider,
         bool(oidc_redirect_uri),
+        bool(auth_config.oidc.ocbc_enabled),
     )

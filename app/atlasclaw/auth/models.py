@@ -29,6 +29,7 @@ class UserInfo:
         provider_subject: Composite key "{provider}:{subject}" linking to the
             external identity source.
         extra: Extension context, may include provider_type, available_providers, etc.
+        auth_type: Authentication source type. e.g. "local", "oidc:keycloak".
     """
     user_id: str
     display_name: str = ""
@@ -37,6 +38,8 @@ class UserInfo:
     raw_token: str = ""
     provider_subject: str = ""
     extra: dict[str, Any] = field(default_factory=dict)
+    auth_type: str = ""
+
 
     @property
     def is_anonymous(self) -> bool:
@@ -63,6 +66,7 @@ class AuthResult:
     roles: list[str] = field(default_factory=list)
     tenant_id: str = "default"
     raw_token: str = ""
+    id_token: str = ""              # OIDC ID Token (used for id_token_hint on logout)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -73,17 +77,19 @@ class ShadowUser:
     and the AtlasClaw runtime.  Stored in ~/.atlasclaw/users.json.
     """
     user_id: str                    # Internal UUID
-    provider: str                   # e.g. "smartcmp", "oidc", "none"
+    provider: str                   # e.g. "smartcmp", "oidc", "none", "local"
     subject: str                    # External subject ID
     display_name: str = ""
     tenant_id: str = "default"
     roles: list[str] = field(default_factory=list)
+    auth_type: str = "local"       # e.g. "local", "oidc:keycloak"
     created_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
     last_seen_at: datetime = field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
 
     @classmethod
     def create(
@@ -92,6 +98,16 @@ class ShadowUser:
         subject: str,
         result: AuthResult,
     ) -> "ShadowUser":
+        auth_type = result.extra.get("auth_type", "")
+        if not auth_type:
+            if provider == "local":
+                auth_type = "local"
+            elif provider == "oidc":
+                provider_id = result.extra.get("provider_id", "default")
+                auth_type = f"oidc:{provider_id}"
+            else:
+                auth_type = provider
+
         return cls(
             user_id=str(uuid.uuid4()),
             provider=provider,
@@ -99,7 +115,9 @@ class ShadowUser:
             display_name=result.display_name,
             tenant_id=result.tenant_id,
             roles=list(result.roles),
+            auth_type=auth_type,
         )
+
 
     def to_dict(self) -> dict:
         return {
@@ -109,12 +127,19 @@ class ShadowUser:
             "display_name": self.display_name,
             "tenant_id": self.tenant_id,
             "roles": self.roles,
+            "auth_type": self.auth_type,
             "created_at": self.created_at.isoformat(),
             "last_seen_at": self.last_seen_at.isoformat(),
         }
 
+
     @classmethod
     def from_dict(cls, d: dict) -> "ShadowUser":
+        provider = d["provider"]
+        auth_type = d.get("auth_type", "")
+        if not auth_type:
+            auth_type = "local" if provider == "local" else provider
+
         return cls(
             user_id=d["user_id"],
             provider=d["provider"],
@@ -122,6 +147,7 @@ class ShadowUser:
             display_name=d.get("display_name", ""),
             tenant_id=d.get("tenant_id", "default"),
             roles=d.get("roles", []),
+            auth_type=auth_type,
             created_at=datetime.fromisoformat(
                 d.get("created_at", datetime.now(timezone.utc).isoformat())
             ),
@@ -129,6 +155,7 @@ class ShadowUser:
                 d.get("last_seen_at", datetime.now(timezone.utc).isoformat())
             ),
         )
+
 
     def to_user_info(
         self,
@@ -143,4 +170,6 @@ class ShadowUser:
             raw_token=raw_token,
             provider_subject=f"{self.provider}:{self.subject}",
             extra=extra or {},
+            auth_type=self.auth_type,
         )
+

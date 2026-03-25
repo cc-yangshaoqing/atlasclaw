@@ -143,16 +143,35 @@ class WebhookConfig(BaseModel):
     systems: list[WebhookSystemConfig] = Field(default_factory=list)
 
 
+class TokenConfig(BaseModel):
+    """Single token endpoint configuration."""
+
+    id: str
+    provider: str
+    model: str
+    base_url: str
+    api_key: str
+    api_type: str = "openai"
+    priority: int = 0
+    weight: int = 100
+
+
 class ModelConfig(BaseModel):
     """Model configuration."""
-    primary: str = Field(default="doubao-pro-32k", description="Primary model in provider/model format")
-    fallbacks: list[str] = Field(default_factory=list, description="Fallback model list")
+
+    primary: str = Field(
+        default="main", description="Primary token id referencing an entry in tokens[]"
+    )
+    fallbacks: list[str] = Field(default_factory=list, description="Fallback token ids")
     temperature: float = Field(default=0.7, ge=0, le=2)
     max_tokens: Optional[int] = None
+    selection_strategy: str = Field(default="health", description="Token selection strategy")
+    tokens: list[TokenConfig] = Field(default_factory=list, description="Token pool configuration")
     providers: dict[str, Any] = Field(
         default_factory=dict,
-        description="LLM provider configuration, {name: {base_url, api_key, api_type, models}}",
+        description="Legacy LLM provider configuration, {name: {base_url, api_key, api_type, models}}",
     )
+
 
 
 class RetryConfig(BaseModel):
@@ -166,7 +185,7 @@ class RetryConfig(BaseModel):
 class AgentDefaultsConfig(BaseModel):
     """Default agent configuration."""
     timeout_seconds: int = Field(default=600, ge=1, description="Execution timeout in seconds")
-    max_concurrent: int = Field(default=4, ge=1, description="Maximum concurrency")
+    max_concurrent: int = Field(default=10, ge=1, description="Maximum concurrency")
     max_tool_calls: int = Field(default=50, ge=1, description="Maximum tool calls per run")
     prompt_mode: PromptMode = PromptMode.FULL
     bootstrap_max_chars: int = Field(default=20000, description="Maximum Bootstrap file size in characters")
@@ -196,17 +215,65 @@ class MemoryConfig(BaseModel):
 class WorkspaceConfig(BaseModel):
     """Workspace configuration"""
     path: str = Field(default="./.atlasclaw", description="Workspace path, defaults to ./.atlasclaw directory")
-    per_user_isolation: bool = Field(default=True, description="Whether to isolate data per user")
+
+
+class SqliteDatabaseConfig(BaseModel):
+    """SQLite database configuration."""
+    path: str = Field(default="./data/atlasclaw.db", description="Path to SQLite database file")
+
+
+class MySqlDatabaseConfig(BaseModel):
+    """MySQL database configuration."""
+    host: str = Field(default="localhost", description="MySQL host")
+    port: int = Field(default=3306, ge=1, le=65535, description="MySQL port")
+    database: str = Field(default="atlasclaw", description="Database name")
+    user: str = Field(default="root", description="Database user")
+    password: str = Field(default="", description="Database password")
+    charset: str = Field(default="utf8mb4", description="Character set")
+
+
+class DatabaseConfig(BaseModel):
+    """Database configuration for SQLite or MySQL."""
+    type: str = Field(default="sqlite", description="Database type: sqlite or mysql")
+    sqlite: Optional[SqliteDatabaseConfig] = Field(default_factory=SqliteDatabaseConfig, description="SQLite configuration")
+    mysql: Optional[MySqlDatabaseConfig] = Field(default=None, description="MySQL configuration")
+    pool_size: int = Field(default=5, ge=1, description="Connection pool size (MySQL only)")
+    max_overflow: int = Field(default=10, ge=0, description="Max overflow connections (MySQL only)")
+    echo: bool = Field(default=False, description="Echo SQL statements for debugging")
+
+
+class UserConfig(BaseModel):
+    """User-specific configuration stored in users/<id>/user_setting.json
+    
+    Note: providers are system-level configuration, not user-level.
+    """
+    channels: dict[str, Any] = Field(
+        default_factory=dict,
+        description="User-level channel configurations (e.g., Feishu bot, DingTalk bot)"
+    )
+    preferences: dict[str, Any] = Field(
+        default_factory=dict,
+        description="General user preferences (language, timezone, etc.)"
+    )
 
 
 class AtlasClawConfig(BaseModel):
     """AtlasClaw configuration"""
     log_level: LogLevel = LogLevel.INFO
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig, description="Workspace configuration")
+    database: Optional[DatabaseConfig] = Field(default=None, description="Database configuration")
     agents_dir: str = Field(default="~/.atlasclaw/agents", description="Agent directory (backward compatibility)")
     providers_root: str = Field(
-        default="../atlasclaw-providers/providers",
+        default="../providers",
         description="Root directory for provider templates and skills, resolved relative to atlasclaw.json",
+    )
+    skills_root: str = Field(
+        default="../skills",
+        description="Root directory for standalone skills (not tied to providers), resolved relative to atlasclaw.json",
+    )
+    channels_root: str = Field(
+        default="../channels",
+        description="Root directory for system-level channel configurations, resolved relative to atlasclaw.json",
     )
     
     # Nested configuration sections

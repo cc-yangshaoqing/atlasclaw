@@ -5,7 +5,8 @@
 
 const LOCALE_STORAGE_KEY = 'atlasclaw_locale';
 const SUPPORTED_LOCALES = ['zh-CN', 'en-US'];
-const DEFAULT_LOCALE = 'zh-CN';
+const DEFAULT_LOCALE = 'en-US';
+
 
 let currentLocale = DEFAULT_LOCALE;
 let translations = {};
@@ -171,30 +172,60 @@ export async function setLocale(locale) {
  * Update all page translations
  */
 export function updatePageTranslations() {
+    // Skip if translations not loaded yet
+    if (!localeLoaded || Object.keys(translations).length === 0) {
+        console.warn('[i18n] Translations not loaded, skipping update');
+        return;
+    }
+    
     // Update text content
     document.querySelectorAll('[data-i18n]').forEach(el => {
         const key = el.getAttribute('data-i18n');
-        el.textContent = t(key);
+        const translated = t(key);
+        // Only update if translation found (not returning the key itself)
+        if (translated !== key) {
+            el.textContent = translated;
+        }
     });
     
     // Update placeholder
     document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
         const key = el.getAttribute('data-i18n-placeholder');
-        el.placeholder = t(key);
+        const translated = t(key);
+        if (translated !== key) {
+            el.placeholder = translated;
+        }
     });
     
     // Update title attribute
     document.querySelectorAll('[data-i18n-title]').forEach(el => {
         const key = el.getAttribute('data-i18n-title');
-        el.title = t(key);
+        const translated = t(key);
+        if (translated !== key) {
+            el.title = translated;
+        }
+    });
+    
+    // Update aria-label attribute
+    document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
+        const key = el.getAttribute('data-i18n-aria-label');
+        const translated = t(key);
+        if (translated !== key) {
+            el.setAttribute('aria-label', translated);
+        }
     });
     
     // Update page title
     const titleKey = document.querySelector('title[data-i18n]');
     if (titleKey) {
-        document.title = t(titleKey.getAttribute('data-i18n'));
+        const translated = t(titleKey.getAttribute('data-i18n'));
+        if (translated !== titleKey.getAttribute('data-i18n')) {
+            document.title = translated;
+        }
     }
 }
+
+
 
 /**
  * Check if locale is loaded

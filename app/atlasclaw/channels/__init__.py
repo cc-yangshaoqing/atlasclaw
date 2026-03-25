@@ -15,13 +15,11 @@ from .models import (
     SendResult,
 )
 from .registry import ChannelRegistry
-from .store import ChannelStore
 
 __all__ = [
     "ChannelHandler",
     "ChannelManager",
     "ChannelRegistry",
-    "ChannelStore",
     "ChannelConnection",
     "ChannelMode",
     "ChannelValidationResult",

@@ -60,7 +60,7 @@ class SessionQueue:
 
     Example:
         ```python
-        queue = SessionQueue(max_concurrent=4, debounce_ms=1000)
+        queue = SessionQueue(max_concurrent=10, debounce_ms=1000)
 
         await queue.acquire(session_key)
         try:
@@ -75,7 +75,7 @@ class SessionQueue:
     
     def __init__(
         self,
-        max_concurrent: int = 4,
+        max_concurrent: int = 10,
         debounce_ms: int = 1000,
         cap: int = 20,
         mode: QueueMode = QueueMode.COLLECT,
