@@ -6,7 +6,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
+
 from typing import Any, Callable, Dict, Optional
 
 import aiohttp
@@ -141,13 +143,17 @@ class WeComHandler(ChannelHandler):
     async def _connect_websocket(self) -> bool:
         """Connect via WebSocket long connection."""
         try:
-            # Bypass proxy for websockets (Windows system proxy may block WebSocket)
-            try:
-                import websockets.asyncio.client as ws_client
-                ws_client.get_proxy = lambda uri: None
-                logger.info("[WeCom] Patched websockets to skip proxy detection")
-            except Exception as e:
-                logger.warning(f"[WeCom] Could not patch websockets: {e}")
+            # 默认支持环境代理（HTTP_PROXY/HTTPS_PROXY）。
+            # 如需绕过 WebSocket 代理，可设置: ATLASCLAW_BYPASS_WS_PROXY=true
+            bypass_ws_proxy = os.getenv("ATLASCLAW_BYPASS_WS_PROXY", "").lower() in {"1", "true", "yes", "on"}
+            if bypass_ws_proxy:
+                try:
+                    import websockets.asyncio.client as ws_client
+                    ws_client.get_proxy = lambda uri: None
+                    logger.info("[WeCom] WebSocket proxy bypass enabled")
+                except Exception as e:
+                    logger.warning(f"[WeCom] Could not patch websockets: {e}")
+
             
             from wecom_aibot_sdk import WSClient
             
@@ -431,8 +437,9 @@ class WeComHandler(ChannelHandler):
                 "text": {"content": outbound.content}
             }
         
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(trust_env=True) as session:
             async with session.post(webhook_url, json=payload) as response:
+
                 if response.status == 200:
                     data = await response.json()
                     if data.get("errcode") == 0:
@@ -460,8 +467,9 @@ class WeComHandler(ChannelHandler):
             "text": {"content": outbound.content},
         }
         
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(trust_env=True) as session:
             async with session.post(url, json=payload) as response:
+
                 if response.status == 200:
                     data = await response.json()
                     if data.get("errcode") == 0:
@@ -576,8 +584,9 @@ class WeComHandler(ChannelHandler):
                 "corpsecret": self.config.get("corpsecret"),
             }
             
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(trust_env=True) as session:
                 async with session.get(self.TOKEN_URL, params=params) as response:
+
                     if response.status == 200:
                         data = await response.json()
                         if data.get("errcode") == 0:

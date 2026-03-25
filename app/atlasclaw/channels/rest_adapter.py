@@ -187,7 +187,8 @@ HTTP
         
         for attempt in range(self._retry_count):
             try:
-                async with httpx.AsyncClient(timeout=self._timeout) as client:
+                async with httpx.AsyncClient(timeout=self._timeout, trust_env=True) as client:
+
                     response = await client.post(
                         self._callback_url,
                         headers=headers,

@@ -298,8 +298,9 @@ class FeishuHandler(ChannelHandler):
                 "Content-Type": "application/json",
             }
             
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(trust_env=True) as session:
                 async with session.post(url, json=payload, headers=headers) as response:
+
                     data = await response.json()
                     if data.get("code") == 0:
                         logger.info(f"Feishu message sent to {outbound.chat_id}")
@@ -325,8 +326,9 @@ class FeishuHandler(ChannelHandler):
                 "content": {"text": outbound.content}
             }
             
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(trust_env=True) as session:
                 async with session.post(webhook_url, json=payload) as response:
+
                     if response.status == 200:
                         data = await response.json()
                         if data.get("code") == 0 or data.get("StatusCode") == 0:
@@ -355,8 +357,9 @@ class FeishuHandler(ChannelHandler):
                 "app_secret": self.config.get("app_secret"),
             }
             
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(trust_env=True) as session:
                 async with session.post(self.AUTH_URL, json=payload) as response:
+
                     data = await response.json()
                     if data.get("code") == 0:
                         self._access_token = data.get("tenant_access_token")

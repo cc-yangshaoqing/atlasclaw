@@ -142,7 +142,8 @@ class RESTHandler(ChannelHandler):
             
             headers = self.config.get("headers", {})
             
-            async with aiohttp.ClientSession() as session:
+            async with aiohttp.ClientSession(trust_env=True) as session:
+
                 async with session.post(
                     self._webhook_url,
                     json=payload,
