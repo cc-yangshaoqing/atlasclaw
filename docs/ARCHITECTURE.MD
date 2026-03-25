@@ -182,11 +182,9 @@ app/atlasclaw/
 │   └── providers/
 │       ├── base.py                # AuthProvider ABC
 │       ├── none.py                # NoneProvider (no auth)
-│       ├── api_key.py             # APIKeyProvider
 │       ├── local.py               # LocalAuthProvider (username/password)
-│       ├── oidc.py                # OIDCProvider (JWT/JWKS validation)
-│       ├── oidc_sso.py            # OIDCSSOProvider (full OAuth2 + PKCE)
-│       └── smartcmp.py            # SmartCMPProvider (CloudChef)
+│       ├── oidc_jwt.py            # OIDCJWTProvider (JWT/JWKS validation)
+│       └── oidc_login.py          # OIDCLoginProvider (full OAuth2 + PKCE)
 
 ├── agent/
 │   ├── runner.py                  # AgentRunner (main execution loop)
@@ -587,12 +585,23 @@ Credential → AuthProvider.authenticate() → AuthResult
 2. `Authorization: Bearer <token>` header
 3. `CloudChef-Authenticate` cookie
 
-**Auth Providers** (mutually exclusive, configured in `auth.provider`):
+**Auth Providers** (configured in `auth.provider`):
+
+*Primary Providers* (for user login, configured via `auth.provider`):
 - `none` — No authentication; all requests get default user
-- `api_key` — Static API key validation
-- `oidc` — JWT validation via JWKS (no SSO flow)
-- `oidc_sso` — Full OAuth2 + PKCE authorization code flow
-- `smartcmp` — CloudChef SmartCMP token validation
+- `local` — Username/password authentication against local user database
+
+*Secondary Providers* (always available for specific use cases):
+- `oidc_jwt` — JWT validation via JWKS for API authentication (bearer tokens)
+- `oidc_login` — Full OAuth2 + PKCE authorization code flow for browser SSO
+
+**Chained Authentication**: The system supports chained authentication where multiple providers can be tried in sequence. For example, local auth can be attempted first, followed by OIDC JWT validation if local fails.
+
+**Data Encryption**: All sensitive data (API keys, tokens, credentials) is encrypted at rest using AES-256-GCM:
+- Token API keys are encrypted in the database (`model_token_configs` table)
+- Service provider configurations are encrypted
+- Channel configurations are encrypted
+- Config file values can use `enc:` prefix for automatic decryption on load
 
 **Shadow User Store**: Maps external identities (`provider:subject`) to internal UUIDs. Idempotent under concurrent access. Stores `user_id`, `provider`, `subject`, `display_name`, `tenant_id`, `roles`, `created_at`, `last_seen_at`.
 
@@ -641,7 +650,7 @@ Providers are the primary extension point. A provider is a directory containing:
 
 **Discovery**: `ProviderScanner` walks the providers directory at startup. Provider directories can also contribute auth providers and channel handlers.
 
-**Instance Awareness**: A single provider type (e.g., "smartcmp") can have multiple instances (e.g., "production", "staging"). `ServiceProviderRegistry` wraps skill handlers with automatic instance selection logic.
+**Instance Awareness**: A single provider type (e.g., "jira") can have multiple instances (e.g., "production", "staging"). `ServiceProviderRegistry` wraps skill handlers with automatic instance selection logic.
 
 **Locations** (override priority):
 1. Workspace: `<workspace>/skills/` (optional, for development)
@@ -804,10 +813,10 @@ Configurable via `BlockChunkerConfig`, controls how streaming text is chunked fo
 | Table | Purpose | Key Fields |
 |---|---|---|
 | `agents` | Agent configuration storage | `id`, `name` (unique), `display_name`, `identity` (JSON), `soul` (JSON), `memory` (JSON) |
-| `model_token_configs` | LLM token/API key storage | `id`, `name` (unique), `provider`, `model`, `api_key_encrypted`, `priority`, `weight` |
+| `model_token_configs` | LLM token/API key storage (encrypted) | `id`, `name` (unique), `provider`, `model`, `api_key` (AES-256-GCM encrypted), `priority`, `weight` |
 | `users` | User accounts | `id`, `username` (unique), `password_hash`, `roles` (JSON) |
-| `channels` | Channel configurations | `id`, `name`, `type`, `user_id`, `config` (JSON), `is_default` |
-| `service_provider_configs` | Provider instance configs | `id`, `provider_type`, `instance_name`, `config` (JSON), `is_active` |
+| `channels` | Channel configurations (encrypted) | `id`, `name`, `type`, `user_id`, `config` (AES-256-GCM encrypted JSON), `is_default` |
+| `service_provider_configs` | Provider instance configs (encrypted) | `id`, `provider_type`, `instance_name`, `config` (AES-256-GCM encrypted JSON), `is_active` |
 
 **Unique Constraints**:
 - `agents.name`
@@ -824,6 +833,30 @@ Configurable via `BlockChunkerConfig`, controls how streaming text is chunked fo
 **Merge Behavior**:
 - Tokens: DB entries override JSON entries with same `token_id`
 - Provider instances: DB entries override JSON entries with same `(provider_type, instance_name)`
+
+### 11.6 Data Encryption
+
+All sensitive data is encrypted at rest using **AES-256-GCM**:
+
+**Encryption Service** (`app/atlasclaw/core/encryption.py`):
+- Algorithm: AES-256-GCM with authenticated encryption
+- Key: 32-byte key (configurable via `ATLASCLAW_ENCRYPTION_KEY` environment variable)
+- Format: `v1:key_id:base64(nonce+ciphertext+tag)`
+
+**Encrypted Fields**:
+- `TokenModel.api_key` — LLM API keys in database
+- `ServiceProviderConfigModel.config` — Provider credentials and settings
+- `ChannelModel.config` — Channel connection credentials
+
+**Config File Encryption**:
+- Values with `enc:` prefix are automatically decrypted on load
+- Example: `"api_key": "enc:v1:default:AbC..."`
+
+**Transparent Encryption**:
+- API accepts plaintext values
+- Database stores encrypted values
+- API returns plaintext values (decrypted automatically)
+- Lazy migration: legacy unencrypted data is read as-is
 
 ### 11.7 Database Initialization
 

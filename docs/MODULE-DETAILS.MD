@@ -33,7 +33,7 @@
 
 **Path**: `app/atlasclaw/core/`
 
-Provides configuration management, request-scoped dependency injection, workspace initialization, service provider registry, provider scanning, multi-tenant isolation, and token pool management.
+Provides configuration management, request-scoped dependency injection, workspace initialization, service provider registry, provider scanning, multi-tenant isolation, token pool management, and encryption services for sensitive data.
 
 ### 1.1 ConfigManager (`core/config.py`)
 
@@ -75,7 +75,7 @@ Request-scoped dependency container passed through `RunContext[SkillDeps]` to al
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `user_info` | `UserInfo` | `ANONYMOUS_USER` | Authenticated user identity |
-| `smartcmp_client` | `Optional[Any]` | `None` | SmartCMP HTTP client (httpx.AsyncClient) |
+| `extra` | `dict[str, Any]` | `{}` | Additional request-scoped context including provider clients |
 | `peer_id` | `str` | `""` | Peer identifier (user or group ID) |
 | `session_key` | `str` | `""` | Stable session key for current conversation |
 | `channel` | `str` | `""` | Source channel name |
@@ -216,6 +216,53 @@ Constructor: `token_pool: TokenPool`, `health_store: TokenHealthStore`
 - `x-ratelimit-remaining-requests`
 - `x-ratelimit-reset-tokens`
 - `x-ratelimit-reset-requests`
+
+### 1.7 Encryption Service (`core/encryption.py`)
+
+AES-256-GCM encryption for sensitive data at rest.
+
+**Class: `EncryptionService`**
+
+Constructor: `key: bytes` (32-byte encryption key)
+
+| Method | Signature | Description |
+|---|---|---|
+| `encrypt` | `(plaintext: str) -> str` | Encrypt string, returns `v1:key_id:base64(...)` format |
+| `decrypt` | `(ciphertext: str) -> str` | Decrypt encrypted string |
+| `encrypt_json` | `(data: dict) -> str` | Encrypt JSON-serializable dict |
+| `decrypt_json` | `(ciphertext: str) -> dict` | Decrypt to dict |
+
+**Key Management**:
+- Primary key from `ATLASCLAW_ENCRYPTION_KEY` environment variable (base64-encoded 32 bytes)
+- Built-in default key for development (must be overridden in production)
+- Support for envelope encryption with rotating data keys (optional)
+
+**Usage**:
+```python
+from app.atlasclaw.core.encryption import encrypt_json, decrypt_json
+
+# Encrypt before storage
+encrypted = encrypt_json({"api_key": "secret123"})
+# Returns: "v1:default:AbCdEfGh..."
+
+# Decrypt after retrieval
+data = decrypt_json(encrypted)
+# Returns: {"api_key": "secret123"}
+```
+
+**Config File Encryption**:
+Values in `atlasclaw.json` with `enc:` prefix are automatically decrypted on load:
+```json
+{
+  "model": {
+    "tokens": {
+      "my-token": {
+        "api_key": "enc:v1:default:AbCdEfGh..."
+      }
+    }
+  }
+}
+```
 
 ### 1.4 Workspace Initialization (`core/workspace.py`)
 
@@ -414,7 +461,7 @@ Properties: `is_anonymous: bool`, `is_default: bool`
 | Field | Type | Description |
 |---|---|---|
 | `user_id` | `str` | Internal UUID |
-| `provider` | `str` | e.g. `"smartcmp"`, `"oidc"`, `"none"`, `"local"` |
+| `provider` | `str` | e.g. `"local"`, `"oidc_jwt"`, `"oidc_login"`, `"none"` |
 | `subject` | `str` | External subject ID |
 | `auth_type` | `str` | Auth source type, e.g. `"local"`, `"oidc:keycloak"` |
 
@@ -433,9 +480,9 @@ Methods: `create(provider, subject, result) -> ShadowUser`, `to_user_info(raw_to
 Constructor: `strategy: AuthStrategy`, `anonymous_fallback: bool = False`, `oidc_redirect_uri: str = ""`
 
 **Credential Extraction Order**:
-1. `CloudChef-Authenticate` header
-2. `Authorization: Bearer <token>` header
-3. `CloudChef-Authenticate` cookie
+1. `Authorization: Bearer <token>` header
+2. `AtlasClaw-Authenticate` header
+3. Cookie-based tokens (configurable via `jwt.cookie_name`)
 
 **Skip Paths** (no auth required): `/health`, `/ping`, `/favicon.ico`, `/docs`, `/openapi.json`, `/static/`, `/styles/`, `/scripts/`, `/locales/`, `/config.json`, `/index.html`, `/login.html`, `/api/auth/login`, `/api/auth/local/login`, `/api/auth/callback`, `/api/auth/logout`, `/api/auth/me`
 
@@ -468,11 +515,21 @@ Constructor: `provider: AuthProvider`, `shadow_store: ShadowUserStore`, `cache_t
 | Provider | File | Description | Key Config |
 |---|---|---|---|
 | `NoneProvider` | `none.py` | No authentication; returns default user | `default_user_id: str = "default"` |
-| `APIKeyProvider` | `api_key.py` | Static API key validation | `valid_keys: set[str]` |
-| `OIDCProvider` | `oidc.py` | JWT validation via JWKS endpoint (RS256/RS384/RS512) | `issuer`, `client_id`, `jwks_uri`, `audience` |
-| `OIDCSSOProvider` | `oidc_sso.py` | Full OAuth2 OIDC with PKCE (S256) | Extends OIDCProvider + `client_secret`, `redirect_uri` |
-| `SmartCMPProvider` | `smartcmp.py` | CloudChef SmartCMP integration | HTTP-based validation |
-| `LocalAuthProvider` | `local.py` | Local username/password authentication (DB-backed) | `UserModel.password` (bcrypt) |
+| `LocalAuthProvider` | `local.py` | Local username/password authentication (DB-backed) | `UserModel.password_hash` (bcrypt) |
+| `OIDCJWTProvider` | `oidc_jwt.py` | JWT validation via JWKS endpoint (RS256/RS384/RS512) for API auth | `issuer`, `client_id`, `jwks_uri`, `audience` |
+| `OIDCLoginProvider` | `oidc_login.py` | Full OAuth2 OIDC with PKCE (S256) for browser SSO | `issuer`, `client_id`, `client_secret`, `redirect_uri`, `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint` |
+
+**Auth Provider Architecture**:
+
+*Primary Providers* (configured via `auth.provider` for user login):
+- `none` — No authentication
+- `local` — Username/password against local database
+
+*Secondary Providers* (always available for specific use cases):
+- `oidc_jwt` — JWT token validation for API bearer authentication
+- `oidc_login` — OAuth2 authorization code flow for browser SSO
+
+*Chained Authentication*: The `AuthStrategy` supports trying multiple providers in sequence (e.g., local auth first, then OIDC JWT).
 
 
 ### 2.5 Shadow User Store (`auth/shadow_store.py`)
@@ -1370,21 +1427,34 @@ Each model has a corresponding service class for CRUD operations:
 - `delete(session, id) -> bool`
 
 **ModelTokenConfigService** (`db/orm/model_token_config.py`):
-- `create(session, data: TokenCreate) -> ModelTokenConfigModel`
+
+All API keys are encrypted at rest using AES-256-GCM. The service provides transparent encryption/decryption:
+
+- `create(session, data: TokenCreate) -> ModelTokenConfigModel` — Encrypts `api_key` before storage
 - `get_by_id(session, id) -> Optional[ModelTokenConfigModel]`
 - `get_by_name(session, name) -> Optional[ModelTokenConfigModel]`
 - `list_all(session, is_active, page, page_size) -> tuple[list[ModelTokenConfigModel], int]`
-- `update(session, id, data: TokenUpdate) -> Optional[ModelTokenConfigModel]`
+- `update(session, id, data: TokenUpdate) -> Optional[ModelTokenConfigModel]` — Re-encrypts if `api_key` changed
 - `delete(session, id) -> bool`
-- `get_decrypted_api_key(token) -> str` — Decrypt API key
-- `get_masked_api_key(token) -> str` — Mask for display
+- `get_decrypted_api_key(token) -> str` — Decrypt API key for runtime use
+- `get_masked_api_key(token) -> str` — Return masked version (e.g., `***d8f`) for display
+
+**Encryption Details**:
+- Algorithm: AES-256-GCM
+- Key: Configurable via `ATLASCLAW_ENCRYPTION_KEY` env var (32-byte base64)
+- Default: Built-in key for development (not for production)
+- Format: `v1:key_id:base64(nonce+ciphertext+tag)`
+- Backward compatible: Legacy unencrypted values are read as-is
 
 **ServiceProviderConfigService** (`db/orm/service_provider_config.py`):
+
+Provider configurations are encrypted at rest. The `config` JSON field is automatically encrypted before storage and decrypted when accessed:
+
 - `create(session, data: ServiceProviderConfigCreate) -> ServiceProviderConfigModel`
 - `get_by_id(session, id) -> Optional[ServiceProviderConfigModel]`
 - `get_by_provider_instance(session, provider_type, instance_name) -> Optional[ServiceProviderConfigModel]`
 - `list_all(session, provider_type, is_active, page, page_size) -> tuple[list[ServiceProviderConfigModel], int]`
-- `list_active_as_nested(session) -> dict[str, dict[str, dict]]` — Return nested dict for merge
+- `list_active_as_nested(session) -> dict[str, dict[str, dict]]` — Return nested dict for merge (decrypted)
 - `update(session, id, data: ServiceProviderConfigUpdate) -> Optional[ServiceProviderConfigModel]`
 - `delete(session, id) -> bool`
 
