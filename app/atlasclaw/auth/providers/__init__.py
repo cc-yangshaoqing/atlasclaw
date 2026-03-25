@@ -110,23 +110,27 @@ def get_sso_handler(
     scopes: list[str] | None = None,
     pkce_enabled: bool = True,
     pkce_method: str = "S256",
-) -> "OIDCLoginProvider":
-    """Get OIDC login handler for browser SSO flow.
+    provider_type: str = "oidc",
+    # DingTalk-specific parameters
+    corp_id: str = "",
+    subject_field: str = "unionId",
+) -> "OIDCLoginProvider | DingTalkSSOProvider":
+    """Get SSO login handler for browser SSO flow.
     
     Use case: Browser-based single sign-on via OAuth2 authorization code flow.
     Handles the complete login flow: generate auth URL → handle callback → 
     exchange code → validate tokens → return user info.
     
     This is separate from primary auth and used when you want to delegate
-    authentication to an external IdP (Keycloak, Auth0, Okta, etc.).
+    authentication to an external IdP (Keycloak, Auth0, Okta, DingTalk, etc.).
     
     Endpoints can be auto-discovered from {issuer}/.well-known/openid-configuration
-    if not explicitly provided.
+    if not explicitly provided (OIDC only).
     
     Args:
         issuer: OIDC issuer URL
-        client_id: OAuth2 client ID
-        client_secret: OAuth2 client secret (for confidential clients)
+        client_id: OAuth2 client ID (app_key for DingTalk)
+        client_secret: OAuth2 client secret (app_secret for DingTalk)
         redirect_uri: Callback URL after login (e.g., "/auth/callback")
         authorization_endpoint: Auth endpoint (auto-discovered if not set)
         token_endpoint: Token endpoint (auto-discovered if not set)
@@ -135,22 +139,45 @@ def get_sso_handler(
         scopes: Requested scopes (default: ["openid", "profile", "email"])
         pkce_enabled: Enable PKCE protection (recommended, default: True)
         pkce_method: PKCE method (default: "S256")
+        provider_type: Provider type ("oidc" or "dingtalk", default: "oidc")
+        corp_id: DingTalk corp ID (only for dingtalk provider)
+        subject_field: DingTalk subject field ("unionId" or "openId", default: "unionId")
         
     Returns:
-        OIDCLoginProvider configured for SSO flow
+        OIDCLoginProvider or DingTalkSSOProvider configured for SSO flow
         
     Example:
-        # Step 1: Generate login URL
+        # OIDC provider
         handler = get_sso_handler(
             issuer="https://keycloak.example.com",
             client_id="atlasclaw",
             redirect_uri="https://app.example.com/auth/callback"
         )
-        login_url = handler.build_authorization_url(state="random-state")
         
-        # Step 2: Handle callback
-        auth_result = await handler.complete_login(code, code_verifier)
+        # DingTalk provider
+        handler = get_sso_handler(
+            provider_type="dingtalk",
+            client_id="your_app_key",
+            client_secret="your_app_secret",
+            redirect_uri="https://app.example.com/auth/callback",
+            corp_id="your_corp_id",
+        )
     """
+    if provider_type == "dingtalk":
+        from app.atlasclaw.auth.providers.dingtalk_sso import DingTalkSSOProvider
+        return DingTalkSSOProvider(
+            issuer=issuer or "https://login.dingtalk.com",
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+            scopes=scopes,
+            pkce_enabled=pkce_enabled,
+            pkce_method=pkce_method,
+            corp_id=corp_id,
+            subject_field=subject_field,
+        )
+    
+    # Default: OIDC provider
     from app.atlasclaw.auth.providers.oidc_login import OIDCLoginProvider
     return OIDCLoginProvider(
         issuer=issuer,

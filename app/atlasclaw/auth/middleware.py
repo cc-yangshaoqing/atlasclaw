@@ -96,7 +96,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.state.user_info = ANONYMOUS_USER
             return await call_next(request)
 
-        if provider_name in {"local", "oidc"}:
+        if provider_name != "none":
             atlas_token = self._extract_atlas_token(request)
             if not atlas_token:
                 return self._auth_failed_response(request)

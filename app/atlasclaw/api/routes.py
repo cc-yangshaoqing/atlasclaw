@@ -1120,39 +1120,61 @@ def create_router() -> APIRouter:
     @router.get("/auth/login")
     async def sso_login(request: Request):
 
-        """Initiate OIDC SSO login flow with PKCE — redirects browser to IdP."""
+        """Initiate SSO login flow with PKCE — redirects browser to IdP."""
         from ..auth.config import AuthConfig
-        from ..auth.providers.oidc_sso import OIDCSSOProvider
         
         # Get auth config from app state
         auth_config: AuthConfig = request.app.state.config.auth
-        if not auth_config or auth_config.provider != "oidc":
+        if not auth_config or auth_config.provider not in ("oidc", "dingtalk"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OIDC provider not configured"
+                detail="SSO provider not configured (oidc or dingtalk required)"
             )
         
-        oidc_config = auth_config.oidc.expanded()
-        if not oidc_config.redirect_uri:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="auth.oidc.redirect_uri is required for SSO login"
+        # Create SSO provider based on config
+        if auth_config.provider == "dingtalk":
+            from ..auth.providers.dingtalk_sso import DingTalkSSOProvider
+            dt_config = auth_config.dingtalk.expanded()
+            if not dt_config.redirect_uri:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="auth.dingtalk.redirect_uri is required for SSO login"
+                )
+            provider = DingTalkSSOProvider(
+                issuer="https://login.dingtalk.com",
+                client_id=dt_config.app_key,
+                client_secret=dt_config.app_secret,
+                redirect_uri=dt_config.redirect_uri,
+                scopes=dt_config.scopes,
+                pkce_enabled=dt_config.pkce_enabled,
+                pkce_method=dt_config.pkce_method,
+                corp_id=dt_config.corp_id,
+                subject_field=dt_config.subject_field,
             )
-        
-        # Create SSO provider
-        provider = OIDCSSOProvider(
-            issuer=oidc_config.issuer,
-            client_id=oidc_config.client_id,
-            client_secret=oidc_config.client_secret,
-            redirect_uri=oidc_config.redirect_uri,
-            authorization_endpoint=oidc_config.authorization_endpoint,
-            token_endpoint=oidc_config.token_endpoint,
-            userinfo_endpoint=oidc_config.userinfo_endpoint,
-            jwks_uri=oidc_config.jwks_uri,
-            scopes=oidc_config.scopes,
-            pkce_enabled=oidc_config.pkce_enabled,
-            pkce_method=oidc_config.pkce_method,
-        )
+            _secure = dt_config.redirect_uri.startswith("https://")
+        else:
+            # OIDC provider (default)
+            from ..auth.providers.oidc_sso import OIDCSSOProvider
+            oidc_config = auth_config.oidc.expanded()
+            if not oidc_config.redirect_uri:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="auth.oidc.redirect_uri is required for SSO login"
+                )
+            provider = OIDCSSOProvider(
+                issuer=oidc_config.issuer,
+                client_id=oidc_config.client_id,
+                client_secret=oidc_config.client_secret,
+                redirect_uri=oidc_config.redirect_uri,
+                authorization_endpoint=oidc_config.authorization_endpoint,
+                token_endpoint=oidc_config.token_endpoint,
+                userinfo_endpoint=oidc_config.userinfo_endpoint,
+                jwks_uri=oidc_config.jwks_uri,
+                scopes=oidc_config.scopes,
+                pkce_enabled=oidc_config.pkce_enabled,
+                pkce_method=oidc_config.pkce_method,
+            )
+            _secure = oidc_config.redirect_uri.startswith("https://")
         
         # Generate state and PKCE
         import secrets
@@ -1161,9 +1183,6 @@ def create_router() -> APIRouter:
         
         # Build authorization URL
         auth_url = provider.build_authorization_url(state, code_challenge)
-        
-        # secure=True only for HTTPS deployments; HTTP (local dev) uses False
-        _secure = oidc_config.redirect_uri.startswith("https://")
         
         # Redirect browser to IdP login page (302), store state+verifier in cookies
         response = RedirectResponse(url=auth_url, status_code=302)
@@ -1194,9 +1213,8 @@ def create_router() -> APIRouter:
         error: str = "",
         error_description: str = ""
     ) -> JSONResponse:
-        """Handle OIDC SSO callback from identity provider."""
+        """Handle SSO callback from identity provider."""
         from ..auth.config import AuthConfig
-        from ..auth.providers.oidc_sso import OIDCSSOProvider
         
         # Handle IdP error
         if error:
@@ -1228,30 +1246,48 @@ def create_router() -> APIRouter:
         
         # Get auth config
         auth_config: AuthConfig = request.app.state.config.auth
-        if not auth_config or auth_config.provider != "oidc":
+        if not auth_config or auth_config.provider not in ("oidc", "dingtalk"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="OIDC provider not configured"
+                detail="SSO provider not configured (oidc or dingtalk required)"
             )
         
-        oidc_config = auth_config.oidc.expanded()
         jwt_cfg = auth_config.jwt.expanded()
 
-        # Create SSO provider
-
-        provider = OIDCSSOProvider(
-            issuer=oidc_config.issuer,
-            client_id=oidc_config.client_id,
-            client_secret=oidc_config.client_secret,
-            redirect_uri=oidc_config.redirect_uri,
-            authorization_endpoint=oidc_config.authorization_endpoint,
-            token_endpoint=oidc_config.token_endpoint,
-            userinfo_endpoint=oidc_config.userinfo_endpoint,
-            jwks_uri=oidc_config.jwks_uri,
-            scopes=oidc_config.scopes,
-            pkce_enabled=oidc_config.pkce_enabled,
-            pkce_method=oidc_config.pkce_method,
-        )
+        # Create SSO provider based on config
+        if auth_config.provider == "dingtalk":
+            from ..auth.providers.dingtalk_sso import DingTalkSSOProvider
+            dt_config = auth_config.dingtalk.expanded()
+            provider = DingTalkSSOProvider(
+                issuer="https://login.dingtalk.com",
+                client_id=dt_config.app_key,
+                client_secret=dt_config.app_secret,
+                redirect_uri=dt_config.redirect_uri,
+                scopes=dt_config.scopes,
+                pkce_enabled=dt_config.pkce_enabled,
+                pkce_method=dt_config.pkce_method,
+                corp_id=dt_config.corp_id,
+                subject_field=dt_config.subject_field,
+            )
+            _secure = dt_config.redirect_uri.startswith("https://")
+        else:
+            # OIDC provider (default)
+            from ..auth.providers.oidc_sso import OIDCSSOProvider
+            oidc_config = auth_config.oidc.expanded()
+            provider = OIDCSSOProvider(
+                issuer=oidc_config.issuer,
+                client_id=oidc_config.client_id,
+                client_secret=oidc_config.client_secret,
+                redirect_uri=oidc_config.redirect_uri,
+                authorization_endpoint=oidc_config.authorization_endpoint,
+                token_endpoint=oidc_config.token_endpoint,
+                userinfo_endpoint=oidc_config.userinfo_endpoint,
+                jwks_uri=oidc_config.jwks_uri,
+                scopes=oidc_config.scopes,
+                pkce_enabled=oidc_config.pkce_enabled,
+                pkce_method=oidc_config.pkce_method,
+            )
+            _secure = oidc_config.redirect_uri.startswith("https://")
         
         # Complete login
         try:
@@ -1293,9 +1329,6 @@ def create_router() -> APIRouter:
             expires_minutes=jwt_cfg.expires_minutes,
             issuer=jwt_cfg.issuer,
         )
-
-
-        _secure = oidc_config.redirect_uri.startswith("https://")
 
         response = RedirectResponse(url="/", status_code=302)
         response.set_cookie(
