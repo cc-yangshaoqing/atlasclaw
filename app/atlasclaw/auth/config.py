@@ -56,6 +56,30 @@ class OIDCAuthConfig(BaseModel):
         )
 
 
+class DingTalkAuthConfig(BaseModel):
+    """DingTalk SSO provider configuration."""
+    app_key: str = ""
+    app_secret: str = ""
+    corp_id: str = ""
+    redirect_uri: str = ""
+    scopes: list[str] = ["openid", "corpid"]
+    pkce_enabled: bool = True
+    pkce_method: str = "S256"
+    subject_field: str = "unionId"
+
+    def expanded(self) -> "DingTalkAuthConfig":
+        """Expand environment variable placeholders ${VAR_NAME}."""
+        return DingTalkAuthConfig(
+            app_key=expand_env(self.app_key),
+            app_secret=expand_env(self.app_secret),
+            corp_id=expand_env(self.corp_id),
+            redirect_uri=expand_env(self.redirect_uri),
+            scopes=self.scopes,
+            pkce_enabled=self.pkce_enabled,
+            pkce_method=self.pkce_method,
+            subject_field=self.subject_field,
+        )
+
 
 class NoneAuthConfig(BaseModel):
     """No-auth / development mode provider configuration."""
@@ -101,6 +125,7 @@ class AuthConfig(BaseModel):
 
 
     oidc: OIDCAuthConfig = OIDCAuthConfig()
+    dingtalk: DingTalkAuthConfig = DingTalkAuthConfig()
     none: NoneAuthConfig = NoneAuthConfig()
     local: LocalAuthConfig = LocalAuthConfig()
     jwt: JWTAuthConfig = JWTAuthConfig()
@@ -128,11 +153,21 @@ class AuthConfig(BaseModel):
                 raise ValueError(
                     "auth.local.default_admin_username is required when auth.provider='local'"
                 )
+        elif p == "dingtalk":
+            dt = self.dingtalk.expanded()
+            if not dt.app_key:
+                raise ValueError(
+                    "auth.dingtalk.app_key is required when auth.provider='dingtalk'"
+                )
+            if not dt.app_secret:
+                raise ValueError(
+                    "auth.dingtalk.app_secret is required when auth.provider='dingtalk'"
+                )
 
         jwt_cfg = self.jwt.expanded()
-        if p in {"local", "oidc"} and not jwt_cfg.secret_key:
+        if p in {"local", "oidc", "dingtalk"} and not jwt_cfg.secret_key:
             raise ValueError(
-                "auth.jwt.secret_key is required when auth.provider is 'local' or 'oidc'"
+                "auth.jwt.secret_key is required when auth.provider is 'local', 'oidc' or 'dingtalk'"
             )
 
 
