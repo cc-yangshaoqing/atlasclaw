@@ -19,6 +19,8 @@ env:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.version.outputs.tag }}
 
     steps:
       - name: Checkout code
@@ -87,3 +89,141 @@ jobs:
           docker pull ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
           docker image inspect ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
           echo "Image pushed successfully: ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}"
+
+  deploy-on-self-hosted:
+    name: Deploy to self-hosted runner
+    needs: build-and-push
+    runs-on: [self-hosted]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Prepare deployment directories
+        run: |
+          sudo mkdir -p /opt/atlasclaw/{workspace,data,extensions/{providers,skills,channels}}
+          sudo chown -R "$(id -u):$(id -g)" /opt/atlasclaw
+
+      - name: Download compose and extensions with curl
+        run: |
+          set -euo pipefail
+          cd /opt/atlasclaw
+
+          curl -fL -o docker-compose.yml \
+            https://raw.githubusercontent.com/CloudChef/atlasclaw/main/build/docker-compose.yml
+
+          cd /opt/atlasclaw/extensions
+          curl -fL -o atlasclaw-providers.zip \
+            https://github.com/CloudChef/atlasclaw-providers/archive/refs/heads/main.zip
+
+          rm -rf src atlasclaw-providers-main
+          unzip -o atlasclaw-providers.zip
+          rm -f atlasclaw-providers.zip
+          mv atlasclaw-providers-main src
+
+          cp -r src/providers/* ./providers/ 2>/dev/null || true
+          cp -r src/skills/* ./skills/ 2>/dev/null || true
+          cp -r src/channels/* ./channels/ 2>/dev/null || true
+          rm -rf src
+
+      - name: Initialize atlasclaw.json if missing
+        env:
+          ATLASCLAW_MODEL_API_KEY: ${{ secrets.ATLASCLAW_MODEL_API_KEY }}
+          ATLASCLAW_JWT_SECRET: ${{ secrets.ATLASCLAW_JWT_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${ATLASCLAW_MODEL_API_KEY:-}" ]]; then
+            echo "ATLASCLAW_MODEL_API_KEY secret is required for deployment." >&2
+            exit 1
+          fi
+
+          if [[ -z "${ATLASCLAW_JWT_SECRET:-}" ]]; then
+            echo "ATLASCLAW_JWT_SECRET secret is required for deployment." >&2
+            exit 1
+          fi
+
+          CONFIG_PATH="/opt/atlasclaw/workspace/atlasclaw.json"
+          if [[ ! -f "$CONFIG_PATH" ]]; then
+            cat > "$CONFIG_PATH" <<EOF
+          {
+            "workspace": {
+              "path": "/app/workspace"
+            },
+            "database": {
+              "type": "sqlite",
+              "sqlite": {
+                "path": "/app/data/atlasclaw.db"
+              }
+            },
+            "providers_root": "/app/extensions/providers",
+            "skills_root": "/app/extensions/skills",
+            "channels_root": "/app/extensions/channels",
+            "model": {
+              "primary": "deepseek-main",
+              "fallbacks": [],
+              "temperature": 0.2,
+              "tokens": [
+                {
+                  "id": "deepseek-main",
+                  "provider": "deepseek",
+                  "model": "deepseek-chat",
+                  "base_url": "https://api.deepseek.com",
+                  "api_key": "${ATLASCLAW_MODEL_API_KEY}",
+                  "api_type": "openai"
+                }
+              ]
+            },
+            "auth": {
+              "provider": "local",
+              "local": {
+                "enabled": true,
+                "default_admin_username": "admin",
+                "default_admin_password": "admin"
+              },
+              "jwt": {
+                "secret_key": "${ATLASCLAW_JWT_SECRET}",
+                "expires_minutes": 480
+              }
+            }
+          }
+          EOF
+            chmod 600 "$CONFIG_PATH"
+          else
+            echo "atlasclaw.json exists, keeping current configuration."
+          fi
+
+      - name: Pull and deploy latest image
+        run: |
+          set -euo pipefail
+          cd /opt/atlasclaw
+
+          IMAGE="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ needs.build-and-push.outputs.image_tag }}"
+          docker pull "$IMAGE"
+          docker tag "$IMAGE" "${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:latest"
+
+          docker compose up -d
+          docker compose ps
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8000/api/health >/dev/null; then
+              echo "Health check passed"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Health check failed after waiting for service startup" >&2
+          docker compose -f /opt/atlasclaw/docker-compose.yml logs --tail=200 atlasclaw || true
+          exit 1
