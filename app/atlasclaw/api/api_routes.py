@@ -559,7 +559,7 @@ async def fetch_provider_models(body: FetchModelsRequest):
             else:
                 url = f"{clean_url}/v1/models"
 
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, trust_env=True) as client:
             resp = await client.get(url, headers=headers)
 
         if resp.status_code != 200:
