@@ -11,23 +11,12 @@ from typing import Any
 from pydantic import BaseModel
 
 _ENV_RE = re.compile(r'\$\{([^}]+)\}')
+DEFAULT_JWT_SECRET = "atlasclaw-dev-secret"
 
 
 def expand_env(value: str) -> str:
     """Replace ${VAR_NAME} with os.environ.get(VAR_NAME, original)."""
     return _ENV_RE.sub(lambda m: os.environ.get(m.group(1), m.group(0)), value)
-
-
-class SmartCMPAuthConfig(BaseModel):
-    """SmartCMP provider configuration."""
-    validate_url: str = ""
-    api_base_url: str = ""
-
-    def expanded(self) -> "SmartCMPAuthConfig":
-        return SmartCMPAuthConfig(
-            validate_url=expand_env(self.validate_url),
-            api_base_url=expand_env(self.api_base_url),
-        )
 
 
 class OIDCAuthConfig(BaseModel):
@@ -68,11 +57,29 @@ class OIDCAuthConfig(BaseModel):
         )
 
 
+class DingTalkAuthConfig(BaseModel):
+    """DingTalk SSO provider configuration."""
+    app_key: str = ""
+    app_secret: str = ""
+    corp_id: str = ""
+    redirect_uri: str = ""
+    scopes: list[str] = ["openid", "corpid"]
+    pkce_enabled: bool = True
+    pkce_method: str = "S256"
+    subject_field: str = "unionId"
 
-class APIKeyAuthConfig(BaseModel):
-    """Static API key provider configuration."""
-    # Mapping: api_key_value -> {user_id, roles, display_name, ...}
-    keys: dict[str, dict[str, Any]] = {}
+    def expanded(self) -> "DingTalkAuthConfig":
+        """Expand environment variable placeholders ${VAR_NAME}."""
+        return DingTalkAuthConfig(
+            app_key=expand_env(self.app_key),
+            app_secret=expand_env(self.app_secret),
+            corp_id=expand_env(self.corp_id),
+            redirect_uri=expand_env(self.redirect_uri),
+            scopes=self.scopes,
+            pkce_enabled=self.pkce_enabled,
+            pkce_method=self.pkce_method,
+            subject_field=self.subject_field,
+        )
 
 
 class NoneAuthConfig(BaseModel):
@@ -94,15 +101,24 @@ class JWTAuthConfig(BaseModel):
     header_name: str = "AtlasClaw-Authenticate"
     cookie_name: str = "AtlasClaw-Authenticate"
     issuer: str = "atlasclaw"
-    secret_key: str = "atlasclaw-dev-secret"
+    secret_key: str = DEFAULT_JWT_SECRET
     expires_minutes: int = 480
+
+    def _resolve_secret_key(self) -> str:
+        expanded_secret = expand_env(self.secret_key).strip()
+        if expanded_secret and not _ENV_RE.fullmatch(expanded_secret):
+            return expanded_secret
+        env_secret = os.environ.get("ATLASCLAW_JWT_SECRET", "").strip()
+        if env_secret:
+            return env_secret
+        return DEFAULT_JWT_SECRET
 
     def expanded(self) -> "JWTAuthConfig":
         return JWTAuthConfig(
             header_name=expand_env(self.header_name),
             cookie_name=expand_env(self.cookie_name),
             issuer=expand_env(self.issuer),
-            secret_key=expand_env(self.secret_key),
+            secret_key=self._resolve_secret_key(),
             expires_minutes=self.expires_minutes,
         )
 
@@ -118,9 +134,8 @@ class AuthConfig(BaseModel):
     cache_ttl_seconds: int = 300
 
 
-    smartcmp: SmartCMPAuthConfig = SmartCMPAuthConfig()
     oidc: OIDCAuthConfig = OIDCAuthConfig()
-    api_key: APIKeyAuthConfig = APIKeyAuthConfig()
+    dingtalk: DingTalkAuthConfig = DingTalkAuthConfig()
     none: NoneAuthConfig = NoneAuthConfig()
     local: LocalAuthConfig = LocalAuthConfig()
     jwt: JWTAuthConfig = JWTAuthConfig()
@@ -143,22 +158,21 @@ class AuthConfig(BaseModel):
                 raise ValueError(
                     "auth.oidc.client_id is required when auth.provider='oidc'"
                 )
-        elif p == "smartcmp":
-            smartcmp = self.smartcmp.expanded()
-            if not smartcmp.validate_url:
-                raise ValueError(
-                    "auth.smartcmp.validate_url is required when auth.provider='smartcmp'"
-                )
         elif p == "local":
             if self.local.enabled and not self.local.default_admin_username:
                 raise ValueError(
                     "auth.local.default_admin_username is required when auth.provider='local'"
                 )
+        elif p == "dingtalk":
+            dt = self.dingtalk.expanded()
+            if not dt.app_key:
+                raise ValueError(
+                    "auth.dingtalk.app_key is required when auth.provider='dingtalk'"
+                )
+            if not dt.app_secret:
+                raise ValueError(
+                    "auth.dingtalk.app_secret is required when auth.provider='dingtalk'"
+                )
 
-        jwt_cfg = self.jwt.expanded()
-        if p in {"local", "oidc"} and not jwt_cfg.secret_key:
-            raise ValueError(
-                "auth.jwt.secret_key is required when auth.provider is 'local' or 'oidc'"
-            )
 
 

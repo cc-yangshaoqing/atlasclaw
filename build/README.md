@@ -102,7 +102,7 @@ cd /opt/atlasclaw/extensions
 curl -L -o atlasclaw-providers.zip https://github.com/CloudChef/atlasclaw-providers/archive/refs/heads/main.zip
 unzip atlasclaw-providers.zip
 mv atlasclaw-providers-main src
-rm atlasclaw-providers.zip
+rm -f atlasclaw-providers.zip
 
 # Copy providers (optional)
 cp -r src/providers/* ./providers/ 2>/dev/null || true
@@ -142,7 +142,7 @@ Create `/opt/atlasclaw/workspace/atlasclaw.json`:
 ```json
 {
   "workspace": {
-    "path": "/app/data"
+    "path": "/app/workspace"
   },
   "database": {
     "type": "sqlite",
@@ -151,6 +151,8 @@ Create `/opt/atlasclaw/workspace/atlasclaw.json`:
     }
   },
   "providers_root": "/app/extensions/providers",
+  "skills_root": "/app/extensions/skills",
+  "channels_root": "/app/extensions/channels",
   "model": {
     "primary": "deepseek-main",
     "fallbacks": [],
@@ -185,9 +187,9 @@ Create `/opt/atlasclaw/workspace/atlasclaw.json`:
 
 1. **You MUST replace `YOUR_API_KEY_HERE`** with your actual LLM API key (e.g., DeepSeek, OpenAI)
 2. **`model.tokens` cannot be empty** - At least one token entry is **required** for startup
-3. **`providers_root`** can be set to `/app/extensions/providers` (container path) or left empty
+3. **`providers_root`**, **`skills_root`**, and **`channels_root`** should be set to `/app/extensions/providers`, `/app/extensions/skills`, `/app/extensions/channels`
 4. Database path uses container path `/app/data/atlasclaw.db`
-5. `workspace.path` uses container path `/app/data`
+5. `workspace.path` should use container path `/app/workspace`
 
 **Example with real API key:**
 ```json

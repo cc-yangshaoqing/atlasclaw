@@ -234,15 +234,39 @@ async def init_database(config: DatabaseConfig) -> DatabaseManager:
     return _db_manager
 
 
-@asynccontextmanager
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Convenience function to get a database session.
+    """FastAPI dependency to get a database session.
 
-    Usage:
-        async with get_db_session() as session:
+    Usage in FastAPI:
+        @router.get("/")
+        async def handler(session: AsyncSession = Depends(get_db_session)):
             # Use session
             pass
     """
     manager = get_db_manager()
     async with manager.get_session() as session:
         yield session
+
+
+async def get_db_session_dependency() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency for getting a database session.
+
+    Usage in FastAPI routes:
+        @router.get("/items")
+        async def list_items(session: AsyncSession = Depends(get_db_session_dependency)):
+            # Use session
+            pass
+    """
+    manager = get_db_manager()
+    if not manager.is_initialized:
+        raise RuntimeError("Database not initialized. Call initialize() first.")
+    
+    session = manager._session_factory()
+    try:
+        yield session
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+    finally:
+        await session.close()

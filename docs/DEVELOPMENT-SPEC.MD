@@ -120,9 +120,9 @@ AtlasClaw-Core/
 │       │       ├── __init__.py
 │       │       ├── base.py
 │       │       ├── none.py
-│       │       ├── api_key.py
-│       │       ├── oidc.py
-│       │       └── smartcmp.py
+│       │       ├── local.py        # Username/password auth
+│       │       ├── oidc_jwt.py     # JWT validation for API
+│       │       └── oidc_login.py   # OAuth2 + PKCE for SSO
 │       │
 │       ├── channels/               # Channel Adapters
 │       │   ├── __init__.py
@@ -487,7 +487,7 @@ def get_or_create(self, provider: str, result: AuthResult) -> ShadowUser:
     """Look up or create a shadow user for the given external identity.
 
     Args:
-        provider: Auth provider name (e.g., "oidc", "smartcmp").
+        provider: Auth provider name (e.g., "local", "oidc_jwt", "oidc_login").
         result: Authentication result from the provider.
 
     Returns:

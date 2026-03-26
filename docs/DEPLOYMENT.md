@@ -68,15 +68,17 @@ Create `/opt/atlasclaw/config/atlasclaw.json`:
   },
   "service_providers": {},
   "auth": {
-    "provider": "api_key",
-    "api_key": {
-      "keys": {
-        "sk-production-key": {
-          "user_id": "admin",
-          "roles": ["admin"]
-        }
-      }
+    "provider": "local",
+    "jwt": {
+      "secret_key": "${JWT_SECRET_KEY}",
+      "expires_minutes": 1440,
+      "issuer": "atlasclaw",
+      "header_name": "AtlasClaw-Authenticate",
+      "cookie_name": "AtlasClaw-Auth"
     }
+  },
+  "encryption": {
+    "key": "${ATLASCLAW_ENCRYPTION_KEY}"
   }
 }
 ```
@@ -204,18 +206,53 @@ curl http://localhost:8000/api/health
 
 ### Authentication
 
-**API Key:**
+**Local (Username/Password):**
 ```json
 {
   "auth": {
-    "provider": "api_key",
-    "api_key": {
-      "keys": {
-        "sk-your-key": {
-          "user_id": "admin",
-          "roles": ["admin"]
-        }
-      }
+    "provider": "local",
+    "jwt": {
+      "secret_key": "${JWT_SECRET_KEY}",
+      "expires_minutes": 1440,
+      "issuer": "atlasclaw",
+      "header_name": "AtlasClaw-Authenticate",
+      "cookie_name": "AtlasClaw-Auth"
+    }
+  }
+}
+```
+
+**OIDC JWT (API Bearer Tokens):**
+```json
+{
+  "auth": {
+    "provider": "oidc_jwt",
+    "oidc": {
+      "issuer": "https://keycloak.example.com/realms/myrealm",
+      "client_id": "atlasclaw",
+      "jwks_uri": "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/certs"
+    }
+  }
+}
+```
+
+**OIDC Login (Browser SSO):**
+```json
+{
+  "auth": {
+    "provider": "oidc_login",
+    "oidc": {
+      "issuer": "https://keycloak.example.com/realms/myrealm",
+      "client_id": "atlasclaw",
+      "client_secret": "${OIDC_CLIENT_SECRET}",
+      "redirect_uri": "https://atlasclaw.example.com/api/auth/callback",
+      "authorization_endpoint": "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/auth",
+      "token_endpoint": "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/token",
+      "userinfo_endpoint": "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/userinfo",
+      "jwks_uri": "https://keycloak.example.com/realms/myrealm/protocol/openid-connect/certs",
+      "scopes": ["openid", "profile", "email"],
+      "pkce_enabled": true,
+      "pkce_method": "S256"
     }
   }
 }
@@ -310,10 +347,41 @@ docker-compose exec mysql mysql -u atlasclaw -p -e "SELECT 1"
 
 ## Security Notes
 
+### Data Encryption
+
+AtlasClaw uses **AES-256-GCM** encryption for all sensitive data at rest:
+
+1. **Encryption Key**: Set `ATLASCLAW_ENCRYPTION_KEY` environment variable (base64-encoded 32-byte key)
+   ```bash
+   # Generate a secure key
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+2. **Encrypted Fields**:
+   - LLM API keys (`model_token_configs` table)
+   - Service provider configurations (`service_provider_configs` table)
+   - Channel connection credentials (`channels` table)
+
+3. **Config File Encryption**: Sensitive values in `atlasclaw.json` can use `enc:` prefix:
+   ```json
+   {
+     "model": {
+       "tokens": {
+         "my-token": {
+           "api_key": "enc:v1:default:AbCdEfGh..."
+         }
+       }
+     }
+   }
+   ```
+
+### General Security
+
 1. Change all default passwords in `atlasclaw.json` and `docker-compose.yml`
 2. Restrict file permissions: `chmod 600 config/atlasclaw.json`
 3. Use HTTPS in production (place a reverse proxy in front)
 4. Regularly backup data directory and database
+5. Never commit encryption keys or API keys to version control
 
 ---
 

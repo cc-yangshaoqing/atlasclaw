@@ -41,24 +41,27 @@ def _run_dingtalk_sdk_process(
     import dingtalk_stream
     from dingtalk_stream import AckMessage
     
-    # Clear ALL proxy settings to avoid WebSocket connection issues
-    proxy_vars = [
-        'HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy',
-        'ALL_PROXY', 'all_proxy', 'NO_PROXY', 'no_proxy',
-        'WS_PROXY', 'ws_proxy', 'WSS_PROXY', 'wss_proxy',
-    ]
-    for key in proxy_vars:
-        os.environ.pop(key, None)
-    
-    # Monkey-patch websockets to skip proxy detection entirely
-    # The websockets library detects Windows system proxy via WinINet
-    try:
-        import websockets.asyncio.client as ws_client
-        # Override the get_proxy function to always return None
-        ws_client.get_proxy = lambda uri: None
-        print(f"[DingTalk SDK Process] Patched websockets to skip proxy detection")
-    except Exception as e:
-        print(f"[DingTalk SDK Process] Warning: Could not patch websockets: {e}")
+    # 默认支持环境代理（HTTP_PROXY/HTTPS_PROXY）。
+    # 如需强制绕过 WebSocket 代理，可设置: ATLASCLAW_BYPASS_WS_PROXY=true
+    bypass_ws_proxy = os.getenv("ATLASCLAW_BYPASS_WS_PROXY", "").lower() in {"1", "true", "yes", "on"}
+    if bypass_ws_proxy:
+        proxy_vars = [
+            "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+            "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
+            "WS_PROXY", "ws_proxy", "WSS_PROXY", "wss_proxy",
+        ]
+        for key in proxy_vars:
+            os.environ.pop(key, None)
+
+        try:
+            import websockets.asyncio.client as ws_client
+            ws_client.get_proxy = lambda uri: None
+            print("[DingTalk SDK Process] WebSocket proxy bypass enabled")
+        except Exception as e:
+            print(f"[DingTalk SDK Process] Warning: Could not patch websockets: {e}")
+    else:
+        print("[DingTalk SDK Process] Using environment proxy settings for outbound network access")
+
     
     # Setup logging for subprocess
     logging.basicConfig(
@@ -368,8 +371,9 @@ class DingTalkHandler(ChannelHandler):
             "text": {"content": outbound.content}
         }
         
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(trust_env=True) as session:
             async with session.post(webhook_url, json=payload) as response:
+
                 if response.status == 200:
                     data = await response.json()
                     if data.get("errcode") == 0:
@@ -408,8 +412,9 @@ class DingTalkHandler(ChannelHandler):
             "text": {"content": outbound.content}
         }
         
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(trust_env=True) as session:
             async with session.post(webhook_url, json=payload) as response:
+
                 if response.status == 200:
                     data = await response.json()
                     if data.get("errcode") == 0:

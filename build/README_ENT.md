@@ -155,7 +155,7 @@ Create `/opt/atlasclaw/workspace/atlasclaw.json`:
 ```json
 {
   "workspace": {
-    "path": "/app/data"
+    "path": "/app/workspace"
   },
   "database": {
     "type": "mysql",
@@ -169,6 +169,8 @@ Create `/opt/atlasclaw/workspace/atlasclaw.json`:
     }
   },
   "providers_root": "/app/extensions/providers",
+  "skills_root": "/app/extensions/skills",
+  "channels_root": "/app/extensions/channels",
   "model": {
     "primary": "deepseek-main",
     "fallbacks": [],
@@ -200,8 +202,9 @@ Create `/opt/atlasclaw/workspace/atlasclaw.json`:
 
 1. **You MUST replace `YOUR_API_KEY_HERE`** with your actual LLM API key (e.g., DeepSeek, OpenAI)
 2. **`model.tokens` cannot be empty** - At least one token entry is **required** for startup
-3. **`providers_root`** can be set to `/app/extensions/providers` (container path) or left empty
-4. MySQL host is `mysql` (service name in docker-compose)
+3. **`providers_root`**, **`skills_root`**, and **`channels_root`** should be set to `/app/extensions/providers`, `/app/extensions/skills`, `/app/extensions/channels`
+4. `workspace.path` should use container path `/app/workspace`
+5. MySQL host is `mysql` (service name in docker-compose)
 
 **Example with real API key:**
 ```json

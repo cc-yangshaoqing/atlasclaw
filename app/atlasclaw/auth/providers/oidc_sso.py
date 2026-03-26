@@ -1,98 +1,52 @@
-"""OIDCSSOProvider — implements OAuth2 Authorization Code flow with PKCE."""
+# -*- coding: utf-8 -*-
+"""OIDCSSOProvider — standard OIDC SSO implementation based on BaseSSOProvider."""
 
 from __future__ import annotations
 
-import base64
-import hashlib
 import json
 import logging
-import secrets
-from typing import Any, Optional
-from urllib.parse import urlencode
+from typing import Any
 
 import httpx
 
 from app.atlasclaw.auth.models import AuthResult, AuthenticationError
+from app.atlasclaw.auth.providers.sso_base import BaseSSOProvider
 
 logger = logging.getLogger(__name__)
 
 
-class OIDCSSOProvider:
+class OIDCSSOProvider(BaseSSOProvider):
     """
-    SSO Login flow with PKCE (Proof Key for Code Exchange).
-    
+    Standard OIDC SSO Provider based on BaseSSOProvider.
+
+    Implements OAuth2 Authorization Code flow with PKCE support,
+    ID token validation via JWKS, and userinfo fetching.
+
     Flow:
-    1. Generate PKCE code_verifier + code_challenge
-    2. Redirect user to IdP authorization endpoint
+    1. Generate PKCE code_verifier + code_challenge (inherited from base)
+    2. Redirect user to IdP authorization endpoint (inherited from base)
     3. Handle callback: exchange code for tokens
-    4. Validate ID token, optionally fetch userinfo
+    4. Validate ID token, fetch userinfo, extract identity
     """
-
-    def __init__(
-        self,
-        issuer: str,
-        client_id: str,
-        client_secret: str = "",
-        redirect_uri: str = "",
-        authorization_endpoint: str = "",
-        token_endpoint: str = "",
-        userinfo_endpoint: str = "",
-        jwks_uri: str = "",
-        scopes: Optional[list[str]] = None,
-        pkce_enabled: bool = True,
-        pkce_method: str = "S256",
-    ) -> None:
-        self._issuer = issuer.rstrip("/")
-        self._client_id = client_id
-        self._client_secret = client_secret
-        self._redirect_uri = redirect_uri
-        self._scopes = scopes or ["openid", "profile", "email"]
-        self._pkce_enabled = pkce_enabled
-        self._pkce_method = pkce_method
-
-        # Auto-discover endpoints if not provided
-        self._authorization_endpoint = authorization_endpoint or f"{self._issuer}/oauth/authorize"
-        self._token_endpoint = token_endpoint or f"{self._issuer}/oauth/token"
-        self._userinfo_endpoint = userinfo_endpoint or f"{self._issuer}/oauth/userinfo"
-        self._jwks_uri = jwks_uri or f"{self._issuer}/.well-known/jwks.json"
-
-    def generate_pkce(self) -> tuple[str, str]:
-        """Generate (code_verifier, code_challenge) pair."""
-        if not self._pkce_enabled:
-            return "", ""
-        
-        # code_verifier: 43-128 chars, URL-safe base64
-        verifier = base64.urlsafe_b64encode(
-            secrets.token_bytes(32)
-        ).decode().rstrip("=")
-        
-        if self._pkce_method == "S256":
-            challenge = base64.urlsafe_b64encode(
-                hashlib.sha256(verifier.encode()).digest()
-            ).decode().rstrip("=")
-        else:  # plain
-            challenge = verifier
-            
-        return verifier, challenge
-
-    def build_authorization_url(self, state: str, code_challenge: str = "") -> str:
-        """Build IdP authorization URL with PKCE."""
-        params: dict[str, str] = {
-            "response_type": "code",
-            "client_id": self._client_id,
-            "redirect_uri": self._redirect_uri,
-            "scope": " ".join(self._scopes),
-            "state": state,
-        }
-        
-        if self._pkce_enabled and code_challenge:
-            params["code_challenge"] = code_challenge
-            params["code_challenge_method"] = self._pkce_method
-            
-        return f"{self._authorization_endpoint}?{urlencode(params)}"
 
     async def exchange_code(self, code: str, code_verifier: str = "") -> dict[str, Any]:
-        """Exchange authorization code for tokens."""
+        """
+        Exchange authorization code for tokens.
+
+        Sends a form-encoded POST request to the token endpoint.
+        Uses HTTP Basic Auth if client_secret is configured.
+        Supports PKCE code_verifier.
+
+        Args:
+            code: Authorization code from IdP callback
+            code_verifier: PKCE code_verifier (if PKCE is enabled)
+
+        Returns:
+            dict[str, Any]: Token response containing access_token, id_token, etc.
+
+        Raises:
+            AuthenticationError: If token exchange fails
+        """
         payload: dict[str, str] = {
             "grant_type": "authorization_code",
             "code": code,
@@ -110,13 +64,13 @@ class OIDCSSOProvider:
             auth = (self._client_id, self._client_secret)
 
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, trust_env=True) as client:
                 resp = await client.post(
                     self._token_endpoint,
                     data=payload,
                     auth=auth,
                 )
-                logger.error(
+                logger.debug(
                     "[TokenExchange] status=%s body=%s",
                     resp.status_code,
                     resp.text[:500],
@@ -131,12 +85,23 @@ class OIDCSSOProvider:
             raise AuthenticationError(f"Token exchange failed: {exc}")
 
     async def fetch_userinfo(self, access_token: str) -> dict[str, Any]:
-        """Fetch user info from IdP."""
+        """
+        Fetch user info from IdP userinfo endpoint.
+
+        Sends a GET request with Bearer token authorization.
+        Returns empty dict on failure (does not raise exception).
+
+        Args:
+            access_token: OAuth2 access token
+
+        Returns:
+            dict[str, Any]: User info claims, or empty dict on failure
+        """
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=True) as client:
                 resp = await client.get(
                     self._userinfo_endpoint,
-                    headers={"Authorization": f"Bearer {access_token}"}
+                    headers={"Authorization": f"Bearer {access_token}"},
                 )
                 resp.raise_for_status()
                 return resp.json()
@@ -145,7 +110,21 @@ class OIDCSSOProvider:
             return {}
 
     async def validate_id_token(self, id_token: str) -> dict[str, Any]:
-        """Validate ID token and return claims."""
+        """
+        Validate ID token and return claims.
+
+        Fetches JWKS from IdP, finds matching public key by kid,
+        and validates the token signature and standard claims.
+
+        Args:
+            id_token: JWT ID token from token response
+
+        Returns:
+            dict[str, Any]: Validated ID token claims
+
+        Raises:
+            AuthenticationError: If validation fails (expired, invalid signature, etc.)
+        """
         try:
             import jwt as pyjwt
             from jwt.algorithms import RSAAlgorithm
@@ -157,7 +136,7 @@ class OIDCSSOProvider:
 
         # Fetch JWKS
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, trust_env=True) as client:
                 resp = await client.get(self._jwks_uri)
                 resp.raise_for_status()
                 jwks = resp.json()
@@ -171,7 +150,7 @@ class OIDCSSOProvider:
             raise AuthenticationError(f"Invalid JWT header: {exc}")
 
         kid = unverified_header.get("kid")
-        
+
         # Find matching key
         public_key = None
         for jwk in jwks.get("keys", []):
@@ -181,7 +160,7 @@ class OIDCSSOProvider:
                     break
                 except Exception:
                     continue
-                    
+
         if public_key is None:
             raise AuthenticationError(f"No matching public key found for kid={kid!r}")
 
@@ -205,32 +184,37 @@ class OIDCSSOProvider:
         except pyjwt.InvalidTokenError as exc:
             raise AuthenticationError(f"Invalid ID token: {exc}")
 
-    async def complete_login(self, code: str, code_verifier: str = "") -> AuthResult:
-        """Complete SSO login flow and return AuthResult."""
-        # Exchange code for tokens
-        tokens = await self.exchange_code(code, code_verifier)
-        
-        id_token = tokens.get("id_token")
-        access_token = tokens.get("access_token")
-        
-        if not id_token:
-            raise AuthenticationError("No id_token in token response")
-            
-        # Validate ID token
-        id_claims = await self.validate_id_token(id_token)
-        
-        # Optionally fetch userinfo for additional claims
-        userinfo = {}
-        if access_token:
-            userinfo = await self.fetch_userinfo(access_token)
-            
-        # Merge claims (ID token takes precedence)
+    def extract_identity(self, tokens: dict[str, Any], userinfo: dict[str, Any]) -> AuthResult:
+        """
+        Extract identity from tokens and userinfo.
+
+        Note: This method is synchronous but id_token validation is async.
+        The actual validation is done in complete_login before calling this method,
+        passing validated claims via tokens["_id_claims"].
+
+        Args:
+            tokens: Token response (must include "_id_claims" with validated claims)
+            userinfo: User info from userinfo endpoint
+
+        Returns:
+            AuthResult: Authentication result with extracted identity
+
+        Raises:
+            AuthenticationError: If required claims are missing
+        """
+        # Get pre-validated id_token claims (set by complete_login)
+        id_claims = tokens.get("_id_claims", {})
+
+        # Merge claims (ID token takes precedence over userinfo)
         claims = {**userinfo, **id_claims}
-        
+
         subject = claims.get("sub", "")
         if not subject:
             raise AuthenticationError("Missing 'sub' claim in ID token")
-            
+
+        access_token = tokens.get("access_token", "")
+        id_token = tokens.get("id_token", "")
+
         return AuthResult(
             subject=subject,
             display_name=claims.get("name", claims.get("preferred_username", "")),
@@ -241,3 +225,46 @@ class OIDCSSOProvider:
             id_token=id_token,
             extra=dict(claims),
         )
+
+    async def complete_login(self, code: str, code_verifier: str = "") -> AuthResult:
+        """
+        Complete SSO login flow and return AuthResult.
+
+        Orchestrates the full OIDC login flow:
+        1. Exchange authorization code for tokens
+        2. Validate ID token (OIDC-specific step)
+        3. Fetch userinfo for additional claims
+        4. Extract and return identity
+
+        Args:
+            code: Authorization code from IdP callback
+            code_verifier: PKCE code_verifier (if PKCE is enabled)
+
+        Returns:
+            AuthResult: Authentication result
+
+        Raises:
+            AuthenticationError: If any step fails
+        """
+        # Step 1: Exchange code for tokens
+        tokens = await self.exchange_code(code, code_verifier)
+
+        id_token = tokens.get("id_token")
+        access_token = tokens.get("access_token", "")
+
+        if not id_token:
+            raise AuthenticationError("No id_token in token response")
+
+        # Step 2: Validate ID token (OIDC-specific)
+        id_claims = await self.validate_id_token(id_token)
+
+        # Store validated claims in tokens for extract_identity
+        tokens["_id_claims"] = id_claims
+
+        # Step 3: Fetch userinfo for additional claims
+        userinfo = {}
+        if access_token:
+            userinfo = await self.fetch_userinfo(access_token)
+
+        # Step 4: Extract identity and return AuthResult
+        return self.extract_identity(tokens, userinfo)

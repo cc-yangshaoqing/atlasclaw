@@ -110,6 +110,8 @@ def test_login_then_access_root_and_auth_me(
             )
             assert login_resp.status_code == 200
             login_body = login_resp.json()
+            assert login_body.get("success") is True
+            assert login_body.get("user", {}).get("username") == "admin"
             token = login_body.get("token", "")
             assert token
 

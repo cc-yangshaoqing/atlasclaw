@@ -128,14 +128,30 @@ initializeConfiguration manager
         return self._config
     
     def _expand_env_vars(self, obj: Any) -> Any:
-        """Recursively expand environment variable placeholders in config.
-        
+        """Recursively expand environment variable placeholders and decrypt encrypted values in config.
+
         Placeholders in format ${VAR_NAME} are replaced with environment variable values.
+        Encrypted values in format enc:v1:... are decrypted using the encryption service.
+        If the env var is not set, returns empty string for string fields (allows Pydantic
+        validation to pass) or None for other types.
         """
+        from app.atlasclaw.core.encryption import decrypt, FORMAT_PREFIX
+
         if isinstance(obj, str):
+            # Check for encrypted value format: enc:v1:base64payload
+            if obj.startswith("enc:") and FORMAT_PREFIX in obj:
+                try:
+                    encrypted_payload = obj[4:]  # Remove 'enc:' prefix
+                    return decrypt(encrypted_payload)
+                except Exception as e:
+                    print(f"[ConfigManager] Failed to decrypt encrypted value: {e}")
+                    return obj  # Return original if decryption fails
+
+            # Check for environment variable placeholder
             if obj.startswith("${") and obj.endswith("}"):
                 var_name = obj[2:-1]
-                return os.environ.get(var_name, obj)
+                # Return env var value or empty string if not set
+                return os.environ.get(var_name, "")
             return obj
         elif isinstance(obj, dict):
             return {k: self._expand_env_vars(v) for k, v in obj.items()}
