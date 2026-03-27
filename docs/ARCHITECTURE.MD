@@ -154,6 +154,22 @@ A single agent instance serves multiple access channels simultaneously (REST API
 | **Core Infrastructure** | Configuration, dependency injection, workspace, tenancy | `core/` |
 | **Data & State** | Persistence for sessions, memory, users, channels, token health | `session/`, `memory/`, `auth/shadow_store.py` |
 
+### Session Scope Model
+
+AtlasClaw uses a canonical `SessionKey` to separate session ownership from conversation scope:
+
+- `user_id`: the AtlasClaw user that owns the persisted session bucket
+- `channel` + `account_id`: the ingress surface and concrete channel connection
+- `chat_type` + `peer_id`: the external conversation scope
+- `thread_id`: an optional independent thread inside the same scope
+
+Runtime rules:
+
+- Web chat creates independent threads through `POST /api/sessions/threads`
+- Channel direct messages are isolated by external sender
+- Channel group chats are shared by group or conversation ID
+- Metadata and transcripts persist under `workspace/users/<user_id>/sessions/`
+
 ---
 
 ## 3. Directory Structure
@@ -323,7 +339,7 @@ create_app() → FastAPI(lifespan=lifespan)
 The `lifespan()` async context manager executes this ordered sequence:
 
 1. **Load configuration** — `ConfigManager.load()` reads `atlasclaw.json`/`atlasclaw.yaml` with environment variable interpolation
-2. **Initialize workspace** — `WorkspaceInitializer.initialize()` creates the `.atlasclaw/` directory tree (user data only)
+2. **Initialize workspace** — `WorkspaceInitializer.initialize()` creates the `.atlasclaw/` directory tree and copies the default `agents/main/` files from the repo template directory when they are missing
 3. **Register built-in channel handlers** — Feishu, DingTalk, WeCom handlers registered in `ChannelRegistry`
 4. **Initialize ChannelManager** — Creates `ChannelManager` with workspace path
 5. **Scan providers** — `ProviderScanner` walks the providers directory (outside workspace), discovers auth and channel extensions

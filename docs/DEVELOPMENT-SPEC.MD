@@ -343,15 +343,24 @@ from ..core.config import get_config
 
 **Session storage**:
 ```
-~/.atlasclaw/agents/<agent_id>/sessions/<user_id>/
+workspace/users/<user_id>/sessions/
 ├── sessions.json
 ├── <session_id>.jsonl
+├── <session_id>-topic-<thread_id>.jsonl
 └── archive/
 ```
 
+Session routing rules:
+
+- Always resolve the storage bucket from the canonical `SessionKey.user_id`
+- Web chat uses a new thread endpoint for "New Chat" instead of reusing the stable `main` scope
+- Channel adapters must build canonical `SessionKey` values instead of hand-crafted keys
+- Direct session endpoints must reject access when the session owner does not match the authenticated user
+
 **Memory storage**:
 ```
-~/.atlasclaw/agents/<agent_id>/memory/
+workspace/users/<user_id>/memory/
+├── memory_<timestamp>.md
 ├── vector/
 └── fulltext/
 ```

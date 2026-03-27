@@ -33,6 +33,7 @@ from app.atlasclaw.agent.runner_prompt_context import (
 )
 from app.atlasclaw.agent.runtime_events import RuntimeEventDispatcher
 from app.atlasclaw.agent.thinking_stream import ThinkingStreamEmitter
+from app.atlasclaw.session.context import SessionKey
 
 if TYPE_CHECKING:
     from app.atlasclaw.agent.agent_pool import AgentInstancePool
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
 if TYPE_CHECKING:
     from app.atlasclaw.session.manager import SessionManager
     from app.atlasclaw.session.queue import SessionQueue
+    from app.atlasclaw.session.router import SessionManagerRouter
     from app.atlasclaw.hooks.system import HookSystem
 
 
@@ -58,6 +60,7 @@ class AgentRunner:
         compaction: Optional[CompactionPipeline] = None,
         hook_system: Optional["HookSystem"] = None,
         session_queue: Optional["SessionQueue"] = None,
+        session_manager_router: Optional["SessionManagerRouter"] = None,
         *,
         agent_id: str = "main",
         token_policy: Optional["DynamicTokenPolicy"] = None,
@@ -81,12 +84,13 @@ class AgentRunner:
         self.compaction = compaction or CompactionPipeline(CompactionConfig())
         self.hooks = hook_system
         self.queue = session_queue
+        self.session_manager_router = session_manager_router
         self.agent_id = agent_id
         self.token_policy = token_policy
         self.agent_pool = agent_pool
         self.token_interceptor = token_interceptor
         self.agent_factory = agent_factory
-        self.history = HistoryMemoryCoordinator(self.sessions, self.compaction)
+        self.history = HistoryMemoryCoordinator(session_manager_router or self.sessions, self.compaction)
         self.runtime_events = RuntimeEventDispatcher(self.hooks, self.queue)
 
     
@@ -117,11 +121,12 @@ class AgentRunner:
 
             runtime_agent, selected_token_id, release_slot = await self._resolve_runtime_agent(session_key, deps)
             runtime_context_window = self._resolve_runtime_context_window(selected_token_id, deps)
+            session_manager = self._resolve_session_manager(session_key, deps)
 
             # --:session + build prompt --
 
-            session = await self.sessions.get_or_create(session_key)
-            transcript = await self.sessions.load_transcript(session_key)
+            session = await session_manager.get_or_create(session_key)
+            transcript = await session_manager.load_transcript(session_key)
             message_history = self.history.build_message_history(transcript)
             message_history = self.history.prune_summary_messages(message_history)
 
@@ -175,7 +180,7 @@ class AgentRunner:
                 compressed_history = await self.compaction.compact(message_history, session)
                 message_history = self.history.normalize_messages(compressed_history)
                 message_history = await self.history.inject_memory_recall(message_history, deps)
-                await self.sessions.mark_compacted(session_key)
+                await session_manager.mark_compacted(session_key)
                 compaction_applied = True
                 yield StreamEvent.compaction_end()
                 if self.hooks:
@@ -275,7 +280,7 @@ class AgentRunner:
                                 deps,
                             )
                             persist_override_base_len = len(current_messages)
-                            await self.sessions.mark_compacted(session_key)
+                            await session_manager.mark_compacted(session_key)
                             compaction_applied = True
                             yield StreamEvent.compaction_end()
                             if self.hooks:
@@ -379,7 +384,7 @@ class AgentRunner:
                         if final_assistant:
                             thinking_emitter.assistant_emitted = True
                             yield StreamEvent.assistant_delta(final_assistant)
-                    await self.sessions.persist_transcript(session_key, final_messages)
+                    await session_manager.persist_transcript(session_key, final_messages)
 
             except Exception as e:
                 # Close thinking phase on exception to maintain contract
@@ -475,6 +480,17 @@ class AgentRunner:
 
         # 3) Fall back to configured compaction context window.
         return self.compaction.config.context_window
+
+    def _resolve_session_manager(self, session_key: str, deps: SkillDeps) -> Any:
+        """Resolve the correct per-user session manager for the active session."""
+        parsed = SessionKey.from_string(session_key)
+        scoped_manager = getattr(deps, "session_manager", None)
+        scoped_user_id = getattr(scoped_manager, "user_id", None)
+        if scoped_manager is not None and scoped_user_id == parsed.user_id:
+            return scoped_manager
+        if self.session_manager_router is not None:
+            return self.session_manager_router.for_session_key(session_key)
+        return self.sessions
 
     @asynccontextmanager
 

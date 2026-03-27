@@ -281,6 +281,10 @@ Creates the global workspace directory structure on first run:
 └── users/
 ```
 
+Default `agents/main/` files are copied from the repo template directory at
+`app/atlasclaw/templates/agents/main/`. Existing files are preserved; only
+missing files are restored.
+
 | Method | Signature | Description |
 |---|---|---|
 | `initialize` | `() -> bool` | Create workspace structure; returns True if created |
@@ -303,6 +307,16 @@ users/<user_id>/
 | `is_initialized` | `() -> bool` | Check if user workspace exists |
 | `get_sessions_dir` | `() -> Path` | Get user sessions directory |
 | `get_memory_dir` | `() -> Path` | Get user memory directory |
+
+**Class: `SessionManagerRouter` (`session/router.py`)**
+
+Routes runtime session persistence to the correct `workspace/users/<user_id>/sessions/` bucket.
+
+| Method | Signature | Description |
+|---|---|---|
+| `from_manager` | `(manager: SessionManager) -> SessionManagerRouter` | Clone reset/storage settings from an existing manager |
+| `for_user` | `(user_id: str) -> SessionManager` | Resolve the per-user session manager |
+| `for_session_key` | `(session_key: str) -> SessionManager` | Resolve storage from `SessionKey.user_id` |
 
 ### 1.5 Service Provider Registry (`core/provider_registry.py`)
 

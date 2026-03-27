@@ -15,6 +15,7 @@ from ..core.security_guard import ensure_user_work_dir
 from ..memory.manager import MemoryManager
 from ..session.manager import SessionManager
 from ..session.queue import SessionQueue
+from ..session.router import SessionManagerRouter
 from ..skills.registry import SkillRegistry
 from .sse import SSEManager
 from .webhook_dispatch import WebhookDispatchManager
@@ -25,6 +26,7 @@ class APIContext:
     session_manager: SessionManager
     session_queue: SessionQueue
     skill_registry: SkillRegistry
+    session_manager_router: Optional[SessionManagerRouter] = None
     memory_manager: Optional[MemoryManager] = None
     sse_manager: Optional[SSEManager] = None
     agent_runner: Optional[Any] = None
@@ -52,6 +54,8 @@ class APIContext:
                 iter(self.agent_runners.values()),
                 None,
             )
+        if self.session_manager_router is None:
+            self.session_manager_router = SessionManagerRouter.from_manager(self.session_manager)
 
 
 _api_context: Optional[APIContext] = None
@@ -123,10 +127,7 @@ def build_scoped_deps(
     provider_config: Optional[dict[str, Any]] = None,
     extra: Optional[dict[str, Any]] = None,
 ) -> SkillDeps:
-    scoped_session_mgr = SessionManager(
-        workspace_path=str(ctx.session_manager.workspace_path),
-        user_id=user_info.user_id,
-    )
+    scoped_session_mgr = ctx.session_manager_router.for_user(user_info.user_id)
     scoped_memory_mgr: Optional[MemoryManager] = None
     if ctx.memory_manager is not None:
         scoped_memory_mgr = MemoryManager(

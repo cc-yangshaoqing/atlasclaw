@@ -51,6 +51,20 @@ export function renderHeader(container) {
   }
 }
 
+export function updateHeaderTitleText(titleText) {
+  if (!titleElement) {
+    titleElement = document.getElementById('page-title')
+  }
+
+  if (!titleElement) {
+    return
+  }
+
+  titleElement.removeAttribute('data-i18n')
+  titleElement.textContent = titleText || 'AtlasClaw'
+  document.title = titleElement.textContent
+}
+
 /**
  * Update header title
  * @param {string} titleKey - i18n key for title
@@ -120,5 +134,6 @@ export function getHeaderElement() {
 export default {
   renderHeader,
   updateHeaderTitle,
+  updateHeaderTitleText,
   getHeaderElement
 }

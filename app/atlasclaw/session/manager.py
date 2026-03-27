@@ -11,7 +11,7 @@ Storage layout (new workspace-based):
 └── archive/                             # Archived transcripts
 ```
 
-Legacy layout (~/.atlasclaw/agents/<agent_id>/sessions/<user_id>/) is still supported
+Legacy layout (<legacy agents dir>/<agent_id>/sessions/<user_id>/) is still supported
 for backward compatibility.
 """
 
@@ -45,7 +45,7 @@ class SessionManager:
 
     Example:
         ```python
-        manager = SessionManager(agents_dir="~/.atlasclaw/agents")
+manager = SessionManager(agents_dir="/path/to/legacy-agents")
 
         session = await manager.get_or_create(session_key)
         transcript = await manager.load_transcript(session_key)

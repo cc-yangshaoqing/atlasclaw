@@ -6,7 +6,7 @@
  * - unmount() - Cleanup when leaving page
  */
 
-import { initSession, startNewSession, clearSession, getSessionKey, setSessionKey } from '../session-manager.js'
+import { initSession, getSessionKey, setSessionKey } from '../session-manager.js'
 import { initChat, abortCurrentStream } from '../chat-ui.js'
 import { listSessions } from '../api-client.js'
 import { t } from '../i18n.js'

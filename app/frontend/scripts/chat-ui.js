@@ -4,6 +4,7 @@
  */
 
 import { getSessionKey, initSession } from './session-manager.js';
+import { getAgentInfo, getSessionHistory } from './api-client.js';
 import { createStreamHandler } from './stream-handler.js';
 import { buildApiUrl } from './config.js';
 import { t, isLocaleLoaded } from './i18n.js';
@@ -43,7 +44,7 @@ function getMessageContainer() {
 function setupScrollListener() {
     const container = getMessageContainer();
     if (!container || container._scrollListenerAttached) return;
-    
+
     container.addEventListener('scroll', () => {
         const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < SCROLL_THRESHOLD;
         userHasScrolledUp = !isNearBottom;
@@ -127,13 +128,14 @@ export async function initChat(element) {
         console.error('[ChatUI] Failed to initialize session:', sessionError);
         // Continue without session - chat may not work properly
     }
-    
+
     // Load agent info and set welcome message
     await loadAgentInfo(element);
-    
+    const hasHistory = await restoreSessionHistory(element);
+
     // Use handler mode for full control over requests and thinking support
     configureHandler(element);
-    configureI18nAttributes(element);
+    configureI18nAttributes(element, { hasHistory });
 
     console.log('[ChatUI] Initialized');
 }
@@ -144,22 +146,64 @@ export async function initChat(element) {
  */
 async function loadAgentInfo(element) {
     try {
-        const response = await fetch('/api/agent/info');
-        if (response.ok) {
-            const agentInfo = await response.json();
-            console.log('[ChatUI] Agent info loaded:', agentInfo);
-            
-            // Set welcome message
-            if (agentInfo.welcome_message) {
-                element.introMessage = {
-                    text: agentInfo.welcome_message,
-                    role: 'ai'
-                };
-            }
+        const agentInfo = await getAgentInfo();
+        console.log('[ChatUI] Agent info loaded:', agentInfo);
+
+        // Set welcome message
+        if (agentInfo.welcome_message) {
+            element.introMessage = {
+                text: agentInfo.welcome_message,
+                role: 'ai'
+            };
         }
     } catch (error) {
         console.error('[ChatUI] Failed to load agent info:', error);
     }
+}
+
+/**
+ * Load persisted history for the active session and hydrate DeepChat.
+ * @param {HTMLElement} element - DeepChat DOM element
+ * @returns {Promise<boolean>} Whether history messages were restored
+ */
+async function restoreSessionHistory(element) {
+    const sessionKey = getSessionKey();
+    if (!sessionKey) {
+        return false;
+    }
+
+    try {
+        const payload = await getSessionHistory(sessionKey);
+        const history = (payload.messages || [])
+            .map((message) => mapTranscriptMessageToHistory(message))
+            .filter(Boolean);
+
+        if (history.length === 0) {
+            return false;
+        }
+
+        if (typeof element.loadHistory === 'function') {
+            element.loadHistory(history);
+        } else {
+            element.history = history;
+        }
+        element.introMessage = null;
+        return true;
+    } catch (error) {
+        console.warn('[ChatUI] Failed to restore session history:', error);
+        return false;
+    }
+}
+
+function mapTranscriptMessageToHistory(message) {
+    if (!message?.content) return null;
+    if (message.role === 'user') {
+        return { role: 'user', text: message.content };
+    }
+    if (message.role === 'assistant') {
+        return { role: 'ai', text: message.content };
+    }
+    return null;
 }
 
 /**
@@ -171,16 +215,16 @@ function configureHandler(element) {
     // Define the handler function that will process all requests
     const handlerFn = async (body, signals) => {
         console.log('[ChatUI] Handler called with body:', body);
-        
+
         // 1. Extract user message from body
         const messageText = extractMessageFromBody(body);
-        
+
         // 2. Ensure session exists
         let sessionKey = getSessionKey();
         if (!sessionKey) {
             sessionKey = await initSession();
         }
-        
+
         // 3. Call API to start the run
         let runId;
         try {
@@ -193,16 +237,16 @@ function configureHandler(element) {
                     timeout_seconds: 600
                 })
             });
-            
+
             if (!response.ok) {
                 signals.onResponse({ html: `<p style="color: #d32f2f;">Error: ${response.status} ${response.statusText}</p>` });
                 signals.onClose();
                 return;
             }
-            
+
             const data = await response.json();
             runId = data.run_id || data.runId || data.id;
-            
+
             if (!runId) {
                 console.warn('[ChatUI] Missing run_id:', data);
                 signals.onResponse({ html: `<p style="color: #d32f2f;">${escapeHtml(data.detail || 'Error: No run_id')}</p>` });
@@ -215,16 +259,16 @@ function configureHandler(element) {
             signals.onClose();
             return;
         }
-        
+
         // 4. Show loading dots with styles
-        signals.onResponse({ 
-            html: `${THINKING_STYLES}<div class="thinking-loading"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>` 
+        signals.onResponse({
+            html: `${THINKING_STYLES}<div class="thinking-loading"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`
         });
-        
+
         // 5. Handle SSE stream with thinking support
         await handleStreamWithSignals(runId, signals);
     };
-    
+
     // Set handler both ways for compatibility:
     // 1. element.handler - for backward compatibility and tests
     // 2. element.connect.handler + stream: true - for DeepChat to use handler mode with streaming support
@@ -249,14 +293,18 @@ function extractMessageFromBody(body) {
     return '';
 }
 
-function configureI18nAttributes(element) {
+function configureI18nAttributes(element, options = {}) {
+    const { hasHistory = false } = options;
+
     if (!isLocaleLoaded()) {
         console.warn('[ChatUI] Locale not loaded, skipping i18n config');
         return;
     }
 
-    const introMessage = t('chat.introMessage');
-    element.introMessage = { text: introMessage };
+    if (!hasHistory && !element.introMessage) {
+        const introMessage = t('chat.introMessage');
+        element.introMessage = { text: introMessage };
+    }
 
     const placeholder = t('chat.placeholder');
     element.textInput = {
@@ -287,20 +335,20 @@ function buildMessageText(thinkingContent, responseContent, elapsedSeconds = nul
         const thinkingText = thinkingContent || '';
         // Show the thinking label with animated ellipsis, no timer display
         const thinkingLabel = `思考中<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>`;
-        
+
         let html = THINKING_STYLES;
         html += `<div class="thinking-block thinking">`;
         html += `<div class="thinking-header">`;
-        html += `<span class="thinking-icon">⚡</span>`;
+        html += `<span class="thinking-icon">�?/span>`;
         html += `<span class="thinking-label">${thinkingLabel}</span>`;
-        html += `<span class="thinking-toggle">›</span>`;
+        html += `<span class="thinking-toggle">�?/span>`;
         html += `</div>`;
         html += `<div class="thinking-body"><div class="thinking-content-text">${escapeHtml(thinkingText)}</div></div>`;
         html += `</div>`;
-        
+
         return { html };
     }
-    
+
     // Thinking completed - show collapsible block using native <details> element
     if (thinkingContent && thinkingContent.trim().length > 0) {
         // Ensure elapsed time is at least 0.1s if we have thinking content
@@ -310,26 +358,26 @@ function buildMessageText(thinkingContent, responseContent, elapsedSeconds = nul
             displayElapsed = 0.1;
         }
         const timerText = displayElapsed !== null ? `${displayElapsed}s` : '';
-        const labelText = timerText ? `已思考（用时 ${timerText}）` : '已思考';
-        
+        const labelText = timerText ? `已思考（用时 ${timerText}）` : '已思�?;
+
         let html = THINKING_STYLES;
         // Use native <details>/<summary> for collapsed state
         html += `<details class="thinking-block">`;
         html += `<summary class="thinking-header">`;
-        html += `<span class="thinking-icon">⚡</span>`;
+        html += `<span class="thinking-icon">�?/span>`;
         html += `<span class="thinking-label">${labelText}</span>`;
-        html += `<span class="thinking-toggle">›</span>`;
+        html += `<span class="thinking-toggle">�?/span>`;
         html += `</summary>`;
         html += `<div class="thinking-body"><div class="thinking-content-text">${escapeHtml(thinkingContent)}</div></div>`;
         html += `</details>`;
-        
+
         // Append response content
         if (responseContent) {
             return { html, text: responseContent };
         }
         return { html };
     }
-    
+
     // No thinking content - return as html to avoid mixing text/html in same stream
     return { html: `<div class="response-content">${escapeHtml(responseContent || '')}</div>` };
 }
@@ -339,22 +387,22 @@ function buildMessageText(thinkingContent, responseContent, elapsedSeconds = nul
  */
 function buildMessageContent(thinkingContent, responseContent, elapsedSeconds = null, isThinking = false) {
     const result = buildMessageText(thinkingContent, responseContent, elapsedSeconds, isThinking);
-    
+
     // If we have both html (thinking block) and text (response), combine them in a wrapper
     if (result.html && result.text) {
         return { html: `<div class="message-wrapper">${result.html}<div class="response-content">${escapeHtml(result.text)}</div></div>` };
     }
-    
+
     // Ensure we always return html to avoid mixing text/html in same stream
     if (result.text !== undefined && !result.html) {
         return { html: `<div class="response-content">${escapeHtml(result.text)}</div>` };
     }
-    
+
     // For thinking-only states, also wrap
     if (result.html) {
         return { html: `<div class="message-wrapper">${result.html}</div>` };
     }
-    
+
     return result;
 }
 
@@ -379,10 +427,10 @@ function escapeHtml(text) {
  */
 async function handleStreamWithSignals(runId, signals) {
     console.log('[ChatUI] Starting stream for run:', runId);
-    
+
     let aiMessageContent = '';
     let hasRenderedDelta = false;
-    
+
     // Thinking state
     let thinkingContent = '';
     let thinkingStartTime = null;
@@ -390,13 +438,13 @@ async function handleStreamWithSignals(runId, signals) {
     let thinkingTimerInterval = null;
     let thinkingFinalized = false;
     let hasThinkingContent = false;
-    
-    
+
+
     function updateUI() {
         try {
             const content = buildMessageContent(
-                thinkingContent, aiMessageContent, 
-                thinkingElapsedSeconds, 
+                thinkingContent, aiMessageContent,
+                thinkingElapsedSeconds,
                 !thinkingFinalized && hasThinkingContent
             );
             if (content.html) {
@@ -412,7 +460,7 @@ async function handleStreamWithSignals(runId, signals) {
             console.warn('[ChatUI] Failed to update UI:', e);
         }
     }
-    
+
     function startThinkingTimer() {
         if (thinkingTimerInterval) return;
         thinkingStartTime = Date.now();
@@ -424,7 +472,7 @@ async function handleStreamWithSignals(runId, signals) {
             // Note: UI is NOT updated here - animated dots handle the visual feedback
         }, 100);
     }
-    
+
     function stopThinkingTimer() {
         if (thinkingTimerInterval) {
             clearInterval(thinkingTimerInterval);
@@ -440,7 +488,7 @@ async function handleStreamWithSignals(runId, signals) {
             updateUI();
         }
     }
-    
+
     return new Promise((resolve) => {
         currentStreamHandler = createStreamHandler(runId, {
             onStart: () => {
@@ -448,15 +496,15 @@ async function handleStreamWithSignals(runId, signals) {
             },
             onDelta: (data) => {
                 if (!data.content) return;
-                
+
                 if (!thinkingFinalized) {
                     thinkingFinalized = true;
                     stopThinkingTimer();
                 }
-                
+
                 aiMessageContent += data.content;
                 hasRenderedDelta = true;
-                
+
                 // Throttle UI updates to max once per 100ms
                 if (!assistantUpdatePending) {
                     assistantUpdatePending = true;
@@ -492,40 +540,40 @@ async function handleStreamWithSignals(runId, signals) {
                 startThinkingTimer();
                 // Reset scroll state when new thinking starts
                 userHasScrolledUp = false;
-                
+
                 // Generate unique block ID for incremental DOM updates
                 thinkingBlockId = `tb-${Date.now()}`;
-                
+
                 // Render initial thinking block HTML (only once, includes styles)
                 // Wrap in message-wrapper to ensure proper DOM structure in Shadow DOM
                 const initialHtml = `<div class="message-wrapper">${THINKING_STYLES}
                     <div class="thinking-block thinking" id="${thinkingBlockId}">
                         <div class="thinking-header">
-                            <span class="thinking-icon">⚡</span>
+                            <span class="thinking-icon">�?/span>
                             <span class="thinking-label">思考中<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span></span>
-                            <span class="thinking-toggle">›</span>
+                            <span class="thinking-toggle">�?/span>
                         </div>
                         <div class="thinking-body">
                             <div class="thinking-content-text" id="${thinkingBlockId}-content"></div>
                         </div>
                     </div>
                 </div>`;
-                
+
                 signals.onResponse({ html: initialHtml, overwrite: true });
             },
             onThinkingDelta: (data) => {
                 const content = data?.content || '';
                 if (!content) return;
-                
+
                 // Safety: ensure timer is started if we receive thinking delta
                 // (handles edge case where thinking:start event was missed)
                 if (!thinkingStartTime) {
                     hasThinkingContent = true;
                     startThinkingTimer();
                 }
-                
+
                 thinkingContent += content;
-                
+
                 // Incremental DOM append - no full HTML rebuild
                 const dc = document.querySelector('deep-chat');
                 if (dc?.shadowRoot && thinkingBlockId) {
@@ -539,7 +587,7 @@ async function handleStreamWithSignals(runId, signals) {
                         contentEl.insertAdjacentHTML('beforeend', escapedContent);
                     }
                 }
-                
+
                 // Throttled auto-scroll (max once per 100ms to avoid jank)
                 if (!thinkingScrollPending) {
                     thinkingScrollPending = true;
@@ -553,20 +601,20 @@ async function handleStreamWithSignals(runId, signals) {
             onThinkingEnd: (data) => {
                 console.log('[ChatUI] Thinking ended');
                 thinkingFinalized = true;
-                
+
                 // Use actual elapsed time from backend if available
                 if (data?.elapsed && data.elapsed > 0) {
                     thinkingElapsedSeconds = data.elapsed;
                 }
-                
+
                 stopThinkingTimer();
-                
+
                 // Now do a full update to switch to completed state (<details> element)
                 updateUI();
             },
             onEnd: () => {
                 console.log('[ChatUI] Stream ended');
-                
+
                 // Delay final render slightly to ensure all pending deltas are processed
                 // This fixes timing issues where lifecycle:end arrives before assistant delta is fully processed
                 const doFinalRender = () => {
@@ -574,21 +622,21 @@ async function handleStreamWithSignals(runId, signals) {
                     assistantUpdatePending = false;
                     thinkingFinalized = true;
                     stopThinkingTimer();
-                    
+
                     // Final render with complete content
                     if (hasRenderedDelta || hasThinkingContent) {
                         updateUI();
                     } else {
                         try {
-                            signals.onResponse({ html: '<div class="response-content">—</div>', overwrite: true });
+                            signals.onResponse({ html: '<div class="response-content">�?/div>', overwrite: true });
                         } catch (e) {}
                     }
-                    
+
                     signals.onClose();
                     currentStreamHandler = null;
                     resolve();
                 };
-                
+
                 // Always delay slightly to ensure all pending events (especially assistant deltas) are processed
                 // Assistant event and lifecycle:end arrive nearly simultaneously, delay ensures correct ordering
                 setTimeout(doFinalRender, 200);
@@ -597,21 +645,21 @@ async function handleStreamWithSignals(runId, signals) {
                 console.error('[ChatUI] Stream error:', error);
                 thinkingFinalized = true;
                 stopThinkingTimer();
-                
+
                 try {
                     // Must use html to match initial loading dots response (cannot mix text and html)
-                    signals.onResponse({ 
-                        html: `<p style="color: #d32f2f;">Error: ${escapeHtml(error?.message || 'Unknown error')}</p>`, 
-                        overwrite: true 
+                    signals.onResponse({
+                        html: `<p style="color: #d32f2f;">Error: ${escapeHtml(error?.message || 'Unknown error')}</p>`,
+                        overwrite: true
                     });
                 } catch (e) {}
-                
+
                 signals.onClose();
                 currentStreamHandler = null;
                 resolve();
             }
         });
-        
+
         currentStreamHandler.start();
     });
 }

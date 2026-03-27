@@ -13,6 +13,16 @@ class SessionCreateRequest(BaseModel):
     channel: str = "api"
     chat_type: str = "dm"
     scope: str = "main"
+    account_id: str = "default"
+    peer_id: Optional[str] = None
+
+
+class SessionThreadCreateRequest(BaseModel):
+    agent_id: str = "main"
+    channel: str = "web"
+    chat_type: str = "dm"
+    account_id: str = "default"
+    peer_id: Optional[str] = None
 
 
 class SessionResponse(BaseModel):
@@ -20,10 +30,24 @@ class SessionResponse(BaseModel):
     agent_id: str
     channel: str
     user_id: str
+    account_id: str = "default"
+    chat_type: str = "dm"
+    peer_id: str = "default"
+    thread_id: Optional[str] = None
     created_at: datetime
     last_activity: datetime
     message_count: int
     total_tokens: int
+
+
+class SessionHistoryMessage(BaseModel):
+    role: str
+    content: str
+    timestamp: datetime
+
+
+class SessionHistoryResponse(BaseModel):
+    messages: list[SessionHistoryMessage] = Field(default_factory=list)
 
 
 class SessionResetRequest(BaseModel):

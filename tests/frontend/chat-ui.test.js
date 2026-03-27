@@ -14,7 +14,10 @@ jest.mock('../../app/frontend/scripts/i18n.js', () => ({
 
 beforeEach(() => {
     jest.resetModules();
-    global.fetch = jest.fn();
+    global.fetch = jest.fn(() => Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ messages: [] })
+    }));
     sessionStorageMock.clear();
     MockEventSource.instances = [];
 });
@@ -102,6 +105,36 @@ describe('chat-ui.js handler mode', () => {
         expect(typeof element.handler).toBe('function');
     });
 
+    test('initChat restores persisted session history for active session', async () => {
+        sessionStorage.setItem('atlasclaw_session_key', 'session-123');
+
+        const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+        const element = createChatElement();
+
+        global.fetch
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ welcome_message: 'Hello!' })
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({
+                    messages: [
+                        { role: 'user', content: 'hello atlas', timestamp: '2026-03-27T10:00:00' },
+                        { role: 'assistant', content: 'hi there', timestamp: '2026-03-27T10:00:01' }
+                    ]
+                })
+            });
+
+        await initChat(element);
+
+        expect(element.history).toEqual([
+            { role: 'user', text: 'hello atlas' },
+            { role: 'ai', text: 'hi there' }
+        ]);
+        expect(element.introMessage).toBeNull();
+    });
+
     test('handler calls API with correct body and starts SSE stream', async () => {
         const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
         const element = createChatElement();
@@ -138,7 +171,7 @@ describe('chat-ui.js handler mode', () => {
 
         // Verify API was called with correct body
         expect(global.fetch).toHaveBeenCalledWith(
-            'http://127.0.0.1:8000/api/agent/run',
+            expect.stringMatching(/\/api\/agent\/run$/),
             expect.objectContaining({
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -155,7 +188,7 @@ describe('chat-ui.js handler mode', () => {
 
         // Verify SSE stream started
         expect(MockEventSource.instances).toHaveLength(1);
-        expect(MockEventSource.instances[0].url).toBe('http://127.0.0.1:8000/api/agent/runs/run-123/stream');
+        expect(MockEventSource.instances[0].url).toMatch(/\/api\/agent\/runs\/run-123\/stream$/);
 
         // Verify loading dots were shown
         expect(signals.onResponse).toHaveBeenCalledWith(
