@@ -216,7 +216,9 @@ async def lifespan(app: FastAPI):
     )
     _session_manager_router = SessionManagerRouter.from_manager(_session_manager)
     _session_queue = SessionQueue(max_concurrent=config.agent_defaults.max_concurrent)
-    _skill_registry = SkillRegistry()
+    _skill_registry = SkillRegistry(
+        allow_script_execution=bool(config.skills.allow_script_execution)
+    )
     
     _global_provider_registry = ServiceProviderRegistry()
     _global_provider_registry.load_from_directory(providers_root)

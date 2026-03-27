@@ -239,8 +239,8 @@ app/atlasclaw/
 │   ├── catalog.py                 # ToolProfile, ToolCatalog, tool groups
 │   ├── registration.py            # register_builtin_tools()
 │   ├── base.py                    # Tool base classes
-│   ├── filesystem/                # read, write, edit, delete_file
-│   ├── runtime/                   # exec, process
+│   ├── filesystem/                # legacy file tools (disabled by default)
+│   ├── runtime/                   # legacy runtime tools (disabled by default)
 │   ├── memory/                    # memory_search, memory_get
 │   ├── sessions/                  # list, history, send, spawn, status, subagents
 │   ├── web/                       # web_search, web_fetch
