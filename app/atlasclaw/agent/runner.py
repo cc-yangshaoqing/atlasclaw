@@ -27,6 +27,10 @@ from app.atlasclaw.agent.stream import StreamEvent
 from app.atlasclaw.agent.compaction import CompactionPipeline, CompactionConfig
 from app.atlasclaw.agent.history_memory import HistoryMemoryCoordinator
 from app.atlasclaw.agent.prompt_builder import PromptBuilder, PromptBuilderConfig
+from app.atlasclaw.agent.runner_prompt_context import (
+    build_system_prompt,
+    collect_md_skills_snapshot,
+)
 from app.atlasclaw.agent.runtime_events import RuntimeEventDispatcher
 from app.atlasclaw.agent.thinking_stream import ThinkingStreamEmitter
 
@@ -121,7 +125,12 @@ class AgentRunner:
             message_history = self.history.build_message_history(transcript)
             message_history = self.history.prune_summary_messages(message_history)
 
-            system_prompt = self._build_system_prompt(session=session, deps=deps, agent=runtime_agent)
+            system_prompt = build_system_prompt(
+                self.prompt_builder,
+                session=session,
+                deps=deps,
+                agent=runtime_agent or self.agent,
+            )
 
             if self.hooks:
                 prompt_ctx = await self.hooks.trigger(
@@ -521,109 +530,14 @@ class AgentRunner:
 
                 yield agent_run
 
-    def _build_system_prompt(self, session: Any, deps: SkillDeps, *, agent: Optional[Any] = None) -> str:
-        """Build the runtime system prompt for the current session."""
-        skills = self._collect_skills_snapshot(deps)
-        tools = self._collect_tools_snapshot(agent=agent or self.agent)
-
-        md_skills = self._collect_md_skills_snapshot(deps)
-        target_md_skill = self._collect_target_md_skill(deps)
-        provider_contexts = self._collect_provider_contexts(deps)
-        return self.prompt_builder.build(
-            session=session,
-            skills=skills,
-            tools=tools,
-            md_skills=md_skills,
-            target_md_skill=target_md_skill,
-            user_info=deps.user_info,
-            provider_contexts=provider_contexts,
-        )
-
-    def _collect_skills_snapshot(self, deps: SkillDeps) -> list[dict]:
-        """Read a structured skills snapshot from `deps.extra` if present."""
-        extra = deps.extra if isinstance(deps.extra, dict) else {}
-        for key in ("skills_snapshot", "skills"):
-            value = extra.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-        return []
-
-    def _collect_md_skills_snapshot(self, deps: SkillDeps) -> list[dict]:
-        """Read a Markdown-skill snapshot from `deps.extra` if present."""
-        extra = deps.extra if isinstance(deps.extra, dict) else {}
-        for key in ("md_skills_snapshot", "md_skills"):
-            value = extra.get(key)
-            if isinstance(value, list):
-                return [item for item in value if isinstance(item, dict)]
-        return []
-
-    def _collect_target_md_skill(self, deps: SkillDeps) -> Optional[dict]:
-        """Read a targeted markdown-skill descriptor from `deps.extra` if present."""
-        extra = deps.extra if isinstance(deps.extra, dict) else {}
-        value = extra.get("target_md_skill")
-        return value if isinstance(value, dict) else None
-
-    def _collect_provider_contexts(self, deps: SkillDeps) -> dict[str, dict]:
-        """Collect provider LLM contexts from ServiceProviderRegistry.
-        
-        Returns:
-            Dictionary mapping provider_type to context dict with keys:
-            display_name, description, keywords, capabilities, use_when, avoid_when
-        """
-        extra = deps.extra if isinstance(deps.extra, dict) else {}
-        registry = extra.get("_service_provider_registry")
-        
-        if registry is None:
-            return {}
-        
-        # Check if registry has get_all_provider_contexts method
-        get_contexts = getattr(registry, "get_all_provider_contexts", None)
-        if get_contexts is None:
-            return {}
-        
-        try:
-            contexts = get_contexts()
-            # Convert ProviderContext dataclasses to dicts
-            result = {}
-            for provider_type, ctx in contexts.items():
-                if hasattr(ctx, "__dict__"):
-                    result[provider_type] = {
-                        "display_name": getattr(ctx, "display_name", ""),
-                        "description": getattr(ctx, "description", ""),
-                        "keywords": getattr(ctx, "keywords", []),
-                        "capabilities": getattr(ctx, "capabilities", []),
-                        "use_when": getattr(ctx, "use_when", []),
-                        "avoid_when": getattr(ctx, "avoid_when", []),
-                    }
-                elif isinstance(ctx, dict):
-                    result[provider_type] = ctx
-            return result
-        except Exception:
-            return {}
-
-    def _collect_tools_snapshot(self, *, agent: Any) -> list[dict]:
-        """Collect tool name and description pairs for prompt building."""
-        raw_tools = getattr(agent, "tools", None)
-
-        if not raw_tools:
-            return []
-
-        tools: list[dict] = []
-        for tool in raw_tools:
-            if isinstance(tool, dict):
-                name = tool.get("name")
-                description = tool.get("description", "")
-            else:
-                name = getattr(tool, "name", None) or getattr(tool, "__name__", None)
-                description = getattr(tool, "description", "") or getattr(tool, "__doc__", "") or ""
-            if name:
-                tools.append({"name": str(name), "description": str(description).strip()})
-        return tools
-
     def _is_model_request_node(self, node: Any) -> bool:
         """Return whether a node represents a model request boundary."""
         node_type = type(node).__name__.lower()
         return "modelrequest" in node_type or node_type.endswith("requestnode")
+
+    def _collect_md_skills_snapshot(self, deps: SkillDeps) -> list[dict]:
+        """Compatibility wrapper for existing tests and callers."""
+        return collect_md_skills_snapshot(deps)
     
     async def run_single(
         self,
@@ -642,48 +556,3 @@ class AgentRunner:
             return result.output if hasattr(result, "output") else str(result)
         except Exception as e:
             return f"[Error: {str(e)}]"
-
-
-class MockAgentRunner:
-    """Testing stub that returns predefined responses and tool calls."""
-    
-    def __init__(
-        self,
-        responses: Optional[list[str]] = None,
-        tool_calls: Optional[list[dict]] = None,
-    ):
-        """Initialize the mock runner with scripted outputs."""
-        self.responses = responses or ["This is a mock response."]
-        self.tool_calls = tool_calls or []
-        self._response_index = 0
-        self._tool_index = 0
-    
-    async def run(
-        self,
-        session_key: str,
-        user_message: str,
-        deps: SkillDeps,
-        **kwargs,
-    ) -> AsyncIterator[StreamEvent]:
-        """Yield a deterministic mock event stream."""
-        yield StreamEvent.lifecycle_start()
-        
-        # Replay scripted tool calls first.
-        for tc in self.tool_calls:
-            tool_name = tc.get("name", "mock_tool")
-            yield StreamEvent.tool_start(tool_name)
-            await asyncio.sleep(0.1)  # 
-            yield StreamEvent.tool_end(tool_name, tc.get("result", ""))
-        
-        # return
-        response = self.responses[self._response_index % len(self.responses)]
-        self._response_index += 1
-        
-        # return
-        chunk_size = 50
-        for i in range(0, len(response), chunk_size):
-            chunk = response[i:i + chunk_size]
-            yield StreamEvent.assistant_delta(chunk)
-            await asyncio.sleep(0.05)  # streaming
-        
-        yield StreamEvent.lifecycle_end()

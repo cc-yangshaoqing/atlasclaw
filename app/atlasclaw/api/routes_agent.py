@@ -45,6 +45,7 @@ def register_agent_routes(router: APIRouter) -> None:
             user_info,
             request_cookies,
             provider_config,
+            request.context,
         )
 
         return AgentRunResponse(
@@ -89,3 +90,4 @@ def register_agent_routes(router: APIRouter) -> None:
     ) -> dict[str, Any]:
         abort_run(ctx, run_id)
         return {"status": "aborted", "run_id": run_id}
+

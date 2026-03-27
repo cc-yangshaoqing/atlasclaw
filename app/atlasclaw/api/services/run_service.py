@@ -73,6 +73,7 @@ async def execute_agent_run(
     user_info: Optional[UserInfo] = None,
     request_cookies: Optional[dict[str, str]] = None,
     provider_config: Optional[dict[str, Any]] = None,
+    request_context: Optional[dict[str, Any]] = None,
 ) -> None:
     _user_info = user_info or ANONYMOUS_USER
 
@@ -95,7 +96,10 @@ async def execute_agent_run(
             session_key,
             request_cookies=request_cookies,
             provider_config=provider_config,
-            extra={"agent_id": target_agent_id},
+            extra={
+                "agent_id": target_agent_id,
+                "context": request_context or {},
+            },
         )
 
         async for event in runner.run(
@@ -147,3 +151,4 @@ async def execute_agent_run(
 
     finally:
         ctx.sse_manager.close_stream(run_id)
+

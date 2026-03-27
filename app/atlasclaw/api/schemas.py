@@ -35,6 +35,7 @@ class AgentRunRequest(BaseModel):
     message: str
     model: Optional[str] = None
     timeout_seconds: int = 600
+    context: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentRunResponse(BaseModel):
@@ -117,3 +118,4 @@ class WebhookDispatchRequest(BaseModel):
 
 class WebhookDispatchResponse(BaseModel):
     status: str
+

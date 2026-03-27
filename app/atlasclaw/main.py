@@ -15,22 +15,15 @@ Usage:
 import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
-import re
 from typing import Any, Optional
 
 
 from dotenv import load_dotenv
 
-import os
-
 load_dotenv(dotenv_path=Path(__file__).parent.parent.parent / ".env", override=False)
 
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
 
 from app.atlasclaw.api.routes import create_router, APIContext, install_request_validation_logging, set_api_context
 from app.atlasclaw.api.webhook_dispatch import WebhookDispatchManager
@@ -57,14 +50,34 @@ from app.atlasclaw.channels.handlers.feishu import FeishuHandler
 from app.atlasclaw.channels.handlers.dingtalk import DingTalkHandler
 from app.atlasclaw.channels.handlers.wecom import WeComHandler
 from app.atlasclaw.auth import AuthRegistry
-from app.atlasclaw.auth.shadow_store import ShadowUserStore
 from app.atlasclaw.agent.agent_pool import AgentInstancePool
 from app.atlasclaw.agent.token_policy import DynamicTokenPolicy
 from app.atlasclaw.core.token_health_store import TokenHealthStore
 from app.atlasclaw.core.token_interceptor import TokenHealthInterceptor
 from app.atlasclaw.core.token_pool import TokenEntry, TokenPool
-from app.atlasclaw.db.database import DatabaseConfig, DatabaseManager, init_database, get_db_manager
+from app.atlasclaw.db.database import DatabaseConfig, init_database, get_db_manager
 from app.atlasclaw.db.orm.model_config import ModelConfigService
+from app.atlasclaw.bootstrap.app_factory_helpers import (
+    StaticFileCacheMiddleware,
+    mount_frontend,
+    register_core_routers,
+    setup_auth_middleware_from_config,
+)
+from app.atlasclaw.bootstrap.startup_helpers import (
+    build_token_entries_from_db,
+    build_provider_instances_from_db,
+    build_token_entries,
+    check_and_prompt_for_providers,
+    create_pydantic_model,
+    derive_provider_namespace,
+    ensure_default_local_admin,
+    load_agent_config_from_db,
+    merge_provider_instances,
+    merge_token_entries,
+    print_root_plugins,
+    run_mysql_alembic_upgrade,
+    scan_plugin_names,
+)
 
 
 
@@ -77,362 +90,6 @@ _session_queue: Optional[SessionQueue] = None
 _skill_registry: Optional[SkillRegistry] = None
 _agent_runner: Optional[AgentRunner] = None
 _channel_manager: Optional[ChannelManager] = None
-
-
-def _derive_provider_namespace(provider_dir_name: str) -> str:
-    """Normalize a provider directory name into a stable provider namespace."""
-    normalized = re.sub(r"[^a-z0-9]+", "-", provider_dir_name.strip().lower()).strip("-")
-    if normalized.endswith("-provider"):
-        normalized = normalized[: -len("-provider")]
-    return normalized or provider_dir_name.strip().lower()
-
-
-def _scan_plugin_names(root: Path, *, md_skill_mode: bool = False) -> list[str]:
-    """Collect plugin names from a configured root path for startup logging."""
-    if not root.exists() or not root.is_dir():
-        return []
-
-    names: set[str] = set()
-    if md_skill_mode:
-        for skill_file in root.glob("*/SKILL.md"):
-            if skill_file.is_file():
-                names.add(skill_file.parent.name)
-        for md_file in root.glob("*.md"):
-            if md_file.is_file() and not md_file.name.startswith("_"):
-                names.add(md_file.stem)
-    else:
-        for child in root.iterdir():
-            if child.is_dir():
-                names.add(child.name)
-
-    return sorted(names)
-
-
-def _print_root_plugins(label: str, root: Path, plugins: list[str]) -> None:
-    """Print configured root path and discovered plugin names."""
-    if not root.exists():
-        print(f"[AtlasClaw] {label}: {root} (not found)")
-        return
-
-    count = len(plugins)
-    if plugins:
-        print(f"[AtlasClaw] {label}: {root} ({count}) -> {', '.join(plugins)}")
-    else:
-        print(f"[AtlasClaw] {label}: {root} (0) -> (none)")
-
-
-def _check_and_prompt_for_providers(providers_root: Path) -> None:
-    """Check if providers_root directory is empty."""
-    providers_dir = providers_root
-
-    def _is_empty_or_missing(dir_path: Path) -> bool:
-        """Check if directory is empty or doesn't exist."""
-        if not dir_path.exists():
-            return True
-        try:
-            return not any(dir_path.iterdir())
-        except (OSError, PermissionError):
-            return True
-
-    providers_empty = _is_empty_or_missing(providers_dir)
-
-    if providers_empty:
-        print("\n" + "=" * 70)
-        print("[AtlasClaw] NOTICE: providers_root directory is empty")
-        print("=" * 70)
-
-        print(f"  - Providers root is empty: {providers_dir}")
-
-        print("\nTo get started with providers and skills, please run:")
-        print("\n  git clone https://github.com/CloudChef/atlasclaw-providers.git")
-        print(f"  # Configure atlasclaw.json with \"providers_root\": \"{providers_dir}\"")
-        print("\nOr manually place provider folders under the providers_root directory above.")
-        print("=" * 70 + "\n")
-
-
-def _expand_env_value(value: str) -> str:
-    if value.startswith("${") and value.endswith("}"):
-        import os
-
-        return os.environ.get(value[2:-1], "")
-    return value
-
-
-async def _run_mysql_alembic_upgrade(db_config: DatabaseConfig) -> None:
-    """Run Alembic migrations to head for MySQL deployments."""
-    from alembic import command
-    from alembic.config import Config as AlembicConfig
-
-    alembic_ini_path = Path(__file__).parent.parent.parent / "alembic.ini"
-    if not alembic_ini_path.exists():
-        raise RuntimeError(f"alembic.ini not found: {alembic_ini_path}")
-
-    def _upgrade() -> None:
-        alembic_cfg = AlembicConfig(str(alembic_ini_path))
-        alembic_cfg.set_main_option("sqlalchemy.url", db_config.get_connection_url())
-        command.upgrade(alembic_cfg, "head")
-
-    await asyncio.to_thread(_upgrade)
-
-
-def _create_pydantic_model(token: TokenEntry):
-
-    if token.api_type == "anthropic":
-        from pydantic_ai.models.anthropic import AnthropicModel
-        from pydantic_ai.providers.anthropic import AnthropicProvider
-
-        provider = AnthropicProvider(api_key=token.api_key, base_url=token.base_url)
-        return AnthropicModel(token.model, provider=provider)
-
-    from pydantic_ai.models.openai import OpenAIChatModel
-    from pydantic_ai.providers.openai import OpenAIProvider
-
-    provider = OpenAIProvider(api_key=token.api_key, base_url=token.base_url)
-    return OpenAIChatModel(token.model, provider=provider)
-
-
-def _merge_token_entries(primary: list[TokenEntry], secondary: list[TokenEntry]) -> list[TokenEntry]:
-    """Merge tokens by token_id, keeping primary list precedence on conflicts."""
-    merged: list[TokenEntry] = []
-    seen_ids: set[str] = set()
-
-    for token in [*primary, *secondary]:
-        token_id = (token.token_id or "").strip()
-        if not token_id or token_id in seen_ids:
-            continue
-        seen_ids.add(token_id)
-        merged.append(token)
-
-    return merged
-
-
-def _build_token_entries(config) -> tuple[list[TokenEntry], Optional[str]]:
-    """Build token entries from config.
-
-    Returns:
-        tuple of (token_entries, primary_token_id)
-    """
-
-    tokens: list[TokenEntry] = []
-    for token_cfg in config.model.tokens:
-        tokens.append(
-            TokenEntry(
-                token_id=token_cfg.id,
-                provider=token_cfg.provider,
-                model=token_cfg.model,
-                base_url=_expand_env_value(token_cfg.base_url),
-                api_key=_expand_env_value(token_cfg.api_key),
-                api_type=token_cfg.api_type,
-                priority=token_cfg.priority,
-                weight=token_cfg.weight,
-                context_window=token_cfg.context_window,
-            )
-        )
-
-    if tokens:
-        primary_id = config.model.primary
-        # Validate primary exists in tokens
-        if primary_id and not any(t.token_id == primary_id for t in tokens):
-            print(f"[AtlasClaw] Warning: primary token '{primary_id}' not found in tokens[], using first token")
-            primary_id = tokens[0].token_id
-        elif not primary_id:
-            primary_id = tokens[0].token_id
-        return tokens, primary_id
-
-    # Legacy fallback: build from providers config
-    model_name = config.model.primary
-    if "/" in model_name:
-        provider, model = model_name.split("/", 1)
-    else:
-        provider, model = "openai", model_name
-
-    provider_config = config.model.providers.get(provider, {})
-
-    # Fall back to built-in provider presets if no explicit config exists
-    from app.atlasclaw.models.providers import BUILTIN_PROVIDERS
-    preset = BUILTIN_PROVIDERS.get(provider)
-
-    base_url = _expand_env_value(provider_config.get("base_url", ""))
-    api_key = _expand_env_value(provider_config.get("api_key", ""))
-    api_type = provider_config.get("api_type", "")
-
-    # Use preset defaults if not configured
-    if not base_url and preset:
-        base_url = preset.base_url
-    if not api_type and preset:
-        api_type = preset.api_type
-    if not api_key and preset and preset.env_key:
-        # Try to get API key from environment using preset's env_key
-        import os
-        api_key = os.environ.get(preset.env_key, "")
-
-    api_type = api_type or "openai"
-
-    if not base_url:
-        raise RuntimeError(
-            f"Missing base_url for provider '{provider}'. "
-            f"Set environment variable or configure in atlasclaw.json under model.providers.{provider}"
-        )
-    if not api_key:
-        env_hint = f" or set {preset.env_key}" if preset and preset.env_key else ""
-        raise RuntimeError(
-            f"Missing api_key for provider '{provider}'. "
-            f"Configure in atlasclaw.json under model.providers.{provider}{env_hint}"
-        )
-
-    primary_id = f"{provider}-primary"
-    return [
-        TokenEntry(
-            token_id=primary_id,
-            provider=provider,
-            model=model,
-            base_url=base_url,
-            api_key=api_key,
-            api_type=api_type,
-            priority=100,
-            weight=100,
-            context_window=None,
-        )
-    ], primary_id
-
-
-async def _build_token_entries_from_db(session) -> tuple[list[TokenEntry], Optional[str]]:
-    """Build token entries from database.
-    
-    Returns:
-        tuple of (token_entries, primary_token_id) or (None, None) if database is empty.
-    """
-    from app.atlasclaw.db.orm.model_token_config import ModelTokenConfigService
-
-    tokens, _total = await ModelTokenConfigService.list_all(session, is_active=True)
-
-    if not tokens:
-        return None, None
-
-    token_entries: list[TokenEntry] = []
-    for token in tokens:
-        # Decrypt API key
-        api_key = ModelTokenConfigService.get_decrypted_api_key(token) or ""
-        token_entries.append(
-            TokenEntry(
-                token_id=token.name,
-                provider=token.provider,
-                model=token.model,
-                base_url=token.base_url or "",
-                api_key=api_key,
-                api_type="openai",
-                priority=token.priority,
-                weight=token.weight,
-                context_window=None,
-            )
-        )
-
-    # Use the first active token as primary
-    primary_id = token_entries[0].token_id if token_entries else None
-    return token_entries, primary_id
-
-
-def _merge_provider_instances(
-    primary: dict[str, dict[str, dict[str, Any]]],
-    secondary: dict[str, dict[str, dict[str, Any]]],
-) -> dict[str, dict[str, dict[str, Any]]]:
-    """Merge provider instances with primary precedence (provider_type + instance_name)."""
-    merged: dict[str, dict[str, dict[str, Any]]] = {}
-
-    for source in [secondary, primary]:
-        for provider_type, instances in (source or {}).items():
-            if not isinstance(instances, dict):
-                continue
-            provider_bucket = merged.setdefault(provider_type, {})
-            for instance_name, instance_cfg in instances.items():
-                provider_bucket[instance_name] = dict(instance_cfg or {})
-
-    return merged
-
-
-async def _build_provider_instances_from_db(session) -> dict[str, dict[str, dict[str, Any]]]:
-    """Build nested provider instance configs from database."""
-    from app.atlasclaw.db.orm.service_provider_config import ServiceProviderConfigService
-
-    return await ServiceProviderConfigService.list_active_as_nested(session)
-
-
-async def _load_agent_config_from_db(session, agent_id: str):
-
-    """Load agent configuration from database.
-    
-    Returns:
-        AgentConfig object or None if not found in database.
-    """
-    from app.atlasclaw.db.orm.agent_config import AgentConfigService
-    from app.atlasclaw.agent.agent_definition import AgentConfig
-    
-    agent_model = await AgentConfigService.get_by_name(session, agent_id)
-    if agent_model is None:
-        return None
-    
-    # Convert database model to AgentConfig
-    soul = agent_model.soul or {}
-    identity = agent_model.identity or {}
-    user = agent_model.user or {}
-    memory = agent_model.memory or {}
-    
-    return AgentConfig(
-        agent_id=agent_id,
-        name=agent_model.name,
-        display_name=agent_model.display_name,
-        system_prompt=soul.get("system_prompt", ""),
-        capabilities=soul.get("capabilities", []),
-        allowed_providers=soul.get("allowed_providers", []),
-        allowed_skills=soul.get("allowed_skills", []),
-        avatar=identity.get("avatar", "🤖"),
-        tone=identity.get("tone", "professional"),
-        interaction_style=user.get("interaction_style", ""),
-        memory_strategy=memory.get("memory_strategy", ""),
-        max_context_rounds=memory.get("max_context_rounds", 20),
-    )
-
-
-async def _ensure_default_local_admin(config) -> None:
-    """Ensure default local admin account exists when local auth is enabled."""
-    import logging
-
-    logger = logging.getLogger(__name__)
-
-    from app.atlasclaw.auth.config import AuthConfig
-    from app.atlasclaw.db.orm.user import UserService
-    from app.atlasclaw.db.schemas import UserCreate
-
-    if config.auth is None:
-        return
-
-    auth_cfg = config.auth if isinstance(config.auth, AuthConfig) else AuthConfig(**config.auth)
-    if auth_cfg.provider.lower() != "local" or not auth_cfg.local.enabled:
-        return
-
-    username = auth_cfg.local.default_admin_username or "admin"
-    password = auth_cfg.local.default_admin_password or "admin"
-
-    async with get_db_manager().get_session() as session:
-        existing = await UserService.get_by_username(session, username)
-        if existing:
-            return
-
-        await UserService.create(
-            session,
-            UserCreate(
-                username=username,
-                password=password,
-                display_name="Administrator",
-                roles={"admin": True},
-                auth_type="local",
-                is_admin=True,
-                is_active=True,
-            ),
-        )
-
-    print(f"[AtlasClaw] Created default local admin user: {username}")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -448,12 +105,12 @@ async def lifespan(app: FastAPI):
     skills_root = (config_root / config.skills_root).resolve()
     channels_root = (config_root / config.channels_root).resolve()
 
-    provider_plugins = _scan_plugin_names(providers_root)
-    skill_plugins = _scan_plugin_names(skills_root, md_skill_mode=True)
-    channel_plugins = _scan_plugin_names(channels_root)
-    _print_root_plugins("providers_root plugins", providers_root, provider_plugins)
-    _print_root_plugins("skills_root plugins", skills_root, skill_plugins)
-    _print_root_plugins("channels_root plugins", channels_root, channel_plugins)
+    provider_plugins = scan_plugin_names(providers_root)
+    skill_plugins = scan_plugin_names(skills_root, md_skill_mode=True)
+    channel_plugins = scan_plugin_names(channels_root)
+    print_root_plugins("providers_root plugins", providers_root, provider_plugins)
+    print_root_plugins("skills_root plugins", skills_root, skill_plugins)
+    print_root_plugins("channels_root plugins", channels_root, channel_plugins)
 
     # Get workspace path from config
     workspace_path = config.workspace.path
@@ -465,7 +122,7 @@ async def lifespan(app: FastAPI):
         workspace_initializer.initialize()
         print(f"[AtlasClaw] Initialized workspace at: {workspace_path}")
 
-    _check_and_prompt_for_providers(providers_root)
+    check_and_prompt_for_providers(providers_root)
 
     # Initialize database if configured
     db_initialized = False
@@ -496,7 +153,7 @@ async def lifespan(app: FastAPI):
                 print("[AtlasClaw] SQLite initialized via ORM models")
             elif db_config.db_type == "mysql":
                 # MySQL: enterprise mode, schema/data changes managed by Alembic
-                await _run_mysql_alembic_upgrade(db_config)
+                await run_mysql_alembic_upgrade(db_config)
                 print("[AtlasClaw] MySQL initialized via Alembic migrations")
             else:
                 raise RuntimeError(f"Unsupported database type: {db_config.db_type}")
@@ -508,7 +165,7 @@ async def lifespan(app: FastAPI):
 
     
     if db_initialized:
-        await _ensure_default_local_admin(config)
+        await ensure_default_local_admin(config)
 
     # Register built-in channel handlers (enterprise messaging platforms)
     ChannelRegistry.register("feishu", FeishuHandler)
@@ -534,7 +191,7 @@ async def lifespan(app: FastAPI):
     if db_initialized:
         try:
             async with get_db_manager().get_session() as session:
-                main_agent_config = await _load_agent_config_from_db(session, "main")
+                main_agent_config = await load_agent_config_from_db(session, "main")
                 if main_agent_config:
                     print(f"[AtlasClaw] Loaded agent from database: {main_agent_config.display_name}")
         except Exception as e:
@@ -569,9 +226,9 @@ async def lifespan(app: FastAPI):
     if db_initialized:
         try:
             async with get_db_manager().get_session() as session:
-                db_provider_instances = await _build_provider_instances_from_db(session)
+                db_provider_instances = await build_provider_instances_from_db(session)
                 if db_provider_instances:
-                    merged_provider_instances = _merge_provider_instances(
+                    merged_provider_instances = merge_provider_instances(
                         db_provider_instances,
                         config_provider_instances,
                     )
@@ -604,7 +261,7 @@ async def lifespan(app: FastAPI):
             if provider_path.is_dir() and not provider_path.name.startswith(("_", ".")):
                 provider_skills = provider_path / "skills"
                 if provider_skills.exists():
-                    provider_namespace = _derive_provider_namespace(provider_path.name)
+                    provider_namespace = derive_provider_namespace(provider_path.name)
                     _skill_registry.load_from_directory(
                         str(provider_skills),
                         location="provider",
@@ -620,7 +277,7 @@ async def lifespan(app: FastAPI):
 
     # Load token configurations from both JSON and database.
     # Priority: DB tokens override same token_id from JSON, while JSON tokens are still loaded.
-    config_token_entries, config_primary_token_id = _build_token_entries(config)
+    config_token_entries, config_primary_token_id = build_token_entries(config)
     token_entries = list(config_token_entries)
     primary_token_id = config_primary_token_id
 
@@ -630,10 +287,10 @@ async def lifespan(app: FastAPI):
     if db_initialized:
         try:
             async with get_db_manager().get_session() as session:
-                db_token_entries, db_primary_token_id = await _build_token_entries_from_db(session)
+                db_token_entries, db_primary_token_id = await build_token_entries_from_db(session)
                 if db_token_entries:
                     print(f"[AtlasClaw] Loaded {len(db_token_entries)} tokens from database")
-                    token_entries = _merge_token_entries(db_token_entries, token_entries)
+                    token_entries = merge_token_entries(db_token_entries, token_entries)
                     primary_token_id = db_primary_token_id or primary_token_id
                     print(f"[AtlasClaw] Combined token pool: {len(token_entries)} (database + JSON)")
         except Exception as e:
@@ -697,7 +354,7 @@ async def lifespan(app: FastAPI):
         if agent_cfg is None:
             agent_cfg = agent_loader.load_agent(agent_id)
             agent_configs[agent_id] = agent_cfg
-        model_instance = _create_pydantic_model(token)
+        model_instance = create_pydantic_model(token)
         built_agent = Agent(
             model_instance,
             deps_type=SkillDeps,
@@ -819,8 +476,7 @@ def create_app() -> FastAPI:
         version="0.1.0",
         lifespan=lifespan,
     )
-    
-    # CORS middleware for development
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[
@@ -834,138 +490,21 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     install_request_validation_logging(app)
-    
-    # Add Cache-Control middleware for static files
-    # This ensures browsers always revalidate with server using ETag/Last-Modified
-    # Returns 304 if unchanged, new content if changed
-    class StaticFileCacheMiddleware(BaseHTTPMiddleware):
-        async def dispatch(self, request: Request, call_next):
-            response = await call_next(request)
-            # Add no-cache header for static resource paths
-            path = request.url.path
-            if path.startswith(("/static/", "/scripts/", "/styles/", "/locales/")):
-                response.headers["Cache-Control"] = "no-cache"
-            return response
-    
     app.add_middleware(StaticFileCacheMiddleware)
-    
-    # Mount static files for frontend
+
     frontend_dir = Path(__file__).parent.parent / "frontend"
-    
-    if frontend_dir.exists():
-        # Mount static directories
-        static_dir = frontend_dir / "static"
-        if static_dir.exists():
-            app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-        
-        scripts_dir = frontend_dir / "scripts"
-        if scripts_dir.exists():
-            app.mount("/scripts", StaticFiles(directory=str(scripts_dir)), name="scripts")
-        
-        styles_dir = frontend_dir / "styles"
-        if styles_dir.exists():
-            app.mount("/styles", StaticFiles(directory=str(styles_dir)), name="styles")
-        
-        locales_dir = frontend_dir / "locales"
-        if locales_dir.exists():
-            app.mount("/locales", StaticFiles(directory=str(locales_dir)), name="locales")
-        
-        # Serve index.html for root path
-        @app.get("/", include_in_schema=False)
-        async def serve_index():
-            index_path = frontend_dir / "index.html"
-            if index_path.exists():
-                return FileResponse(str(index_path))
-            return {"error": "Frontend not found"}
-        
-        # Serve channels.html for channel management
-        @app.get("/channels.html", include_in_schema=False)
-        async def serve_channels():
-            channels_path = frontend_dir / "channels.html"
-            if channels_path.exists():
-                return FileResponse(str(channels_path))
-            return {"error": "Channels page not found"}
+    mount_frontend(app, frontend_dir)
 
-        # Serve login page
-        @app.get("/login.html", include_in_schema=False)
-        async def serve_login():
-            login_path = frontend_dir / "login.html"
-            if login_path.exists():
-                return FileResponse(str(login_path))
-            return {"error": "Login page not found"}
+    register_core_routers(
+        app,
+        api_router=create_router(),
+        channel_hooks_router=channel_hooks_router,
+        channels_router=channels_router,
+        agent_info_router=agent_info_router,
+        db_api_router=db_api_router,
+    )
 
-        # Serve admin users page
-        @app.get("/admin/users", include_in_schema=False)
-        async def serve_admin_users():
-            admin_users_path = frontend_dir / "admin-users.html"
-            if admin_users_path.exists():
-                return FileResponse(str(admin_users_path))
-            return {"error": "Admin users page not found"}
-        
-        # Serve models page
-        @app.get("/models.html", include_in_schema=False)
-        async def serve_models():
-            models_path = frontend_dir / "models.html"
-            if models_path.exists():
-                return FileResponse(str(models_path))
-            return {"error": "Models page not found"}
-        
-        # Serve config.json
-
-        @app.get("/config.json", include_in_schema=False)
-        async def serve_config():
-            config_path = frontend_dir / "config.json"
-            if config_path.exists():
-                return FileResponse(str(config_path))
-            return {"apiBaseUrl": ""}
-
-    
-    # Include API routes
-    api_router = create_router()
-    app.include_router(api_router)
-    
-    # Include channel webhook routes
-    app.include_router(channel_hooks_router)
-    
-    # Include channel management routes
-    app.include_router(channels_router)
-    
-    # Include agent info routes
-    app.include_router(agent_info_router)
-    
-    # Include database API routes (Agent, Token, User CRUD)
-    app.include_router(db_api_router)
-
-    # Register AuthMiddleware — must be done at app creation time
-    # (middleware cannot be added after startup)
-    # Use config from lifespan (already loaded with correct working directory)
-    try:
-        from app.atlasclaw.auth.middleware import setup_auth_middleware
-        from app.atlasclaw.auth.config import AuthConfig
-        from app.atlasclaw.core.config import get_config
-
-        # Always use the active global config manager (supports ATLASCLAW_CONFIG in tests/runtime)
-        _cfg = get_config()
-
-        _auth = _cfg.auth if _cfg else None
-
-        if isinstance(_auth, dict):
-            _auth = AuthConfig(**_auth)
-        # Respect the enabled flag — disabled auth runs in anonymous mode
-        if _auth is not None and not _auth.enabled:
-            _auth = None
-        auth_workspace_path = str(Path(_cfg.workspace.path).resolve())
-        shadow_store = ShadowUserStore(workspace_path=auth_workspace_path)
-        setup_auth_middleware(app, _auth, shadow_store=shadow_store)
-
-        # Store config reference for routes to use
-        app.state.config = _cfg
-        if _auth is not None and isinstance(_auth, AuthConfig):
-            app.state.config.auth = _auth
-    except Exception as _e:
-        import logging as _logging
-        _logging.getLogger(__name__).warning(f"Config setup warning: {_e}")
-
+    setup_auth_middleware_from_config(app)
     return app
 
 
