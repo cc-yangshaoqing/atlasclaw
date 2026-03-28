@@ -1,13 +1,13 @@
-﻿# AtlasClaw Self-Improving Runtime Design
+﻿# AtlasClaw Hook Runtime and Self-Improving Module Design
 
 ## Goal
 
-将 `atlasclaw-providers/skills/self-improving` 从仅供模型参考的 Markdown skill，升级为 AtlasClaw 原生的自动学习能力层。该能力默认自动生效，能够在运行时捕获纠正、失败和反思事件，分层写入用户私有存储，并通过分级确认机制决定哪些经验可以晋升为长期记忆。
+先为 AtlasClaw 建立一层对齐 OpenClaw 的轻量 Hook Runtime，再将 `atlasclaw-providers/skills/self-improving` 作为第一个内建注册的 hook module 接入。该能力默认自动生效，能够在运行时捕获纠正、失败和反思事件，通过通用 hook state、分级确认和长期记忆回注机制形成可审计的学习闭环。
 
 ## Status
 
 - 设计状态：已确认，可进入 implementation plan
-- 范围：AtlasClaw core runtime + memory/session integration
+- 范围：AtlasClaw hook runtime + memory/session/context integration
 - 非目标：不实现自动改代码、自动改 prompt、自动改配置
 
 ## Problem Statement
@@ -16,21 +16,21 @@
 
 1. 默认自动生效，而不是依赖用户显式调用 skill
 2. 监听 agent 生命周期、模型失败、工具失败、用户纠正等运行时事件
-3. 将学习事件写入 AtlasClaw 自己的用户隔离存储，而不是 `~/self-improving/`
+3. 通过通用 Hook Runtime 把学习事件写入 AtlasClaw 自己的用户隔离存储，而不是 `~/self-improving/`
 4. 对候选经验进行分层、审计和用户确认
 5. 将确认后的经验接入现有 `memory_*.md` 长期记忆与上下文回注机制
 
-这意味着当前 `self-improving` 更像“规则说明文档”，而不是 OpenClaw / Claude Code 那类可持续自动运行的 memory + hooks 能力。
+这意味着当前 `self-improving` 更像“规则说明文档”，还没有变成类似 OpenClaw 的 hooks/plugins + memory/context engine 能力。
 
 ## Design Principles
 
 1. 默认自动生效，但保持被动学习
 2. 用户隔离优先，所有数据必须按 `workspace/users/<user_id>/...` 存储
-3. 原始事件与长期记忆分层，避免噪声污染长期记忆
+3. Hook 事件状态与长期记忆分层，避免噪声污染长期记忆
 4. 所有晋升到长期记忆的内容必须走分级确认机制
 5. 只学习显式信号，不从沉默、猜测或隐式观察中推断偏好
 6. 不绕开现有 session、memory、prompt compaction 架构
-7. 优先复用当前 `runner.py`、`runtime_events.py`、`history_memory.py`、`MemoryManager`、`SessionManagerRouter`
+7. 优先复用当前 `runner.py`、`runtime_events.py`、`history_memory.py`、`MemoryManager`、`SessionManagerRouter` 和 `hooks/system.py`
 
 ## OpenClaw Alignment
 
@@ -56,8 +56,8 @@
 本设计在 AtlasClaw 中采用以下映射：
 
 - `SKILL.md`：保留为规则说明与提示源，等价于 OpenClaw 的 skill 行为文档层
-- `runtime_events.py` + `runner.py`：承担 OpenClaw hooks 的事件捕获职责
-- `self_improving` store：承担 memory plugin 的持久化职责
+- `HookSystem` + `runtime_events.py` + `runner.py`：承担 OpenClaw hooks 的事件捕获与分发职责
+- 通用 hook runtime state：承担 memory/plugin state 的持久化职责
 - confirmed lesson recall：承担简化版 context engine 的上下文回注职责
 
 ### Explicit Non-Goals for Phase 1
@@ -65,7 +65,7 @@
 第一阶段不做完整 OpenClaw 风格 plugin engine，但会为它留出边界：
 
 - 不实现通用插件安装 / 启停系统
-- 不实现通用 hook 包发现机制
+- 不实现文件系统自动发现注册
 - 不实现完整 slot registry
 
 但 Phase 1 的接口和数据模型必须可向以下方向扩展：
@@ -84,51 +84,77 @@
   - 一次任务结束后的轻量自我反思
   - 工具、模型或执行失败事件
 - 存储策略：
-  - `memory_*.md + self_improving/` 子目录日志
+  - `memory_*.md + 通用 hook state 存储`
 - 晋升策略：分层写入 + 分级确认
 - 长期记忆晋升不是“全部自动”，也不是“每条都即时打断确认”
 - 推荐策略：
-  - 原始事件先入日志
+  - 原始事件先进入 hook runtime state
   - 候选经验进入 pending
   - 用户在合适时机确认后才进入 `memory_*.md`
 
 ## High-Level Architecture
 
-在现有架构中新增一个轻量的“自改进运行时能力层”，而不是引入一个完整的 plugin engine。这个能力层由三部分组成：
+在现有架构中新增一个轻量的“Hook Runtime 能力层”，而不是直接写一个 `self-improving` 专用子系统。第一阶段仍然只落地一个内建模块：`self-improving`。这个能力层由三部分组成：
 
 1. Runtime Hook Capture
-- 基于现有 `AgentRunner` 和 `RuntimeEventDispatcher`
-- 捕获 run 成功、run 失败、模型错误、工具错误、用户纠正等事件
+- 基于现有 `HookSystem`、`AgentRunner` 和 `RuntimeEventDispatcher`
+- 定义并分发 run 成功、run 失败、模型错误、工具错误、用户纠正等事件
 
-2. Self-Improving Store
-- 将事件写入用户专属 `self_improving/` 子目录
-- 形成 `events -> pending -> decisions -> confirmed memory` 的分层链路
+2. Hook Runtime State
+- 将 hook module 的状态写入用户专属 hook state 空间
+- 形成 `events -> pending -> decisions -> confirmed memory` 的通用分层链路
+- `self-improving` 只是第一个使用这一链路的模块
 
 3. Memory Context Integration
 - 已确认经验进入现有长期记忆文件
 - 上下文回注仍由现有 memory / compaction 流程负责
-- self-improving 原始日志不直接注入 prompt
+- hook 原始状态不直接注入 prompt
+
+## Registration Model
+
+### Phase 1: Built-In Registration
+
+本轮先做内建注册，而不是文件系统自动发现：
+
+- 在 Hook Runtime 中显式注册 `self-improving`
+- 通过清晰接口支持未来扩展更多 hook modules
+- `SKILL.md` 保留为规则源，但不负责注册 runtime 行为
+
+### Future Direction
+
+后续可演进为：
+
+- 文件系统自动发现 hook modules
+- provider-supplied hook modules
+- plugin slot registry
+- 可配置启停和优先级
 
 ## Storage Model
 
 ### Primary Storage
 
-所有自改进数据都存放在：
+所有 hook module 运行时状态都存放在：
 
-`workspace/users/<user_id>/memory/self_improving/`
+`workspace/users/<user_id>/hooks/<module_name>/`
+
+第一阶段 `self-improving` 使用：
+
+`workspace/users/<user_id>/hooks/self-improving/`
 
 建议目录结构：
 
 ```text
-workspace/users/<user_id>/memory/
-├── memory_20260328_101530_123456.md
-├── memory_20260328_142001_654321.md
-└── self_improving/
-    ├── events.jsonl
-    ├── pending.jsonl
-    ├── decisions.jsonl
-    ├── snapshots/
-    └── summaries/
+workspace/users/<user_id>/
+├── hooks/
+│   └── self-improving/
+│       ├── events.jsonl
+│       ├── pending.jsonl
+│       ├── decisions.jsonl
+│       ├── snapshots/
+│       └── summaries/
+└── memory/
+    ├── memory_20260328_101530_123456.md
+    └── memory_20260328_142001_654321.md
 ```
 
 ### File Responsibilities
@@ -155,7 +181,7 @@ workspace/users/<user_id>/memory/
 
 ### Confirmed Memory
 
-已确认候选经验不写入 `self_improving/` 目录本身，而是追加进入现有长期记忆链：
+已确认候选经验不保留在 hook state 中作为上下文来源，而是追加进入现有长期记忆链：
 
 `workspace/users/<user_id>/memory/memory_<timestamp>.md`
 
@@ -218,7 +244,7 @@ workspace/users/<user_id>/memory/
 
 ### Tier 1: Raw Event Logging
 
-所有三类事件都自动记录到 `events.jsonl`。
+所有三类事件都自动记录到当前 hook module 的 `events.jsonl`。
 
 ### Tier 2: Candidate Promotion to Pending
 
@@ -248,9 +274,9 @@ workspace/users/<user_id>/memory/
 ### What Does Not Get Injected
 
 不直接注入：
-- `events.jsonl` 原始日志
-- `pending.jsonl` 中未确认项
-- `decisions.jsonl` 纯审计记录
+- hook `events.jsonl` 原始日志
+- hook `pending.jsonl` 中未确认项
+- hook `decisions.jsonl` 纯审计记录
 
 ### Why
 
@@ -261,25 +287,34 @@ workspace/users/<user_id>/memory/
 
 ## Runtime Integration Points
 
+### HookSystem
+
+现有 `hooks/system.py` 需要扩展为可承载运行时学习事件的 Hook Runtime，而不仅仅是顺序/并行的泛化回调：
+
+- 增加可复用事件类型映射
+- 提供内建 hook module 注册入口
+- Phase 1 先采用内建注册，不做文件系统自动发现
+- `self-improving` 作为第一个内建注册模块
+
 ### AgentRunner
 
 在 `runner.py` 中增加三个接入点：
 
 1. run start / early metadata
-- 准备 self-improving runtime context
+- 准备 hook runtime context
 
 2. run success path
-- 在 transcript 持久化后，触发 reflection candidate analysis
+- 在 transcript 持久化后，触发 hook runtime 的 reflection candidate analysis
 
 3. run failure path
-- 在异常或模型失败时，记录 failure event
+- 在异常或模型失败时，向 hook runtime 分发 failure event
 
 ### RuntimeEventDispatcher
 
 在 `runtime_events.py` 中补充：
 - tool failure collection
 - model error classification
-- lifecycle event forwarding for self-improving runtime
+- lifecycle event forwarding for hook runtime subscribers
 
 ### HistoryMemoryCoordinator
 
@@ -292,7 +327,7 @@ workspace/users/<user_id>/memory/
 - `build_scoped_deps(...)`
 - `user_info.user_id`
 
-确保所有自改进数据按真实用户隔离，不落到共享 default bucket。
+确保所有 hook state 按真实用户隔离，不落到共享 default bucket。
 
 ## API Surface
 
@@ -300,30 +335,31 @@ workspace/users/<user_id>/memory/
 
 ### Proposed Endpoints
 
-- `GET /api/self-improving/pending`
-  - 返回当前用户待确认候选经验
+- `GET /api/hooks/self-improving/pending`
+  - 返回当前用户在 `self-improving` hook module 下的待确认候选经验
 
-- `POST /api/self-improving/pending/{id}/confirm`
+- `POST /api/hooks/self-improving/pending/{id}/confirm`
   - 确认某条候选经验
   - 写入 `decisions.jsonl`
   - 追加写入新的 `memory_<timestamp>.md`
 
-- `POST /api/self-improving/pending/{id}/reject`
+- `POST /api/hooks/self-improving/pending/{id}/reject`
   - 拒绝某条候选经验
   - 写入 `decisions.jsonl`
   - 更新 pending 状态
 
-- `GET /api/self-improving/events`
+- `GET /api/hooks/self-improving/events`
   - 查看最近学习事件（可选分页）
 
 后续如果需要，再提供汇总和统计接口。
 
 ## Data Model
 
-### SelfImprovingEvent
+### HookRuntimeEvent
 
 建议字段：
 - `id`
+- `module_name`
 - `user_id`
 - `session_key`
 - `run_id`
@@ -339,6 +375,7 @@ workspace/users/<user_id>/memory/
 
 建议字段：
 - `id`
+- `module_name`
 - `user_id`
 - `source_event_ids`
 - `lesson_text`
@@ -352,6 +389,7 @@ workspace/users/<user_id>/memory/
 
 建议字段：
 - `id`
+- `module_name`
 - `pending_id`
 - `decision` (`confirm|reject`)
 - `decided_by`
@@ -377,20 +415,20 @@ workspace/users/<user_id>/memory/
 - 人类可读规范
 - prompt 里的补充说明来源
 
-它不再承担“默认自动运行”的唯一实现责任。默认自动运行由 AtlasClaw runtime 负责。
+它不再承担“默认自动运行”的唯一实现责任。默认自动运行由 AtlasClaw Hook Runtime 负责。
 
 ## Documentation Updates Required
 
 本设计落地时需要同步更新：
 
 - `docs/architecture.md`
-  - 增加 self-improving runtime / memory hook 描述
+  - 增加 Hook Runtime / memory hook / context hook 描述
 - `docs/module-details.md`
-  - 增加 self-improving store / API / event model
+  - 增加 Hook Runtime、内建 hook module、API、event model
 - `docs/development-spec.md`
   - 增加学习事件与安全边界说明
 - `docs/SKILL_GUIDE.md`
-  - 说明“说明型 skill”和“runtime-native automated skill”的区别
+  - 说明“说明型 skill”和“hook-native automated module”的区别
 
 ## Testing Strategy
 
@@ -404,11 +442,12 @@ workspace/users/<user_id>/memory/
 - reject -> no memory write
 - sensitive event filtering
 - per-user isolation
+- built-in hook module registration
 
 ### Integration Tests
 
-- runner success path emits reflection event
-- runner failure path emits failure event
+- runner success path emits reflection event into hook runtime
+- runner failure path emits failure event into hook runtime
 - confirmed lesson enters memory recall chain
 
 ### E2E Tests
@@ -422,8 +461,10 @@ workspace/users/<user_id>/memory/
 
 ### Phase 1
 
-- Store + event capture + pending/confirm/reject API
-- Confirmed lesson -> `memory_*.md`
+- Hook Runtime
+- built-in `self-improving` module registration
+- pending/confirm/reject API
+- confirmed lesson -> `memory_*.md`
 - No UI entry yet
 
 ### Phase 2
@@ -434,15 +475,16 @@ workspace/users/<user_id>/memory/
 
 ### Phase 3
 
-- generalized runtime-native automation substrate for more skills beyond self-improving
+- generalized hook-native automation substrate for more modules beyond self-improving
+- optional file-system discovery and plugin slot expansion
 
 ## Recommended Implementation Direction
 
-采用“轻量 Hook + Memory 框架，只先落地 self-improving”方案：
+采用“轻量 Hook Runtime + Memory 框架，只先落地 self-improving 内建模块”方案：
 
 - 不做完整 plugin engine
-- 不做 self-improving 特例硬编码到无法复用
-- 先建设最小可复用 runtime 能力层
-- 让 self-improving 成为第一个原生接入者
+- 不做文件系统自动发现注册
+- 先建设最小可复用 Hook Runtime
+- 让 self-improving 成为第一个内建注册的 hook module
 
-这样既满足当前需求，又为未来自动化 skill、memory plugin、context engine 预留扩展点。
+这样既满足当前需求，又为未来自动化 hook module、memory plugin、context engine 预留扩展点。
