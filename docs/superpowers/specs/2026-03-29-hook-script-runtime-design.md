@@ -9,6 +9,19 @@
 
 本设计保持 core 通用，不内置 `self-improving` 等特定 skill 语义。
 
+## Scope Positioning
+
+这是一份**增量设计**，不是对 Hook Runtime 的重做。
+
+前置条件：
+- 通用 Hook Runtime 已经完成
+- 通用事件、`HookStateStore`、`MemorySink`、`ContextSink`、通用 Hook API 已经存在
+
+本 spec 只覆盖在现有 Hook Runtime 之上新增的能力：
+- `run.context_ready`
+- 本地命令型 Script Hook Handler
+- 结构化输出动作协议
+
 ## Status
 
 - 设计状态：已确认，可进入 implementation plan
