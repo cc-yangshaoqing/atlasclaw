@@ -9,7 +9,7 @@ import { createRouter } from './router.js'
 import { installAuthFetchInterceptor, checkAuth } from './auth.js'
 import { loadConfig } from './config.js'
 import { initI18n, updatePageTranslations, updateContainerTranslations } from './i18n.js'
-import { renderSidebar, updateSidebarActive } from './components/sidebar.js'
+import { renderSidebar } from './components/sidebar.js'
 import { renderHeader, updateHeaderTitle, updateHeaderTitleText } from './components/header.js'
 import { getAgentInfo } from './api-client.js'
 
@@ -120,7 +120,6 @@ export async function initApp() {
     const router = createRouter(routes, {
       contentContainer: document.getElementById('page-content'),
       onBeforeRoute: (path, route) => {
-        updateSidebarActive(path)
         // Update header title
         if (path === '/' && currentAgentInfo?.name) {
           updateHeaderTitleText(currentAgentInfo.name)

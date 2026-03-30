@@ -6,8 +6,12 @@ from __future__ import annotations
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel as PydanticBaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.atlasclaw.auth.guards import require_admin
+from app.atlasclaw.auth.models import UserInfo
 from app.atlasclaw.db import get_db_session_dependency as get_db_session
 from app.atlasclaw.db.models import ModelConfigModel
 from app.atlasclaw.db.orm.model_config import ModelConfigService
