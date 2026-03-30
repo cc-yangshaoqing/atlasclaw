@@ -1,11 +1,11 @@
-﻿# AtlasClaw Architecture
+# AtlasClaw Architecture
 
 > **Canonical architecture reference for the AtlasClaw enterprise agent framework.**
 > All future development and feature changes MUST consult this document.
 >
 > Related documents:
-> - [Module Details](./MODULE-DETAILS.MD) 鈥?per-module API surface and internals
-> - [Development Specification](./DEVELOPMENT-SPEC.MD) 鈥?code standards, patterns, and review checklist
+> - [Module Details](./MODULE-DETAILS.MD) — per-module API surface and internals
+> - [Development Specification](./DEVELOPMENT-SPEC.MD) — code standards, patterns, and review checklist
 
 ---
 
@@ -32,7 +32,7 @@ AtlasClaw is built on five core design principles that govern all architectural 
 
 ### 1.1 Thin Core, Rich Providers
 
-The framework core handles routing, lifecycle, and coordination. All domain-specific logic lives in **providers** 鈥?modular packages that encapsulate authentication, skills, and configuration for external systems (ITSM, CRM, monitoring, communication platforms). The core never contains business logic for specific integrations.
+The framework core handles routing, lifecycle, and coordination. All domain-specific logic lives in **providers** — modular packages that encapsulate authentication, skills, and configuration for external systems (ITSM, CRM, monitoring, communication platforms). The core never contains business logic for specific integrations.
 
 ### 1.2 Permission Inheritance (No RBAC Bypass)
 
@@ -88,57 +88,57 @@ A single agent instance serves multiple access channels simultaneously (REST API
 ## 2. High-Level Architecture
 
 ```
-鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
-鈹?                       Access Channels                          鈹?
-鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?鈹屸攢鈹€鈹€鈹€鈹€鈹?鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹?鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?鈹屸攢鈹€鈹€鈹€鈹€鈹愨攤
-鈹? 鈹俉ebSocket鈹?鈹?  SSE    鈹?鈹俁EST 鈹?鈹侳eishu鈹?鈹侱ingTalk鈹?鈹俉eCom鈹傗攤
-鈹? 鈹斺攢鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹?鈹斺攢鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹?鈹斺攢鈹€鈹攢鈹€鈹?鈹斺攢鈹€鈹攢鈹€鈹€鈹?鈹斺攢鈹€鈹€鈹攢鈹€鈹€鈹€鈹?鈹斺攢鈹€鈹攢鈹€鈹樷攤
-鈹?      鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹敶鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹粹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹粹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹粹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?  鈹?
-鈹?                  鈻?                                            鈹?
-鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?  鈹?
-鈹? 鈹?                    API Layer                            鈹?  鈹?
-鈹? 鈹?  routes.py 路 gateway.py 路 sse.py 路 webhook_dispatch.py  鈹?  鈹?
-鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?  鈹?
-鈹?                        鈻?                                      鈹?
-鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
-鈹? 鈹?                 Auth Middleware                           鈹? 鈹?
-鈹? 鈹? credential extraction 鈫?provider.authenticate()          鈹? 鈹?
-鈹? 鈹? 鈫?shadow_store.get_or_create() 鈫?UserInfo                鈹? 鈹?
-鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
-鈹?                        鈻?                                      鈹?
-鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
-鈹? 鈹?                  Agent Engine                            鈹? 鈹?
-鈹? 鈹? AgentRunner 路 PromptBuilder 路 CompactionPipeline         鈹? 鈹?
-鈹? 鈹? PydanticAI Agent 路 StreamEvent pipeline                  鈹? 鈹?
-鈹? 鈹? TokenPool 路 DynamicTokenPolicy 路 AgentInstancePool       鈹? 鈹?
-鈹? 鈹? TokenHealthStore 路 TokenHealthInterceptor                鈹? 鈹?
-鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
-鈹?        鈻?             鈻?                 鈻?                    鈹?
-鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?           鈹?
-鈹? 鈹? Tools   鈹? 鈹?  Skills     鈹? 鈹?  Hooks       鈹?           鈹?
-鈹? 鈹?16+ built鈹? 鈹?Executable + 鈹? 鈹?17+ lifecycle 鈹?           鈹?
-鈹? 鈹?-in tools鈹? 鈹?Markdown +   鈹? 鈹?phases        鈹?           鈹?
-鈹? 鈹?profiles 鈹? 鈹?Provider     鈹? 鈹?seq/parallel  鈹?           鈹?
-鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?           鈹?
-鈹?        鈹?             鈹?                 鈹?                    鈹?
-鈹?        鈻?             鈻?                 鈻?                    鈹?
-鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
-鈹? 鈹?                Core Infrastructure                       鈹? 鈹?
-鈹? 鈹? ConfigManager 路 SkillDeps 路 WorkspaceInitializer         鈹? 鈹?
-鈹? 鈹? TenantManager 路 ServiceProviderRegistry                  鈹? 鈹?
-鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
-鈹?                        鈻?                                      鈹?
-鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
-鈹? 鈹?               Data & State Management                    鈹? 鈹?
-鈹? 鈹? SessionManager (JSONL) 路 MemoryManager (Markdown)        鈹? 鈹?
-鈹? 鈹? ShadowUserStore (JSON) 路 ChannelStore (JSON)             鈹? 鈹?
-鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
-鈹?                                                                鈹?
-鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
-鈹? 鈹?              External LLM Providers                      鈹? 鈹?
-鈹? 鈹? DeepSeek 路 OpenAI 路 Doubao 路 Kimi 路 Anthropic (via API) 鈹? 鈹?
-鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹?
-鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+┌─────────────────────────────────────────────────────────────────┐
+│                        Access Channels                          │
+│  ┌─────────┐ ┌──────────┐ ┌─────┐ ┌──────┐ ┌────────┐ ┌─────┐│
+│  │WebSocket│ │   SSE    │ │REST │ │Feishu│ │DingTalk│ │WeCom││
+│  └────┬────┘ └────┬─────┘ └──┬──┘ └──┬───┘ └───┬────┘ └──┬──┘│
+│       └───────────┬┴─────────┴───────┴─────────┴──────────┘   │
+│                   ▼                                             │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │                     API Layer                            │   │
+│  │   routes.py · gateway.py · sse.py · webhook_dispatch.py  │   │
+│  └──────────────────────┬──────────────────────────────────┘   │
+│                         ▼                                       │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                  Auth Middleware                           │  │
+│  │  credential extraction → provider.authenticate()          │  │
+│  │  → shadow_store.get_or_create() → UserInfo                │  │
+│  └──────────────────────┬───────────────────────────────────┘  │
+│                         ▼                                       │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                   Agent Engine                            │  │
+│  │  AgentRunner · PromptBuilder · CompactionPipeline         │  │
+│  │  PydanticAI Agent · StreamEvent pipeline                  │  │
+│  │  TokenPool · DynamicTokenPolicy · AgentInstancePool       │  │
+│  │  TokenHealthStore · TokenHealthInterceptor                │  │
+│  └──────┬──────────────┬──────────────────┬─────────────────┘  │
+│         ▼              ▼                  ▼                     │
+│  ┌──────────┐  ┌──────────────┐  ┌───────────────┐            │
+│  │  Tools   │  │   Skills     │  │   Hooks       │            │
+│  │ 16+ built│  │ Executable + │  │ 17+ lifecycle │            │
+│  │ -in tools│  │ Markdown +   │  │ phases        │            │
+│  │ profiles │  │ Provider     │  │ seq/parallel  │            │
+│  └──────────┘  └──────────────┘  └───────────────┘            │
+│         │              │                  │                     │
+│         ▼              ▼                  ▼                     │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                 Core Infrastructure                       │  │
+│  │  ConfigManager · SkillDeps · WorkspaceInitializer         │  │
+│  │  TenantManager · ServiceProviderRegistry                  │  │
+│  └──────────────────────┬───────────────────────────────────┘  │
+│                         ▼                                       │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │                Data & State Management                    │  │
+│  │  SessionManager (JSONL) · MemoryManager (Markdown)        │  │
+│  │  ShadowUserStore (JSON) · ChannelStore (JSON)             │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │               External LLM Providers                      │  │
+│  │  DeepSeek · OpenAI · Doubao · Kimi · Anthropic (via API) │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ### Layer Responsibilities
@@ -176,152 +176,152 @@ Runtime rules:
 
 ```
 app/atlasclaw/
-鈹溾攢鈹€ main.py                        # FastAPI application factory + lifespan
-鈹溾攢鈹€ core/
-鈹?  鈹溾攢鈹€ config.py                  # ConfigManager (6-level priority chain)
-鈹?  鈹溾攢鈹€ config_schema.py           # Pydantic config models + enums
-鈹?  鈹溾攢鈹€ deps.py                    # SkillDeps dataclass (request-scoped DI)
-鈹?  鈹溾攢鈹€ workspace.py               # WorkspaceInitializer, UserWorkspaceInitializer
-鈹?  鈹溾攢鈹€ provider_registry.py       # ServiceProviderRegistry
-鈹?  鈹溾攢鈹€ provider_scanner.py        # ProviderScanner (filesystem discovery)
-鈹?  鈹溾攢鈹€ tenant.py                  # TenantManager, TenantConfig, TenantIsolation
-鈹?  鈹溾攢鈹€ token_pool.py              # TokenPool, TokenEntry, TokenHealth
-鈹?  鈹溾攢鈹€ token_health_store.py      # TokenHealthStore (persistence)
-鈹?  鈹斺攢鈹€ token_interceptor.py       # TokenHealthInterceptor (rate-limit headers)
-鈹溾攢鈹€ auth/
-鈹?  鈹溾攢鈹€ models.py                  # UserInfo, AuthResult, ShadowUser
-鈹?  鈹溾攢鈹€ middleware.py              # AuthMiddleware (BaseHTTPMiddleware)
-鈹?  鈹溾攢鈹€ strategy.py                # AuthStrategy (cache + resolve pipeline)
-鈹?  鈹溾攢鈹€ registry.py                # AuthRegistry (pluggable providers)
-鈹?  鈹溾攢鈹€ shadow_store.py            # ShadowUserStore (JSON persistence)
-鈹?  鈹溾攢鈹€ config.py                  # AuthConfig, OIDCConfig
-鈹?  鈹斺攢鈹€ providers/
-鈹?      鈹溾攢鈹€ base.py                # AuthProvider ABC
-鈹?      鈹溾攢鈹€ none.py                # NoneProvider (no auth)
-鈹?      鈹溾攢鈹€ local.py               # LocalAuthProvider (username/password)
-鈹?      鈹溾攢鈹€ oidc_jwt.py            # OIDCJWTProvider (JWT/JWKS validation)
-鈹?      鈹斺攢鈹€ oidc_login.py          # OIDCLoginProvider (full OAuth2 + PKCE)
+├── main.py                        # FastAPI application factory + lifespan
+├── core/
+│   ├── config.py                  # ConfigManager (6-level priority chain)
+│   ├── config_schema.py           # Pydantic config models + enums
+│   ├── deps.py                    # SkillDeps dataclass (request-scoped DI)
+│   ├── workspace.py               # WorkspaceInitializer, UserWorkspaceInitializer
+│   ├── provider_registry.py       # ServiceProviderRegistry
+│   ├── provider_scanner.py        # ProviderScanner (filesystem discovery)
+│   ├── tenant.py                  # TenantManager, TenantConfig, TenantIsolation
+│   ├── token_pool.py              # TokenPool, TokenEntry, TokenHealth
+│   ├── token_health_store.py      # TokenHealthStore (persistence)
+│   └── token_interceptor.py       # TokenHealthInterceptor (rate-limit headers)
+├── auth/
+│   ├── models.py                  # UserInfo, AuthResult, ShadowUser
+│   ├── middleware.py              # AuthMiddleware (BaseHTTPMiddleware)
+│   ├── strategy.py                # AuthStrategy (cache + resolve pipeline)
+│   ├── registry.py                # AuthRegistry (pluggable providers)
+│   ├── shadow_store.py            # ShadowUserStore (JSON persistence)
+│   ├── config.py                  # AuthConfig, OIDCConfig
+│   └── providers/
+│       ├── base.py                # AuthProvider ABC
+│       ├── none.py                # NoneProvider (no auth)
+│       ├── local.py               # LocalAuthProvider (username/password)
+│       ├── oidc_jwt.py            # OIDCJWTProvider (JWT/JWKS validation)
+│       └── oidc_login.py          # OIDCLoginProvider (full OAuth2 + PKCE)
 
-鈹溾攢鈹€ agent/
-鈹?  鈹溾攢鈹€ runner.py                  # AgentRunner (main execution loop)
-鈹?  鈹溾攢鈹€ stream.py                  # StreamEvent, StreamEventType
-鈹?  鈹溾攢鈹€ prompt_builder.py          # PromptBuilder (FULL/MINIMAL/NONE modes)
-鈹?  鈹溾攢鈹€ routing.py                 # AgentConfig, DmScope, ToolPolicy
-鈹?  鈹溾攢鈹€ agent_definition.py        # AgentLoader, AgentDefinitionParser
-鈹?  鈹溾攢鈹€ compaction.py              # CompactionPipeline (context compression)
-鈹?  鈹溾攢鈹€ token_policy.py            # DynamicTokenPolicy (session-level token selection)
-鈹?  鈹斺攢鈹€ agent_pool.py              # AgentInstancePool (agent instance caching)
-鈹溾攢鈹€ api/
-鈹?  鈹溾攢鈹€ routes.py                  # REST endpoints, APIContext
-鈹?  鈹溾攢鈹€ gateway.py                 # Gateway frames, ConnectionInfo
-鈹?  鈹溾攢鈹€ sse.py                     # SSEManager, SSEEvent
-鈹?  鈹溾攢鈹€ channels.py                # Channel management endpoints
-鈹?  鈹溾攢鈹€ agent_info.py              # Agent info endpoints
-鈹?  鈹溾攢鈹€ webhook_dispatch.py        # Webhook routing
-鈹?  鈹溾攢鈹€ channel_hooks.py           # Channel-specific hooks
-鈹?  鈹溾攢鈹€ response_handler.py        # Response normalization
-鈹?  鈹斺攢鈹€ request_orchestrator.py    # Request routing logic
-鈹溾攢鈹€ channels/
-鈹?  鈹溾攢鈹€ base.py                    # ChannelConfig, ChannelMessage
-鈹?  鈹溾攢鈹€ handler.py                 # ChannelHandler ABC
-鈹?  鈹溾攢鈹€ models.py                  # ChannelMode, InboundMessage, OutboundMessage, SendResult
-鈹?  鈹溾攢鈹€ manager.py                 # ChannelManager
-鈹?  鈹溾攢鈹€ registry.py                # ChannelRegistry
-鈹?  鈹溾攢鈹€ store.py                   # ChannelStore (persistence)
-鈹?  鈹斺攢鈹€ handlers/
-鈹?      鈹溾攢鈹€ websocket.py           # WebSocketHandler
-鈹?      鈹溾攢鈹€ rest.py                # RESTHandler
-鈹?      鈹溾攢鈹€ sse.py                 # SSEHandler
-鈹?      鈹溾攢鈹€ feishu.py              # FeishuHandler (multiprocessing isolation)
-鈹?      鈹溾攢鈹€ dingtalk.py            # DingTalkHandler (stream mode)
-鈹?      鈹斺攢鈹€ wecom.py               # WeComHandler
-鈹溾攢鈹€ tools/
-鈹?  鈹溾攢鈹€ catalog.py                 # ToolProfile, ToolCatalog, tool groups
-鈹?  鈹溾攢鈹€ registration.py            # register_builtin_tools()
-鈹?  鈹溾攢鈹€ base.py                    # Tool base classes
-鈹?  鈹溾攢鈹€ filesystem/                # legacy file tools (disabled by default)
-鈹?  鈹溾攢鈹€ runtime/                   # legacy runtime tools (disabled by default)
-鈹?  鈹溾攢鈹€ memory/                    # memory_search, memory_get
-鈹?  鈹溾攢鈹€ sessions/                  # list, history, send, spawn, status, subagents
-鈹?  鈹溾攢鈹€ web/                       # web_search, web_fetch
-鈹?  鈹溾攢鈹€ ui/                        # browser
-鈹?  鈹斺攢鈹€ providers/                 # instance_tools (list/select provider instances)
-鈹溾攢鈹€ skills/
-鈹?  鈹溾攢鈹€ registry.py                # SkillRegistry, SkillMetadata, MdSkillEntry
-鈹?  鈹溾攢鈹€ frontmatter.py             # parse_frontmatter(), FrontmatterResult
-鈹?  鈹斺攢鈹€ loader.py                  # SkillLoader
-鈹溾攢鈹€ session/
-鈹?  鈹溾攢鈹€ context.py                 # SessionKey, SessionScope, SessionMetadata, TranscriptEntry
-鈹?  鈹溾攢鈹€ manager.py                 # SessionManager (JSONL persistence)
-鈹?  鈹斺攢鈹€ queue.py                   # SessionQueue, QueueMode
-鈹溾攢鈹€ memory/
-鈹?  鈹溾攢鈹€ manager.py                 # MemoryManager, MemoryEntry, MemoryType
-鈹?  鈹斺攢鈹€ hybrid_search.py           # Hybrid search (keyword + semantic)
-鈹溾攢鈹€ models/
-鈹?  鈹溾攢鈹€ providers.py               # ProviderConfig, ModelDefinition
-鈹?  鈹斺攢鈹€ failover.py                # AuthProfile, ModelFailoverConfig
-鈹溾攢鈹€ hooks/
-鈹?  鈹斺攢鈹€ system.py                  # HookSystem, HookPhase, HookDefinition
-鈹溾攢鈹€ workflow/
-鈹?  鈹溾攢鈹€ engine.py                  # WorkflowEngine, WorkflowStep, StepStatus
-鈹?  鈹斺攢鈹€ orchestrator.py            # Orchestration logic
-鈹溾攢鈹€ messages/
-鈹?  鈹溾攢鈹€ handler.py                 # InboundMessage, OutboundMessage, MessageType
-鈹?  鈹斺攢鈹€ command.py                 # CommandParser, ParsedCommand, CommandDefinition
-鈹溾攢鈹€ media/
-鈹?  鈹溾攢鈹€ link_extractor.py          # URL extraction from text
-鈹?  鈹溾攢鈹€ tts.py                     # Text-to-speech
-鈹?  鈹斺攢鈹€ understanding.py           # Media content understanding
-鈹斺攢鈹€ providers/                     # Built-in provider integrations
-    鈹斺攢鈹€ <provider>/
-        鈹溾攢鈹€ PROVIDER.md            # Provider documentation + LLM context
-        鈹斺攢鈹€ skills/                # Provider-specific skills
+├── agent/
+│   ├── runner.py                  # AgentRunner (main execution loop)
+│   ├── stream.py                  # StreamEvent, StreamEventType
+│   ├── prompt_builder.py          # PromptBuilder (FULL/MINIMAL/NONE modes)
+│   ├── routing.py                 # AgentConfig, DmScope, ToolPolicy
+│   ├── agent_definition.py        # AgentLoader, AgentDefinitionParser
+│   ├── compaction.py              # CompactionPipeline (context compression)
+│   ├── token_policy.py            # DynamicTokenPolicy (session-level token selection)
+│   └── agent_pool.py              # AgentInstancePool (agent instance caching)
+├── api/
+│   ├── routes.py                  # REST endpoints, APIContext
+│   ├── gateway.py                 # Gateway frames, ConnectionInfo
+│   ├── sse.py                     # SSEManager, SSEEvent
+│   ├── channels.py                # Channel management endpoints
+│   ├── agent_info.py              # Agent info endpoints
+│   ├── webhook_dispatch.py        # Webhook routing
+│   ├── channel_hooks.py           # Channel-specific hooks
+│   ├── response_handler.py        # Response normalization
+│   └── request_orchestrator.py    # Request routing logic
+├── channels/
+│   ├── base.py                    # ChannelConfig, ChannelMessage
+│   ├── handler.py                 # ChannelHandler ABC
+│   ├── models.py                  # ChannelMode, InboundMessage, OutboundMessage, SendResult
+│   ├── manager.py                 # ChannelManager
+│   ├── registry.py                # ChannelRegistry
+│   ├── store.py                   # ChannelStore (persistence)
+│   └── handlers/
+│       ├── websocket.py           # WebSocketHandler
+│       ├── rest.py                # RESTHandler
+│       ├── sse.py                 # SSEHandler
+│       ├── feishu.py              # FeishuHandler (multiprocessing isolation)
+│       ├── dingtalk.py            # DingTalkHandler (stream mode)
+│       └── wecom.py               # WeComHandler
+├── tools/
+│   ├── catalog.py                 # ToolProfile, ToolCatalog, tool groups
+│   ├── registration.py            # register_builtin_tools()
+│   ├── base.py                    # Tool base classes
+│   ├── filesystem/                # legacy file tools (disabled by default)
+│   ├── runtime/                   # legacy runtime tools (disabled by default)
+│   ├── memory/                    # memory_search, memory_get
+│   ├── sessions/                  # list, history, send, spawn, status, subagents
+│   ├── web/                       # web_search, web_fetch
+│   ├── ui/                        # browser
+│   └── providers/                 # instance_tools (list/select provider instances)
+├── skills/
+│   ├── registry.py                # SkillRegistry, SkillMetadata, MdSkillEntry
+│   ├── frontmatter.py             # parse_frontmatter(), FrontmatterResult
+│   └── loader.py                  # SkillLoader
+├── session/
+│   ├── context.py                 # SessionKey, SessionScope, SessionMetadata, TranscriptEntry
+│   ├── manager.py                 # SessionManager (JSONL persistence)
+│   └── queue.py                   # SessionQueue, QueueMode
+├── memory/
+│   ├── manager.py                 # MemoryManager, MemoryEntry, MemoryType
+│   └── hybrid_search.py           # Hybrid search (keyword + semantic)
+├── models/
+│   ├── providers.py               # ProviderConfig, ModelDefinition
+│   └── failover.py                # AuthProfile, ModelFailoverConfig
+├── hooks/
+│   └── system.py                  # HookSystem, HookPhase, HookDefinition
+├── workflow/
+│   ├── engine.py                  # WorkflowEngine, WorkflowStep, StepStatus
+│   └── orchestrator.py            # Orchestration logic
+├── messages/
+│   ├── handler.py                 # InboundMessage, OutboundMessage, MessageType
+│   └── command.py                 # CommandParser, ParsedCommand, CommandDefinition
+├── media/
+│   ├── link_extractor.py          # URL extraction from text
+│   ├── tts.py                     # Text-to-speech
+│   └── understanding.py           # Media content understanding
+└── providers/                     # Built-in provider integrations
+    └── <provider>/
+        ├── PROVIDER.md            # Provider documentation + LLM context
+        └── skills/                # Provider-specific skills
 
 app/frontend/
-鈹溾攢鈹€ index.html                     # Main chat interface
-鈹溾攢鈹€ channels.html                  # Channel management UI
-鈹溾攢鈹€ package.json                   # esbuild-based build
-鈹溾攢鈹€ scripts/
-鈹?  鈹溾攢鈹€ main.js                    # Application entry point
-鈹?  鈹溾攢鈹€ api-client.js              # HTTP client wrapper
-鈹?  鈹溾攢鈹€ channel-manager.js         # Channel connection management
-鈹?  鈹溾攢鈹€ chat-ui.js                 # Chat UI components
-鈹?  鈹溾攢鈹€ config.js                  # Frontend configuration
-鈹?  鈹溾攢鈹€ i18n.js                    # Internationalization (zh-CN, en-US)
-鈹?  鈹溾攢鈹€ session-manager.js         # Session lifecycle
-鈹?  鈹斺攢鈹€ stream-handler.js          # SSE stream handling
-鈹溾攢鈹€ styles/                        # CSS stylesheets
-鈹溾攢鈹€ static/                        # Static assets
-鈹斺攢鈹€ locales/                       # i18n translation files
+├── index.html                     # Main chat interface
+├── channels.html                  # Channel management UI
+├── package.json                   # esbuild-based build
+├── scripts/
+│   ├── main.js                    # Application entry point
+│   ├── api-client.js              # HTTP client wrapper
+│   ├── channel-manager.js         # Channel connection management
+│   ├── chat-ui.js                 # Chat UI components
+│   ├── config.js                  # Frontend configuration
+│   ├── i18n.js                    # Internationalization (zh-CN, en-US)
+│   ├── session-manager.js         # Session lifecycle
+│   └── stream-handler.js          # SSE stream handling
+├── styles/                        # CSS stylesheets
+├── static/                        # Static assets
+└── locales/                       # i18n translation files
 
 tests/
-鈹溾攢鈹€ atlasclaw/                     # Python test suite (~48 test files)
-鈹?  鈹溾攢鈹€ conftest.py                # Shared fixtures
-鈹?  鈹溾攢鈹€ test_agent.py              # Agent engine tests
-鈹?  鈹溾攢鈹€ test_config.py             # Configuration tests
-鈹?  鈹溾攢鈹€ test_session.py            # Session management tests
-鈹?  鈹斺攢鈹€ ...
-鈹斺攢鈹€ frontend/                      # JavaScript tests (~6 test files)
+├── atlasclaw/                     # Python test suite (~48 test files)
+│   ├── conftest.py                # Shared fixtures
+│   ├── test_agent.py              # Agent engine tests
+│   ├── test_config.py             # Configuration tests
+│   ├── test_session.py            # Session management tests
+│   └── ...
+└── frontend/                      # JavaScript tests (~6 test files)
 
 providers/                         # Provider repository (code/templates)
-鈹斺攢鈹€ <provider_name>/
-    鈹溾攢鈹€ PROVIDER.md
-    鈹溾攢鈹€ auth/
-    鈹溾攢鈹€ channels/
-    鈹斺攢鈹€ skills/
+└── <provider_name>/
+    ├── PROVIDER.md
+    ├── auth/
+    ├── channels/
+    └── skills/
 
 <workspace>/                       # Runtime workspace (default: ./.atlasclaw)
-鈹溾攢鈹€ agents/
-鈹?  鈹斺攢鈹€ main/
-鈹?      鈹溾攢鈹€ SOUL.md                # Agent capabilities and behavior
-鈹?      鈹溾攢鈹€ IDENTITY.md            # Agent personality
-鈹?      鈹溾攢鈹€ USER.md                # User interaction patterns
-鈹?      鈹斺攢鈹€ MEMORY.md              # Memory strategy
-鈹斺攢鈹€ users/
-    鈹斺攢鈹€ <user_id>/
-        鈹溾攢鈹€ user_setting.json      # User-specific config (channels, preferences)
-        鈹溾攢鈹€ sessions/              # JSONL session transcripts
-        鈹斺攢鈹€ memory/                # Markdown memory files
+├── agents/
+│   └── main/
+│       ├── SOUL.md                # Agent capabilities and behavior
+│       ├── IDENTITY.md            # Agent personality
+│       ├── USER.md                # User interaction patterns
+│       └── MEMORY.md              # Memory strategy
+└── users/
+    └── <user_id>/
+        ├── user_setting.json      # User-specific config (channels, preferences)
+        ├── sessions/              # JSONL session transcripts
+        └── memory/                # Markdown memory files
 ```
 
 ---
@@ -331,32 +331,32 @@ providers/                         # Provider repository (code/templates)
 The application starts via `app/atlasclaw/main.py`:
 
 ```
-create_app() 鈫?FastAPI(lifespan=lifespan)
+create_app() → FastAPI(lifespan=lifespan)
 ```
 
 ### Initialization Sequence (Startup)
 
 The `lifespan()` async context manager executes this ordered sequence:
 
-1. **Load configuration** 鈥?`ConfigManager.load()` reads `atlasclaw.json`/`atlasclaw.yaml` with environment variable interpolation
-2. **Initialize workspace** 鈥?`WorkspaceInitializer.initialize()` creates the `.atlasclaw/` directory tree and copies the default `agents/main/` files from the repo template directory when they are missing
-3. **Register built-in channel handlers** 鈥?Feishu, DingTalk, WeCom handlers registered in `ChannelRegistry`
-4. **Initialize ChannelManager** 鈥?Creates `ChannelManager` with workspace path
-5. **Scan providers** 鈥?`ProviderScanner` walks the providers directory (outside workspace), discovers auth and channel extensions
-6. **Load agent definitions** 鈥?`AgentLoader` reads `SOUL.md`, `IDENTITY.md`, `USER.md`, `MEMORY.md` from `agents/main/`
-7. **Initialize TokenPool** 鈥?Creates `TokenPool` from `model.tokens` config, restores health state from `TokenHealthStore`
-8. **Initialize SessionManager** 鈥?Creates session manager with configured reset mode
-9. **Initialize Database** 鈥?SQLite (auto-create via ORM) or MySQL (Alembic migrations)
-10. **Load TokenPool** 鈥?Creates `TokenPool` from merged JSON + DB token configs (DB takes precedence on same token_id)
-11. **Load ServiceProviderRegistry** 鈥?Reads provider templates from disk, merges JSON + DB instance configs (DB takes precedence on same provider_type.instance_name)
-10. **Register built-in tools** 鈥?`register_builtin_tools()` with the configured `ToolProfile`
-11. **Load skills** 鈥?From 4 sources in priority order: workspace 鈫?workspace providers 鈫?global 鈫?built-in
-12. **Create AgentInstancePool** 鈥?Creates pool for agent instance caching with concurrency control
-13. **Create PydanticAI Agent** 鈥?Instantiates the agent with resolved model configuration
-14. **Register skills to agent** 鈥?`SkillRegistry.register_to_agent()`
-15. **Create AgentRunner** 鈥?With agent, session manager, prompt builder, compaction pipeline, hook system, session queue, token policy, agent pool, token interceptor
-16. **Set up APIContext** 鈥?Global context holder for all API routes
-17. **Start channel connections** 鈥?Initialize active channel connections
+1. **Load configuration** — `ConfigManager.load()` reads `atlasclaw.json`/`atlasclaw.yaml` with environment variable interpolation
+2. **Initialize workspace** — `WorkspaceInitializer.initialize()` creates the `.atlasclaw/` directory tree and copies the default `agents/main/` files from the repo template directory when they are missing
+3. **Register built-in channel handlers** — Feishu, DingTalk, WeCom handlers registered in `ChannelRegistry`
+4. **Initialize ChannelManager** — Creates `ChannelManager` with workspace path
+5. **Scan providers** — `ProviderScanner` walks the providers directory (outside workspace), discovers auth and channel extensions
+6. **Load agent definitions** — `AgentLoader` reads `SOUL.md`, `IDENTITY.md`, `USER.md`, `MEMORY.md` from `agents/main/`
+7. **Initialize TokenPool** — Creates `TokenPool` from `model.tokens` config, restores health state from `TokenHealthStore`
+8. **Initialize SessionManager** — Creates session manager with configured reset mode
+9. **Initialize Database** — SQLite (auto-create via ORM) or MySQL (Alembic migrations)
+10. **Load TokenPool** — Creates `TokenPool` from merged JSON + DB token configs (DB takes precedence on same token_id)
+11. **Load ServiceProviderRegistry** — Reads provider templates from disk, merges JSON + DB instance configs (DB takes precedence on same provider_type.instance_name)
+10. **Register built-in tools** — `register_builtin_tools()` with the configured `ToolProfile`
+11. **Load skills** — From 4 sources in priority order: workspace → workspace providers → global → built-in
+12. **Create AgentInstancePool** — Creates pool for agent instance caching with concurrency control
+13. **Create PydanticAI Agent** — Instantiates the agent with resolved model configuration
+14. **Register skills to agent** — `SkillRegistry.register_to_agent()`
+15. **Create AgentRunner** — With agent, session manager, prompt builder, compaction pipeline, hook system, session queue, token policy, agent pool, token interceptor
+16. **Set up APIContext** — Global context holder for all API routes
+17. **Start channel connections** — Initialize active channel connections
 
 ### Shutdown Sequence
 
@@ -390,76 +390,76 @@ These objects are created once during startup and accessed globally:
 
 ```
 HTTP Request (POST /api/agent/run)
-鈹?
-鈹溾攢 1. AuthMiddleware.dispatch()
-鈹?    鈹溾攢 Extract credential (header 鈫?cookie 鈫?bearer)
-鈹?    鈹溾攢 AuthStrategy.resolve_user(credential)
-鈹?    鈹?    鈹溾攢 Check TTL cache (300s default)
-鈹?    鈹?    鈹溾攢 AuthProvider.authenticate(credential) 鈫?AuthResult
-鈹?    鈹?    鈹斺攢 ShadowUserStore.get_or_create() 鈫?ShadowUser 鈫?UserInfo
-鈹?    鈹斺攢 Attach UserInfo to request.state.user
-鈹?
-鈹溾攢 2. Route handler (api/routes.py)
-鈹?    鈹溾攢 Parse AgentRunRequest (session_key, message, model, timeout)
-鈹?    鈹溾攢 Resolve session key via SessionScope
-鈹?    鈹斺攢 Build SkillDeps (user_info, session, memory managers, abort_signal)
-鈹?
-鈹溾攢 3. AgentRunner.run() 鈫?AsyncIterator[StreamEvent]
-鈹?    鈹溾攢 Emit lifecycle_start
-鈹?    鈹溾攢 Select/pin token via DynamicTokenPolicy.get_or_select_session_token()
-鈹?    鈹溾攢 Get or create agent instance from AgentInstancePool
-鈹?    鈹溾攢 Load session transcript (JSONL)
-鈹?    鈹溾攢 Build message history from transcript
-鈹?    鈹溾攢 PromptBuilder.build() 鈫?system prompt
-鈹?    鈹溾攢 Trigger BEFORE_PROMPT_BUILD hook
-鈹?    鈹溾攢 CompactionPipeline (if context exceeds threshold)
-鈹?    鈹溾攢 Check SessionQueue for steering messages
-鈹?    鈹溾攢 PydanticAI Agent.run_stream() 鈫?model inference
-鈹?    鈹?    鈹溾攢 Yield assistant deltas (StreamEvent.ASSISTANT)
-鈹?    鈹?    鈹溾攢 Execute tool calls (StreamEvent.TOOL start/end)
-鈹?    鈹?    鈹溾攢 TokenHealthInterceptor.on_response() 鈫?update rate limits
-鈹?    鈹?    鈹斺攢 Enforce max_tool_calls and timeout_seconds
-鈹?    鈹溾攢 Persist transcript entries (append to JSONL)
-鈹?    鈹斺攢 Emit lifecycle_end
-鈹?
-鈹斺攢 4. SSE Response
-      鈹溾攢 SSEManager.create_stream() 鈫?event: lifecycle, data: {phase: "start"}
-      鈹溾攢 event: assistant, data: {content: "delta text"}
-      鈹溾攢 event: tool, data: {phase: "start", tool: "web_search"}
-      鈹溾攢 event: tool, data: {phase: "end", tool: "web_search", result: "..."}
-      鈹溾攢 event: assistant, data: {content: "more text"}
-      鈹斺攢 event: lifecycle, data: {phase: "end"}
+│
+├─ 1. AuthMiddleware.dispatch()
+│     ├─ Extract credential (header → cookie → bearer)
+│     ├─ AuthStrategy.resolve_user(credential)
+│     │     ├─ Check TTL cache (300s default)
+│     │     ├─ AuthProvider.authenticate(credential) → AuthResult
+│     │     └─ ShadowUserStore.get_or_create() → ShadowUser → UserInfo
+│     └─ Attach UserInfo to request.state.user
+│
+├─ 2. Route handler (api/routes.py)
+│     ├─ Parse AgentRunRequest (session_key, message, model, timeout)
+│     ├─ Resolve session key via SessionScope
+│     └─ Build SkillDeps (user_info, session, memory managers, abort_signal)
+│
+├─ 3. AgentRunner.run() → AsyncIterator[StreamEvent]
+│     ├─ Emit lifecycle_start
+│     ├─ Select/pin token via DynamicTokenPolicy.get_or_select_session_token()
+│     ├─ Get or create agent instance from AgentInstancePool
+│     ├─ Load session transcript (JSONL)
+│     ├─ Build message history from transcript
+│     ├─ PromptBuilder.build() → system prompt
+│     ├─ Trigger BEFORE_PROMPT_BUILD hook
+│     ├─ CompactionPipeline (if context exceeds threshold)
+│     ├─ Check SessionQueue for steering messages
+│     ├─ PydanticAI Agent.run_stream() → model inference
+│     │     ├─ Yield assistant deltas (StreamEvent.ASSISTANT)
+│     │     ├─ Execute tool calls (StreamEvent.TOOL start/end)
+│     │     ├─ TokenHealthInterceptor.on_response() → update rate limits
+│     │     └─ Enforce max_tool_calls and timeout_seconds
+│     ├─ Persist transcript entries (append to JSONL)
+│     └─ Emit lifecycle_end
+│
+└─ 4. SSE Response
+      ├─ SSEManager.create_stream() → event: lifecycle, data: {phase: "start"}
+      ├─ event: assistant, data: {content: "delta text"}
+      ├─ event: tool, data: {phase: "start", tool: "web_search"}
+      ├─ event: tool, data: {phase: "end", tool: "web_search", result: "..."}
+      ├─ event: assistant, data: {content: "more text"}
+      └─ event: lifecycle, data: {phase: "end"}
 ```
 
 ### 5.2 Channel Inbound Message Flow
 
 ```
 External Platform (e.g., Feishu)
-鈹?
-鈹溾攢 1. ChannelHandler.handle_webhook() or message callback
-鈹?    鈹斺攢 Parse platform-specific payload 鈫?InboundMessage
-鈹?
-鈹溾攢 2. ChannelManager.receive_message()
-鈹?    鈹溾攢 Resolve user identity from channel context
-鈹?    鈹溾攢 Determine session key via DmScope routing
-鈹?    鈹斺攢 CommandParser.parse() 鈥?check for /commands
-鈹?
-鈹溾攢 3. AgentRunner.run() 鈫?stream events
-鈹?
-鈹斺攢 4. ChannelManager.send_message()
-      鈹斺攢 ChannelHandler.send() 鈫?platform-specific API call
+│
+├─ 1. ChannelHandler.handle_webhook() or message callback
+│     └─ Parse platform-specific payload → InboundMessage
+│
+├─ 2. ChannelManager.receive_message()
+│     ├─ Resolve user identity from channel context
+│     ├─ Determine session key via DmScope routing
+│     └─ CommandParser.parse() — check for /commands
+│
+├─ 3. AgentRunner.run() → stream events
+│
+└─ 4. ChannelManager.send_message()
+      └─ ChannelHandler.send() → platform-specific API call
 ```
 
 ### 5.3 WebSocket Gateway Flow
 
 ```
 WebSocket Connection
-鈹?
-鈹溾攢 1. ConnectFrame 鈫?validate credentials
-鈹溾攢 2. HelloOkFrame 鈫?acknowledge connection
-鈹溾攢 3. RequestFrame 鈫?agent run (similar to REST flow)
-鈹溾攢 4. EventFrame 鈫?streaming events pushed to client
-鈹斺攢 5. Disconnect 鈫?cleanup connection state
+│
+├─ 1. ConnectFrame → validate credentials
+├─ 2. HelloOkFrame → acknowledge connection
+├─ 3. RequestFrame → agent run (similar to REST flow)
+├─ 4. EventFrame ← streaming events pushed to client
+└─ 5. Disconnect → cleanup connection state
 ```
 
 ---
@@ -469,40 +469,40 @@ WebSocket Connection
 ### Dependency Graph
 
 ```
-                    鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
-                    鈹? main   鈹?(orchestrator)
-                    鈹斺攢鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹?
-          鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹尖攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
-          鈻?             鈻?             鈻?
-    鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹? 鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
-    鈹?  core   鈹? 鈹?  auth   鈹? 鈹?  channels   鈹?
-    鈹?config   鈹? 鈹?middleware鈹? 鈹?  manager    鈹?
-    鈹?deps     鈹? 鈹?strategy 鈹? 鈹?  registry   鈹?
-    鈹?workspace鈹? 鈹?providers鈹? 鈹?  handlers   鈹?
-    鈹?tenant   鈹? 鈹?shadow   鈹? 鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹€鈹€鈹?
-    鈹?registry 鈹? 鈹斺攢鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹?        鈹?
-    鈹斺攢鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹?      鈹?              鈹?
-         鈹?            鈻?              鈻?
-         鈹?     鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?   鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
-         鈹溾攢鈹€鈹€鈹€鈹€鈻衡攤  agent   鈹傗梽鈹€鈹€鈹€鈹?  api    鈹?
-         鈹?     鈹?runner   鈹?   鈹?routes   鈹?
-         鈹?     鈹?prompt   鈹?   鈹?sse      鈹?
-         鈹?     鈹?stream   鈹?   鈹?gateway  鈹?
-         鈹?     鈹斺攢鈹€鈹€鈹€鈹攢鈹€鈹€鈹€鈹€鈹?   鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
-         鈹?          鈹?
-         鈹?    鈹屸攢鈹€鈹€鈹€鈹€鈹尖攢鈹€鈹€鈹€鈹€鈹?
-         鈹?    鈻?    鈻?    鈻?
-         鈹?鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹愨攲鈹€鈹€鈹€鈹€鈹€鈹愨攲鈹€鈹€鈹€鈹€鈹€鈹€鈹?
-         鈹?鈹倀ools 鈹傗攤skill鈹傗攤hooks 鈹?
-         鈹?鈹俢atlog鈹傗攤regis鈹傗攤system鈹?
-         鈹?鈹斺攢鈹€鈹攢鈹€鈹€鈹樷敂鈹€鈹€鈹攢鈹€鈹樷敂鈹€鈹€鈹€鈹€鈹€鈹?
-         鈹?   鈹?      鈹?
-         鈹?   鈻?      鈻?
-         鈹?鈹屸攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
-         鈹斺柡鈹? session       鈹?
-           鈹? memory        鈹?
-           鈹? messages      鈹?
-           鈹斺攢鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹?
+                    ┌─────────┐
+                    │  main   │ (orchestrator)
+                    └────┬────┘
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+    ┌──────────┐  ┌──────────┐  ┌──────────────┐
+    │   core   │  │   auth   │  │   channels   │
+    │ config   │  │ middleware│  │   manager    │
+    │ deps     │  │ strategy │  │   registry   │
+    │ workspace│  │ providers│  │   handlers   │
+    │ tenant   │  │ shadow   │  └──────┬───────┘
+    │ registry │  └────┬─────┘         │
+    └────┬─────┘       │               │
+         │             ▼               ▼
+         │      ┌──────────┐    ┌──────────┐
+         ├─────►│  agent   │◄───│   api    │
+         │      │ runner   │    │ routes   │
+         │      │ prompt   │    │ sse      │
+         │      │ stream   │    │ gateway  │
+         │      └────┬─────┘    └──────────┘
+         │           │
+         │     ┌─────┼─────┐
+         │     ▼     ▼     ▼
+         │ ┌──────┐┌─────┐┌──────┐
+         │ │tools ││skill││hooks │
+         │ │catlog││regis││system│
+         │ └──┬───┘└──┬──┘└─────┘
+         │    │       │
+         │    ▼       ▼
+         │ ┌────────────────┐
+         └►│  session       │
+           │  memory        │
+           │  messages      │
+           └────────────────┘
 ```
 
 ### Key Integration Points
@@ -519,9 +519,9 @@ WebSocket Connection
 | `AgentRunner` | `CompactionPipeline` | Triggered when context exceeds threshold |
 | `TokenHealthInterceptor` | `TokenPool` | `update_token_health()` on LLM response |
 | `TokenHealthInterceptor` | `TokenHealthStore` | `save()` after health update |
-| `SkillRegistry` | PydanticAI Agent | `register_to_agent()` 鈥?wraps skills as agent tools |
-| `ServiceProviderRegistry` | `SkillRegistry` | `register_skills_to()` 鈥?provider skills with instance awareness |
-| `ChannelManager` | `AgentRunner` | `receive_message()` 鈫?`run()` |
+| `SkillRegistry` | PydanticAI Agent | `register_to_agent()` — wraps skills as agent tools |
+| `ServiceProviderRegistry` | `SkillRegistry` | `register_skills_to()` — provider skills with instance awareness |
+| `ChannelManager` | `AgentRunner` | `receive_message()` → `run()` |
 | `ConfigManager` | All modules | `get_config()` singleton access |
 
 ---
@@ -587,13 +587,13 @@ Each user can have overrides at `<workspace>/users/<user_id>/atlasclaw.json`. Lo
 ### 8.1 Authentication Pipeline
 
 ```
-Credential 鈫?AuthProvider.authenticate() 鈫?AuthResult
-                                              鈹?
-                                              鈻?
+Credential → AuthProvider.authenticate() → AuthResult
+                                              │
+                                              ▼
                                ShadowUserStore.get_or_create()
-                                              鈹?
-                                              鈻?
-                                     ShadowUser 鈫?UserInfo
+                                              │
+                                              ▼
+                                     ShadowUser → UserInfo
 ```
 
 **Credential Sources** (checked in order):
@@ -604,12 +604,12 @@ Credential 鈫?AuthProvider.authenticate() 鈫?AuthResult
 **Auth Providers** (configured in `auth.provider`):
 
 *Primary Providers* (for user login, configured via `auth.provider`):
-- `none` 鈥?No authentication; all requests get default user
-- `local` 鈥?Username/password authentication against local user database
+- `none` — No authentication; all requests get default user
+- `local` — Username/password authentication against local user database
 
 *Secondary Providers* (always available for specific use cases):
-- `oidc_jwt` 鈥?JWT validation via JWKS for API authentication (bearer tokens)
-- `oidc_login` 鈥?Full OAuth2 + PKCE authorization code flow for browser SSO
+- `oidc_jwt` — JWT validation via JWKS for API authentication (bearer tokens)
+- `oidc_login` — Full OAuth2 + PKCE authorization code flow for browser SSO
 
 **Chained Authentication**: The system supports chained authentication where multiple providers can be tried in sequence. For example, local auth can be attempted first, followed by OIDC JWT validation if local fails.
 
@@ -626,7 +626,7 @@ Credential 鈫?AuthProvider.authenticate() 鈫?AuthResult
 - **No internal RBAC**: The agent inherits the user's permissions from the upstream system
 - **Token propagation**: `SkillDeps.user_info.raw_token` is available to every skill for upstream API calls
 - **Tool filtering**: `ToolPolicy` (allow/deny lists with wildcard support) restricts which tools are available per agent
-- **Tenant isolation**: `TenantIsolation` provides path-based compartmentalization 鈥?session keys, memory paths, and storage paths are prefixed with `tenant_id`
+- **Tenant isolation**: `TenantIsolation` provides path-based compartmentalization — session keys, memory paths, and storage paths are prefixed with `tenant_id`
 
 ### 8.3 Skip Paths (No Auth Required)
 
@@ -635,12 +635,12 @@ Credential 鈫?AuthProvider.authenticate() 鈫?AuthResult
 ### 8.4 Multi-Tenant Isolation
 
 ```
-TenantIsolation.get_session_path(tenant_id)  鈫?<workspace>/tenants/<tenant_id>/sessions/
-TenantIsolation.get_memory_path(tenant_id)   鈫?<workspace>/tenants/<tenant_id>/memory/
-TenantIsolation.isolate_session_key(key, id) 鈫?<tenant_id>:<session_key>
+TenantIsolation.get_session_path(tenant_id)  → <workspace>/tenants/<tenant_id>/sessions/
+TenantIsolation.get_memory_path(tenant_id)   → <workspace>/tenants/<tenant_id>/memory/
+TenantIsolation.isolate_session_key(key, id) → <tenant_id>:<session_key>
 ```
 
-Tenant resolution order: explicit session key 鈫?user header 鈫?config default 鈫?"default"
+Tenant resolution order: explicit session key → user header → config default → "default"
 
 Quota enforcement: `TenantManager.check_quota()` validates `max_sessions`, `max_agents`, `max_memory_entries`, `max_concurrent_runs`.
 
@@ -656,12 +656,12 @@ Providers are the primary extension point. A provider is a directory containing:
 
 ```
 <provider>/
-鈹溾攢鈹€ PROVIDER.md          # Documentation + LLM context (frontmatter)
-鈹斺攢鈹€ skills/
-    鈹溾攢鈹€ skill-name/
-    鈹?  鈹溾攢鈹€ SKILL.md     # Skill documentation + frontmatter
-    鈹?  鈹斺攢鈹€ handler.py   # Executable skill (optional)
-    鈹斺攢鈹€ ...
+├── PROVIDER.md          # Documentation + LLM context (frontmatter)
+└── skills/
+    ├── skill-name/
+    │   ├── SKILL.md     # Skill documentation + frontmatter
+    │   └── handler.py   # Executable skill (optional)
+    └── ...
 ```
 
 **Discovery**: `ProviderScanner` walks the providers directory at startup. Provider directories can also contribute auth providers and channel handlers.
@@ -685,7 +685,7 @@ Skills are atomic, composable capabilities:
 | **Markdown** | LLM prompt/instruction in Markdown | `SKILL.md` only |
 | **Hybrid** | Executable with Markdown documentation | Both files |
 
-**Loading Priority**: workspace 鈫?providers 鈫?global 鈫?built-in
+**Loading Priority**: workspace → providers → global → built-in
 
 **Registration**: `SkillRegistry.register()` for Python skills; `SkillRegistry.load_md_skills()` for Markdown skills. All skills are registered with the PydanticAI agent via `register_to_agent()`.
 
@@ -693,10 +693,10 @@ Skills are atomic, composable capabilities:
 
 Custom channel handlers implement `ChannelHandler` ABC:
 
-- `setup(connection_config)` 鈥?Initialize with config
-- `start(context)` / `stop()` 鈥?Lifecycle management
-- `connect()` / `disconnect()` 鈥?For long-connection channels
-- `validate_webhook()` / `handle_webhook()` 鈥?For webhook channels
+- `setup(connection_config)` — Initialize with config
+- `start(context)` / `stop()` — Lifecycle management
+- `connect()` / `disconnect()` — For long-connection channels
+- `validate_webhook()` / `handle_webhook()` — For webhook channels
 
 Register via `ChannelRegistry.register(channel_type, handler_class)`.
 
@@ -704,8 +704,8 @@ Register via `ChannelRegistry.register(channel_type, handler_class)`.
 
 Custom auth providers extend `AuthProvider` ABC:
 
-- `provider_name` property 鈥?Unique identifier
-- `authenticate(credential: str) -> AuthResult` 鈥?Validate credential
+- `provider_name` property — Unique identifier
+- `authenticate(credential: str) -> AuthResult` — Validate credential
 
 Register via `AuthRegistry.register(auth_id, provider_class)`.
 
@@ -732,10 +732,10 @@ stores per-user module state, and exposes memory/context sinks without baking
 skill-specific semantics into the core.
 
 **Core components**:
-- `HookRuntime` 鈥?dispatches typed runtime events to registered handlers
-- `HookStateStore` 鈥?persists per-user, per-module hook state
-- `MemorySink` 鈥?writes confirmed items into long-term memory files
-- `ContextSink` 鈥?exposes confirmed items for future prompt/context integration
+- `HookRuntime` — dispatches typed runtime events to registered handlers
+- `HookStateStore` — persists per-user, per-module hook state
+- `MemorySink` — writes confirmed items into long-term memory files
+- `ContextSink` — exposes confirmed items for future prompt/context integration
 
 **Runtime event taxonomy**:
 - `run.started`, `run.completed`, `run.failed`
@@ -784,7 +784,7 @@ The agent engine produces `StreamEvent` objects through an async iterator:
 ### 10.3 WebSocket Transport
 
 - Uses the Gateway frame protocol (`ConnectFrame`, `HelloOkFrame`, `RequestFrame`, `ResponseFrame`, `EventFrame`)
-- Connection state machine: `CONNECTING 鈫?CONNECTED 鈫?AUTHENTICATED 鈫?DISCONNECTING 鈫?DISCONNECTED`
+- Connection state machine: `CONNECTING → CONNECTED → AUTHENTICATED → DISCONNECTING → DISCONNECTED`
 - Multiplexed: single connection supports multiple concurrent request/response pairs
 
 ### 10.4 Block Chunker
@@ -800,9 +800,9 @@ Configurable via `BlockChunkerConfig`, controls how streaming text is chunked fo
 **Format**: JSONL (one JSON object per line)
 **Location**: `<workspace>/users/<user_id>/sessions/`
 **Files**:
-- `<session_id>.jsonl` 鈥?Main transcript
-- `<session_id>-topic-<thread_id>.jsonl` 鈥?Thread transcripts
-- `sessions.json` 鈥?Session metadata index
+- `<session_id>.jsonl` — Main transcript
+- `<session_id>-topic-<thread_id>.jsonl` — Thread transcripts
+- `sessions.json` — Session metadata index
 
 **TranscriptEntry**:
 ```json
@@ -818,8 +818,8 @@ Configurable via `BlockChunkerConfig`, controls how streaming text is chunked fo
 **Format**: Markdown files
 **Location**: `<workspace>/users/<user_id>/memory/`
 **Files**:
-- `YYYY-MM-DD.md` 鈥?Daily memories (date-scoped)
-- `MEMORY.md` 鈥?Long-term persistent memory
+- `YYYY-MM-DD.md` — Daily memories (date-scoped)
+- `MEMORY.md` — Long-term persistent memory
 
 **Search**: Hybrid search combining keyword matching and semantic similarity.
 
@@ -832,9 +832,9 @@ directory.
 **Format**: JSONL
 **Location**: `<workspace>/users/<user_id>/hooks/<module_name>/`
 **Files**:
-- `events.jsonl` 鈥?Observed runtime lifecycle events
-- `pending.jsonl` 鈥?Items awaiting explicit confirmation or rejection
-- `decisions.jsonl` 鈥?Confirmation/rejection history
+- `events.jsonl` — Observed runtime lifecycle events
+- `pending.jsonl` — Items awaiting explicit confirmation or rejection
+- `decisions.jsonl` — Confirmation/rejection history
 
 **Isolation**:
 - State is scoped by authenticated AtlasClaw `user_id`
@@ -844,16 +844,16 @@ directory.
 
 **Format**: JSON
 **Location**: `~/.atlasclaw/users.json`
-**Content**: Shadow user mappings (`provider:subject` 鈫?`user_id` 鈫?`ShadowUser`)
+**Content**: Shadow user mappings (`provider:subject` → `user_id` → `ShadowUser`)
 
 ### 11.5 Configuration
 
 **Format**: JSON or YAML
 **Locations**: 
-- Project root (`atlasclaw.json`) 鈥?Core configuration
-- Workspace root (`<workspace>/atlasclaw.json`) 鈥?Workspace configuration
-- User home (`~/.atlasclaw/config.json`) 鈥?Global user configuration
-- Per-user (`<workspace>/users/<user_id>/user_setting.json`) 鈥?User-specific settings (channels, preferences)
+- Project root (`atlasclaw.json`) — Core configuration
+- Workspace root (`<workspace>/atlasclaw.json`) — Workspace configuration
+- User home (`~/.atlasclaw/config.json`) — Global user configuration
+- Per-user (`<workspace>/users/<user_id>/user_setting.json`) — User-specific settings (channels, preferences)
 
 ### 11.6 Token Health
 
@@ -892,10 +892,10 @@ directory.
 - `service_provider_configs.(provider_type, instance_name)`
 
 **API Endpoints** (`/api/*`):
-- `GET/POST /agent-configs` 鈥?Agent CRUD
-- `GET/POST /token-configs` 鈥?Token CRUD
-- `GET/POST /users` 鈥?User CRUD
-- `GET/POST /provider-configs` 鈥?Provider instance CRUD
+- `GET/POST /agent-configs` — Agent CRUD
+- `GET/POST /token-configs` — Token CRUD
+- `GET/POST /users` — User CRUD
+- `GET/POST /provider-configs` — Provider instance CRUD
 
 **Merge Behavior**:
 - Tokens: DB entries override JSON entries with same `token_id`
@@ -911,9 +911,9 @@ All sensitive data is encrypted at rest using **AES-256-GCM**:
 - Format: `v1:key_id:base64(nonce+ciphertext+tag)`
 
 **Encrypted Fields**:
-- `TokenModel.api_key` 鈥?LLM API keys in database
-- `ServiceProviderConfigModel.config` 鈥?Provider credentials and settings
-- `ChannelModel.config` 鈥?Channel connection credentials
+- `TokenModel.api_key` — LLM API keys in database
+- `ServiceProviderConfigModel.config` — Provider credentials and settings
+- `ChannelModel.config` — Channel connection credentials
 
 **Config File Encryption**:
 - Values with `enc:` prefix are automatically decrypted on load
@@ -979,9 +979,9 @@ All sensitive data is encrypted at rest using **AES-256-GCM**:
 > | Topic | Document | Section |
 > |---|---|---|
 > | Per-module API details | [Module Details](./MODULE-DETAILS.MD) | All sections |
-> | Code style rules | [Development Spec](./DEVELOPMENT-SPEC.MD) | 搂1 Code Style |
-> | Testing requirements | [Development Spec](./DEVELOPMENT-SPEC.MD) | 搂6 Testing |
-> | Error handling patterns | [Development Spec](./DEVELOPMENT-SPEC.MD) | 搂3 Error Handling |
+> | Code style rules | [Development Spec](./DEVELOPMENT-SPEC.MD) | §1 Code Style |
+> | Testing requirements | [Development Spec](./DEVELOPMENT-SPEC.MD) | §6 Testing |
+> | Error handling patterns | [Development Spec](./DEVELOPMENT-SPEC.MD) | §3 Error Handling |
 > | Provider creation guide | [Provider Guide](./PROVIDER-GUIDE.MD) | Full document |
 > | Skill creation guide | [Skill Guide](./SKILL-GUIDE.MD) | Full document |
 > | Channel integration | [Channel Guide](./CHANNEL-GUIDE.MD) | Full document |

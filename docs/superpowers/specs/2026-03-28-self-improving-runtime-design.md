@@ -1,4 +1,4 @@
-﻿# AtlasClaw Hook Runtime Design
+# AtlasClaw Hook Runtime Design
 
 ## Goal
 

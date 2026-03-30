@@ -1,4 +1,4 @@
-﻿# Hook Script Runtime Implementation Plan
+# Hook Script Runtime Implementation Plan
 
 ## Scope
 

@@ -1,4 +1,4 @@
-﻿# Hook Runtime Guide
+# Hook Runtime Guide
 
 ## Overview
 
