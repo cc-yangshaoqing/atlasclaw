@@ -1,34 +1,32 @@
 ﻿# Current State
 
 ## Objective
-- Implement a unified heartbeat framework that aligns with OpenClaw heartbeat semantics while also adding per-channel long-connection heartbeat monitoring and recovery.
+- Design a Tool Necessity Gate for AtlasClaw so the runtime can decide when an answer must be grounded through tools or external systems instead of relying on free-form model completion.
+- Define a unified decision flow covering tool necessity classification, capability matching, and mandatory tool enforcement before implementation starts.
 
 ## Completed
-- Reviewed canonical architecture/module/development docs.
-- Inspected current SSE/WebSocket heartbeat behavior and channel connection lifecycle.
-- Verified AtlasClaw currently has API transport heartbeat pieces but no unified heartbeat runtime for agent turns plus channel long connections.
-- Verified OpenClaw heartbeat semantics and configuration surface from official docs.
-- Finalized the recommended architecture as a unified `HeartbeatRuntime` with typed jobs.
-- Wrote the design spec for the unified heartbeat runtime.
-- Completed the document alignment review across `state`, `task`, and `spec`, with task/spec scope and decisions now synchronized.
-- Implemented `app/atlasclaw/heartbeat/` runtime modules, executors, target resolution, state store, and event bridge.
-- Wired heartbeat configuration into `config_schema.py` and startup initialization in `main.py`.
-- Added channel probe and reconnect support to `ChannelManager`.
-- Added heartbeat-specific unit, integration, and E2E coverage.
-- Updated canonical docs to describe heartbeat runtime architecture and development standards.
-- Replaced the previous default-bucket startup behavior with per-user agent heartbeat job registration based on existing isolated user sources.
-- Replaced default-only channel auto-start with per-user enabled connection startup using the same isolated user discovery path.
-- Completed implementation-to-spec/task/state alignment review.
-- Re-ran full backend unit tests and full live-server E2E successfully.
-- Completed a final standalone code review for heartbeat changes.
+- Reviewed canonical architecture, module, and development docs before proposing the design.
+- Reviewed the current prompt builder, runner, tool registration, and web search tool path.
+- Confirmed AtlasClaw already exposes `web_search`, `web_fetch`, browser, provider tools, Hook Runtime, and session/memory context sources.
+- Confirmed the current runtime does not enforce tool usage for time-sensitive or externally-grounded questions; the model is free to answer directly even when tools are needed.
+- Identified the current failure mode: time-sensitive and externally-dependent questions can produce confident but ungrounded answers because the system prompt only injects current time and tool availability, not a gating policy.
+- Finalized the recommended architecture as a three-layer runtime policy:
+  - Tool Necessity Gate
+  - Capability Matcher
+  - Mandatory Tool Enforcement
+- Wrote the initial design spec and task plan for the Tool Necessity Gate workstream.
+- Completed a document alignment review across `state`, `task`, and `spec` so the scope, terminology, and next step match.
 
 ## In Progress
-- None.
+- Waiting for user review of the written Tool Necessity Gate spec before moving to implementation planning.
 
 ## Risks / Decisions
-- Heartbeat must remain separate from Hook scheduling, but emit standard events for Hook Runtime consumers.
-- AtlasClaw should align to OpenClaw semantics while extending target routing to support user chat, channels, sessions, threads, and group chats.
-- Channel heartbeat is primarily self-healing and should alert only after repeated failures.
+- This feature should solve a general reliability problem, not a narrow "weather query" special case.
+- The gate must classify whether the question requires current/live data, private context, external systems, browser interaction, or grounded verification.
+- Tool enforcement must not rely solely on model goodwill; once the runtime classifies a request as tool-required, the system must either force the tool path or refuse a final ungrounded answer.
+- AtlasClaw should take inspiration from OpenClaw's richer runtime stack (web search, grounding-style providers, context engines, hooks/plugins) while making the tool-necessity policy more explicit than OpenClaw's current default behavior.
+- The design should remain compatible with the existing Hook Runtime, memory, and session systems instead of creating a separate orchestration stack.
 
 ## Next Step
-- Wait for user review of the completed heartbeat implementation before making any local commit or push.
+- Have the user review `docs/superpowers/specs/2026-03-31-tool-necessity-gate-design.md`.
+- If approved, write the implementation plan before touching code.
