@@ -66,6 +66,15 @@ class TestStreamEvent:
         assert "type" in data
         assert data["type"] == "assistant"
 
+    def test_create_runtime_event(self):
+        """Runtime ?????????????"""
+        event = StreamEvent.runtime_update("retrying", "Retrying with stricter policy.")
+
+        assert event.type == "runtime"
+        assert event.phase == "update"
+        assert event.content == "Retrying with stricter policy."
+        assert event.metadata["state"] == "retrying"
+
 
 class TestBlockChunker:
     """BlockChunker 测试类"""

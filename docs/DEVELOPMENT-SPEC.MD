@@ -7,8 +7,8 @@
 > and `DEPLOYMENT.md`. Those files are no longer maintained separately.
 >
 > Related documents:
-> - [Architecture](./architecture.md) — system design, bootstrap, request lifecycle
-> - [Module Details](./module-details.md) — per-module API surface and internals
+> - [Architecture](./architecture.md) 鈥?system design, bootstrap, request lifecycle
+> - [Module Details](./module-details.md) 鈥?per-module API surface and internals
 
 ---
 
@@ -71,201 +71,201 @@ Each function, class, and module should have one clear purpose.
 
 ## 2. Project Structure
 
-> Also see [Architecture](./architecture.md) §3 for a high-level directory overview.
+> Also see [Architecture](./architecture.md) 搂3 for a high-level directory overview.
 
 ### 2.1 Directory Tree
 
 ```
 AtlasClaw-Core/
-├── app/
-│   ├── frontend/                    # Web UI (DeepChat-based)
-│   │   ├── index.html              # Main entry point
-│   │   ├── scripts/                # JavaScript modules
-│   │   │   ├── api-client.js       # API client
-│   │   │   ├── session-manager.js  # Session management
-│   │   │   ├── message-handler.js  # Message handling
-│   │   │   └── ui-components.js    # UI components
-│   │   ├── styles/                 # CSS styles
-│   │   ├── locales/                # i18n translations
-│   │   └── static/                 # Static assets
-│   │
-│   └── atlasclaw/                    # Core backend
-│       ├── __init__.py
-│       ├── main.py                 # FastAPI application entry
-│       │
-│       ├── agent/                  # Agent Engine
-│       │   ├── __init__.py
-│       │   ├── runner.py           # Agent execution engine
-│       │   ├── routing.py          # Multi-agent routing
-│       │   ├── prompt_builder.py   # System prompt builder
-│       │   ├── stream.py           # Streaming events & chunking
-│       │   └── compaction.py       # Context compaction
-│       │
-│       ├── api/                    # API Layer
-│       │   ├── __init__.py
-│       │   ├── routes.py           # REST API routes
-│       │   ├── gateway.py          # WebSocket gateway
-│       │   ├── sse.py              # SSE manager
-│       │   ├── websocket.py        # WebSocket handler
-│       │   └── request_orchestrator.py
-│       │
-│       ├── auth/                   # Authentication System
-│       │   ├── __init__.py
-│       │   ├── middleware.py       # Auth middleware
-│       │   ├── strategy.py         # Auth strategy
-│       │   ├── models.py           # User models
-│       │   ├── config.py           # Auth configuration
-│       │   ├── shadow_store.py     # Shadow user store
-│       │   └── providers/          # Auth providers
-│       │       ├── __init__.py
-│       │       ├── base.py
-│       │       ├── none.py
-│       │       ├── local.py        # Username/password auth
-│       │       ├── oidc_jwt.py     # JWT validation for API
-│       │       └── oidc_login.py   # OAuth2 + PKCE for SSO
-│       │
-│       ├── channels/               # Channel Adapters
-│       │   ├── __init__.py
-│       │   ├── base.py
-│       │   ├── registry.py
-│       │   ├── rest_adapter.py
-│       │   ├── sse_adapter.py
-│       │   └── websocket_adapter.py
-│       │
-│       ├── core/                   # Core Infrastructure
-│       │   ├── __init__.py
-│       │   ├── config.py           # Configuration manager
-│       │   ├── config_schema.py    # Pydantic config schemas
-│       │   ├── deps.py             # Skill dependency injection
-│       │   ├── execution_context.py
-│       │   ├── provider_registry.py
-│       │   └── tenant.py
-│       │
-│       ├── hooks/                  # Hook System
-│       │   └── system.py
-│       │
-│       ├── media/                  # Media Processing
-│       │   ├── link_extractor.py
-│       │   ├── tts.py
-│       │   └── understanding.py
-│       │
-│       ├── memory/                 # Memory System
-│       │   ├── __init__.py
-│       │   ├── manager.py
-│       │   └── search.py
-│       │
-│       ├── messages/               # Message Processing
-│       │   ├── command.py
-│       │   └── handler.py
-│       │
-│       ├── models/                 # Model Management
-│       │   ├── __init__.py
-│       │   ├── providers.py
-│       │   ├── retry.py
-│       │   └── failover.py
-│       │
-│       ├── providers/              # Built-in Providers
-│       │   └── jira/               # Jira Provider Example
-│       │       ├── skills/
-│       │       │   └── jira-issue/
-│       │       │       ├── SKILL.md
-│       │       │       └── scripts/
-│       │       └── scripts/
-│       │
-│       ├── session/                # Session Management
-│       │   ├── __init__.py
-│       │   ├── manager.py
-│       │   ├── context.py
-│       │   └── queue.py
-│       │
-│       ├── skills/                 # Skills System
-│       │   ├── __init__.py
-│       │   ├── registry.py
-│       │   └── frontmatter.py
-│       │
-│       ├── tools/                  # Built-in Tools
-│       │   ├── __init__.py
-│       │   ├── base.py
-│       │   ├── catalog.py
-│       │   ├── registration.py
-│       │   ├── filesystem/         # File system tools
-│       │   ├── memory/             # Memory tools
-│       │   ├── providers/          # Provider tools
-│       │   ├── runtime/            # Runtime tools
-│       │   ├── sessions/           # Session tools
-│       │   ├── ui/                 # UI tools
-│       │   └── web/                # Web tools
-│       │
-│       └── workflow/               # Workflow Engine
-│           ├── __init__.py
-│           ├── engine.py
-│           └── orchestrator.py
-│
-├── tests/                          # Test Suite
-│   ├── conftest.py                 # pytest configuration
-│   ├── atlasclaw.test.json           # Test configuration
-│   ├── atlasclaw/                    # Python tests
-│   │   ├── test_core.py
-│   │   ├── test_agent.py
-│   │   ├── test_agent_integration.py
-│   │   ├── test_e2e_api.py
-│   │   ├── auth/
-│   │   ├── memory/
-│   │   ├── session/
-│   │   └── providers/
-│   └── frontend/                   # Frontend tests
-│
-├── docs/                           # Documentation
-│   ├── architecture.md
-│   ├── module-details.md
-│   ├── development-spec.md
-│   └── images/architecture/
-│
-├── openspec/                       # OpenSpec Specifications
-│   ├── AGENTS.md
-│   ├── project.md
-│   ├── changes/
-│   └── completed/
-│
-├── atlasclaw.json                    # Main configuration
-└── requirements.txt                # Python dependencies
+鈹溾攢鈹€ app/
+鈹?  鈹溾攢鈹€ frontend/                    # Web UI (DeepChat-based)
+鈹?  鈹?  鈹溾攢鈹€ index.html              # Main entry point
+鈹?  鈹?  鈹溾攢鈹€ scripts/                # JavaScript modules
+鈹?  鈹?  鈹?  鈹溾攢鈹€ api-client.js       # API client
+鈹?  鈹?  鈹?  鈹溾攢鈹€ session-manager.js  # Session management
+鈹?  鈹?  鈹?  鈹溾攢鈹€ message-handler.js  # Message handling
+鈹?  鈹?  鈹?  鈹斺攢鈹€ ui-components.js    # UI components
+鈹?  鈹?  鈹溾攢鈹€ styles/                 # CSS styles
+鈹?  鈹?  鈹溾攢鈹€ locales/                # i18n translations
+鈹?  鈹?  鈹斺攢鈹€ static/                 # Static assets
+鈹?  鈹?
+鈹?  鈹斺攢鈹€ atlasclaw/                    # Core backend
+鈹?      鈹溾攢鈹€ __init__.py
+鈹?      鈹溾攢鈹€ main.py                 # FastAPI application entry
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ agent/                  # Agent Engine
+鈹?      鈹?  鈹溾攢鈹€ __init__.py
+鈹?      鈹?  鈹溾攢鈹€ runner.py           # Agent execution engine
+鈹?      鈹?  鈹溾攢鈹€ routing.py          # Multi-agent routing
+鈹?      鈹?  鈹溾攢鈹€ prompt_builder.py   # System prompt builder
+鈹?      鈹?  鈹溾攢鈹€ stream.py           # Streaming events & chunking
+鈹?      鈹?  鈹斺攢鈹€ compaction.py       # Context compaction
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ api/                    # API Layer
+鈹?      鈹?  鈹溾攢鈹€ __init__.py
+鈹?      鈹?  鈹溾攢鈹€ routes.py           # REST API routes
+鈹?      鈹?  鈹溾攢鈹€ gateway.py          # WebSocket gateway
+鈹?      鈹?  鈹溾攢鈹€ sse.py              # SSE manager
+鈹?      鈹?  鈹溾攢鈹€ websocket.py        # WebSocket handler
+鈹?      鈹?  鈹斺攢鈹€ request_orchestrator.py
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ auth/                   # Authentication System
+鈹?      鈹?  鈹溾攢鈹€ __init__.py
+鈹?      鈹?  鈹溾攢鈹€ middleware.py       # Auth middleware
+鈹?      鈹?  鈹溾攢鈹€ strategy.py         # Auth strategy
+鈹?      鈹?  鈹溾攢鈹€ models.py           # User models
+鈹?      鈹?  鈹溾攢鈹€ config.py           # Auth configuration
+鈹?      鈹?  鈹溾攢鈹€ shadow_store.py     # Shadow user store
+鈹?      鈹?  鈹斺攢鈹€ providers/          # Auth providers
+鈹?      鈹?      鈹溾攢鈹€ __init__.py
+鈹?      鈹?      鈹溾攢鈹€ base.py
+鈹?      鈹?      鈹溾攢鈹€ none.py
+鈹?      鈹?      鈹溾攢鈹€ local.py        # Username/password auth
+鈹?      鈹?      鈹溾攢鈹€ oidc_jwt.py     # JWT validation for API
+鈹?      鈹?      鈹斺攢鈹€ oidc_login.py   # OAuth2 + PKCE for SSO
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ channels/               # Channel Adapters
+鈹?      鈹?  鈹溾攢鈹€ __init__.py
+鈹?      鈹?  鈹溾攢鈹€ base.py
+鈹?      鈹?  鈹溾攢鈹€ registry.py
+鈹?      鈹?  鈹溾攢鈹€ rest_adapter.py
+鈹?      鈹?  鈹溾攢鈹€ sse_adapter.py
+鈹?      鈹?  鈹斺攢鈹€ websocket_adapter.py
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ core/                   # Core Infrastructure
+鈹?      鈹?  鈹溾攢鈹€ __init__.py
+鈹?      鈹?  鈹溾攢鈹€ config.py           # Configuration manager
+鈹?      鈹?  鈹溾攢鈹€ config_schema.py    # Pydantic config schemas
+鈹?      鈹?  鈹溾攢鈹€ deps.py             # Skill dependency injection
+鈹?      鈹?  鈹溾攢鈹€ execution_context.py
+鈹?      鈹?  鈹溾攢鈹€ provider_registry.py
+鈹?      鈹?  鈹斺攢鈹€ tenant.py
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ hooks/                  # Hook System
+鈹?      鈹?  鈹斺攢鈹€ system.py
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ media/                  # Media Processing
+鈹?      鈹?  鈹溾攢鈹€ link_extractor.py
+鈹?      鈹?  鈹溾攢鈹€ tts.py
+鈹?      鈹?  鈹斺攢鈹€ understanding.py
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ memory/                 # Memory System
+鈹?      鈹?  鈹溾攢鈹€ __init__.py
+鈹?      鈹?  鈹溾攢鈹€ manager.py
+鈹?      鈹?  鈹斺攢鈹€ search.py
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ messages/               # Message Processing
+鈹?      鈹?  鈹溾攢鈹€ command.py
+鈹?      鈹?  鈹斺攢鈹€ handler.py
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ models/                 # Model Management
+鈹?      鈹?  鈹溾攢鈹€ __init__.py
+鈹?      鈹?  鈹溾攢鈹€ providers.py
+鈹?      鈹?  鈹溾攢鈹€ retry.py
+鈹?      鈹?  鈹斺攢鈹€ failover.py
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ providers/              # Built-in Providers
+鈹?      鈹?  鈹斺攢鈹€ jira/               # Jira Provider Example
+鈹?      鈹?      鈹溾攢鈹€ skills/
+鈹?      鈹?      鈹?  鈹斺攢鈹€ jira-issue/
+鈹?      鈹?      鈹?      鈹溾攢鈹€ SKILL.md
+鈹?      鈹?      鈹?      鈹斺攢鈹€ scripts/
+鈹?      鈹?      鈹斺攢鈹€ scripts/
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ session/                # Session Management
+鈹?      鈹?  鈹溾攢鈹€ __init__.py
+鈹?      鈹?  鈹溾攢鈹€ manager.py
+鈹?      鈹?  鈹溾攢鈹€ context.py
+鈹?      鈹?  鈹斺攢鈹€ queue.py
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ skills/                 # Skills System
+鈹?      鈹?  鈹溾攢鈹€ __init__.py
+鈹?      鈹?  鈹溾攢鈹€ registry.py
+鈹?      鈹?  鈹斺攢鈹€ frontmatter.py
+鈹?      鈹?
+鈹?      鈹溾攢鈹€ tools/                  # Built-in Tools
+鈹?      鈹?  鈹溾攢鈹€ __init__.py
+鈹?      鈹?  鈹溾攢鈹€ base.py
+鈹?      鈹?  鈹溾攢鈹€ catalog.py
+鈹?      鈹?  鈹溾攢鈹€ registration.py
+鈹?      鈹?  鈹溾攢鈹€ filesystem/         # File system tools
+鈹?      鈹?  鈹溾攢鈹€ memory/             # Memory tools
+鈹?      鈹?  鈹溾攢鈹€ providers/          # Provider tools
+鈹?      鈹?  鈹溾攢鈹€ runtime/            # Runtime tools
+鈹?      鈹?  鈹溾攢鈹€ sessions/           # Session tools
+鈹?      鈹?  鈹溾攢鈹€ ui/                 # UI tools
+鈹?      鈹?  鈹斺攢鈹€ web/                # Web tools
+鈹?      鈹?
+鈹?      鈹斺攢鈹€ workflow/               # Workflow Engine
+鈹?          鈹溾攢鈹€ __init__.py
+鈹?          鈹溾攢鈹€ engine.py
+鈹?          鈹斺攢鈹€ orchestrator.py
+鈹?
+鈹溾攢鈹€ tests/                          # Test Suite
+鈹?  鈹溾攢鈹€ conftest.py                 # pytest configuration
+鈹?  鈹溾攢鈹€ atlasclaw.test.json           # Test configuration
+鈹?  鈹溾攢鈹€ atlasclaw/                    # Python tests
+鈹?  鈹?  鈹溾攢鈹€ test_core.py
+鈹?  鈹?  鈹溾攢鈹€ test_agent.py
+鈹?  鈹?  鈹溾攢鈹€ test_agent_integration.py
+鈹?  鈹?  鈹溾攢鈹€ test_e2e_api.py
+鈹?  鈹?  鈹溾攢鈹€ auth/
+鈹?  鈹?  鈹溾攢鈹€ memory/
+鈹?  鈹?  鈹溾攢鈹€ session/
+鈹?  鈹?  鈹斺攢鈹€ providers/
+鈹?  鈹斺攢鈹€ frontend/                   # Frontend tests
+鈹?
+鈹溾攢鈹€ docs/                           # Documentation
+鈹?  鈹溾攢鈹€ architecture.md
+鈹?  鈹溾攢鈹€ module-details.md
+鈹?  鈹溾攢鈹€ development-spec.md
+鈹?  鈹斺攢鈹€ images/architecture/
+鈹?
+鈹溾攢鈹€ openspec/                       # OpenSpec Specifications
+鈹?  鈹溾攢鈹€ AGENTS.md
+鈹?  鈹溾攢鈹€ project.md
+鈹?  鈹溾攢鈹€ changes/
+鈹?  鈹斺攢鈹€ completed/
+鈹?
+鈹溾攢鈹€ atlasclaw.json                    # Main configuration
+鈹斺攢鈹€ requirements.txt                # Python dependencies
 ```
 
 ### 2.2 Module Dependencies
 
 ```
 main.py
-├── agent/runner.py
-│   ├── core/deps.py
-│   ├── session/manager.py
-│   └── skills/registry.py
-├── api/routes.py
-│   ├── agent/runner.py
-│   ├── auth/middleware.py
-│   └── session/manager.py
-├── auth/middleware.py
-│   └── auth/strategy.py
-├── core/config.py
-│   └── core/config_schema.py
-└── skills/registry.py
-    └── tools/registration.py
+鈹溾攢鈹€ agent/runner.py
+鈹?  鈹溾攢鈹€ core/deps.py
+鈹?  鈹溾攢鈹€ session/manager.py
+鈹?  鈹斺攢鈹€ skills/registry.py
+鈹溾攢鈹€ api/routes.py
+鈹?  鈹溾攢鈹€ agent/runner.py
+鈹?  鈹溾攢鈹€ auth/middleware.py
+鈹?  鈹斺攢鈹€ session/manager.py
+鈹溾攢鈹€ auth/middleware.py
+鈹?  鈹斺攢鈹€ auth/strategy.py
+鈹溾攢鈹€ core/config.py
+鈹?  鈹斺攢鈹€ core/config_schema.py
+鈹斺攢鈹€ skills/registry.py
+    鈹斺攢鈹€ tools/registration.py
 ```
 
 ### 2.3 Data Flow
 
 ```
 User Request
-    ↓
+    鈫?
 API Layer (routes.py)
-    ↓
+    鈫?
 Auth Middleware
-    ↓
+    鈫?
 Agent Runner
-    ↓
+    鈫?
 Skill Execution
-    ↓
+    鈫?
 Provider API
-    ↓
+    鈫?
 Response Stream (SSE)
 ```
 
@@ -344,10 +344,10 @@ from ..core.config import get_config
 **Session storage**:
 ```
 workspace/users/<user_id>/sessions/
-├── sessions.json
-├── <session_id>.jsonl
-├── <session_id>-topic-<thread_id>.jsonl
-└── archive/
+鈹溾攢鈹€ sessions.json
+鈹溾攢鈹€ <session_id>.jsonl
+鈹溾攢鈹€ <session_id>-topic-<thread_id>.jsonl
+鈹斺攢鈹€ archive/
 ```
 
 Session routing rules:
@@ -360,16 +360,16 @@ Session routing rules:
 **Memory storage**:
 ```
 workspace/users/<user_id>/memory/
-├── memory_<timestamp>.md
-├── vector/
-└── fulltext/
+鈹溾攢鈹€ memory_<timestamp>.md
+鈹溾攢鈹€ vector/
+鈹斺攢鈹€ fulltext/
 ```
 
 **Configuration storage**:
 ```
 ~/.atlasclaw/
-├── config.json
-└── workspace/
+鈹溾攢鈹€ config.json
+鈹斺攢鈹€ workspace/
 ```
 
 ---
@@ -733,8 +733,8 @@ if user.has_role("admin"):  # Never do this
 ### 6.3 Tool Filtering
 
 Use `ToolPolicy` to restrict tool access per agent:
-- `allow: ["*"]` — All tools (default)
-- `deny: ["exec", "process"]` — Block specific tools
+- `allow: ["*"]` 鈥?All tools (default)
+- `deny: ["exec", "process"]` 鈥?Block specific tools
 - Deny takes priority over allow
 - Supports wildcards: `sessions_*`, `*_search`
 
@@ -786,6 +786,21 @@ def process_user_input(data: dict[str, Any]) -> None:
 
 ---
 
+
+### 6.7 Tool Grounding and Anti-Fabrication
+
+When the runtime classifies a request as tool-required, the code must not allow an ungrounded
+final answer to pass through just because the model produced fluent text.
+
+Required rules:
+- Prefer explicit classifier-driven tool-gate decisions over hard-coded business keyword tables.
+- Model-backed gate classification must be explicitly enabled; do not add hidden blocking classifier round-trips to every request by default.
+- If mandatory capabilities are missing, return an explicit verification failure instead of a
+  guessed answer.
+- Do not claim search, lookup, provider retrieval, or browser interaction happened unless tool
+  execution evidence exists in the current run.
+- Treat tool results as privileged evidence for the current turn when enforcement requires
+  grounded answering.
 ## 7. Async Patterns
 
 ### 7.1 Core Rule
@@ -981,13 +996,13 @@ cd app/frontend && npm test
 **Directory structure**:
 ```
 <providers_root>/<provider_name>/
-├── PROVIDER.md       # Required: documentation + LLM context
-└── skills/
-    ├── skill-one/
-    │   ├── SKILL.md  # Required: skill documentation
-    │   └── handler.py  # Optional: executable skill
-    └── skill-two/
-        └── SKILL.md  # Markdown-only skill
+鈹溾攢鈹€ PROVIDER.md       # Required: documentation + LLM context
+鈹斺攢鈹€ skills/
+    鈹溾攢鈹€ skill-one/
+    鈹?  鈹溾攢鈹€ SKILL.md  # Required: skill documentation
+    鈹?  鈹斺攢鈹€ handler.py  # Optional: executable skill
+    鈹斺攢鈹€ skill-two/
+        鈹斺攢鈹€ SKILL.md  # Markdown-only skill
 ```
 
 **PROVIDER.md frontmatter**:
@@ -1582,9 +1597,9 @@ uvicorn app.atlasclaw.main:app --host 0.0.0.0 --port 8000
 ```
 
 **Migration Files**:
-- `migrations/versions/001_initial.py` — Initial schema
-- `migrations/versions/002_add_channel_is_default.py` — Add channel defaults
-- `migrations/versions/003_add_service_provider_configs.py` — Add provider configs
+- `migrations/versions/001_initial.py` 鈥?Initial schema
+- `migrations/versions/002_add_channel_is_default.py` 鈥?Add channel defaults
+- `migrations/versions/003_add_service_provider_configs.py` 鈥?Add provider configs
 
 ### 12.7 Production Deployment
 
@@ -1606,7 +1621,7 @@ server {
         proxy_cache_bypass $http_upgrade;
     }
 
-    # SSE endpoint — disable buffering
+    # SSE endpoint 鈥?disable buffering
     location /api/agent/runs/ {
         proxy_pass http://localhost:8000;
         proxy_http_version 1.1;
@@ -1792,12 +1807,12 @@ Before approving any change, verify:
 ### Correctness
 - [ ] Type hints present on all function parameters and return values
 - [ ] Async patterns correct (all I/O operations are async, proper `await`)
-- [ ] No bare `except:` — all exceptions are specific
+- [ ] No bare `except:` 鈥?all exceptions are specific
 - [ ] Error messages include sufficient context
 - [ ] No `print()` statements (use logging, except in hook system)
 
 ### Security
-- [ ] Permission inheritance maintained — no internal RBAC bypass
+- [ ] Permission inheritance maintained 鈥?no internal RBAC bypass
 - [ ] No hardcoded secrets (API keys, passwords, tokens)
 - [ ] User tokens propagated via `SkillDeps.user_token` for upstream calls
 - [ ] Tenant isolation maintained (no cross-tenant data access)
@@ -1826,7 +1841,7 @@ Before approving any change, verify:
 ### Style
 - [ ] Follows naming conventions (snake_case, PascalCase, SCREAMING_SNAKE_CASE)
 - [ ] Line length ~100 characters
-- [ ] Import order correct (stdlib → third-party → local)
+- [ ] Import order correct (stdlib 鈫?third-party 鈫?local)
 - [ ] `from __future__ import annotations` present in new files
 - [ ] No commented-out code
 - [ ] No wildcard imports
@@ -1837,11 +1852,11 @@ Before approving any change, verify:
 >
 > | Topic | Document | Section |
 > |---|---|---|
-> | System architecture | [Architecture](./architecture.md) | §2 High-Level Architecture |
-> | Directory structure | [Architecture](./architecture.md) | §3 Directory Structure |
-> | Request lifecycle | [Architecture](./architecture.md) | §5 Request Lifecycle |
+> | System architecture | [Architecture](./architecture.md) | 搂2 High-Level Architecture |
+> | Directory structure | [Architecture](./architecture.md) | 搂3 Directory Structure |
+> | Request lifecycle | [Architecture](./architecture.md) | 搂5 Request Lifecycle |
 > | Per-module API reference | [Module Details](./module-details.md) | All sections |
-> | Configuration schema | [Module Details](./module-details.md) | §1.3 Configuration Schema |
+> | Configuration schema | [Module Details](./module-details.md) | 搂1.3 Configuration Schema |
 > | Provider creation guide | [Provider Guide](./PROVIDER_GUIDE.md) | Full document |
 > | Skill creation guide | [Skill Guide](./SKILL_GUIDE.md) | Full document |
 > | Channel integration | [Channel Guide](./Channel%20Guide.md) | Full document |

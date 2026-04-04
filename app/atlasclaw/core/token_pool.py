@@ -33,6 +33,7 @@ class TokenHealth:
     reset_tokens_seconds: int = 0
     reset_requests_seconds: int = 0
     updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_error: str = ""
 
     @property
     def health_score(self) -> float:
@@ -85,6 +86,20 @@ class TokenPool:
                 remaining_requests=_to_int("x-ratelimit-remaining-requests", prev.remaining_requests),
                 reset_tokens_seconds=_to_int("x-ratelimit-reset-tokens", prev.reset_tokens_seconds),
                 reset_requests_seconds=_to_int("x-ratelimit-reset-requests", prev.reset_requests_seconds),
+                last_error=prev.last_error,
+            )
+
+    def mark_token_unhealthy(self, token_id: str, *, reason: str = "") -> None:
+        """Mark a token unhealthy after a hard provider-side failure."""
+        with self._lock:
+            if token_id not in self.tokens:
+                return
+            self.health_status[token_id] = TokenHealth(
+                remaining_tokens=0,
+                remaining_requests=0,
+                reset_tokens_seconds=0,
+                reset_requests_seconds=0,
+                last_error=reason.strip(),
             )
 
     def select_token(

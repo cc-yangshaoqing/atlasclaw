@@ -506,6 +506,7 @@ async def lifespan(app: FastAPI):
         agent_pool=agent_pool,
         token_interceptor=token_interceptor,
         agent_factory=_build_agent_for,
+        tool_gate_model_classifier_enabled=config.tool_gate.enable_model_classifier,
     )
 
     

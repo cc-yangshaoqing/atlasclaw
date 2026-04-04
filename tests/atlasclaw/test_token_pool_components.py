@@ -152,6 +152,18 @@ def test_dynamic_token_policy_fallback_when_primary_unhealthy() -> None:
     assert selected.token_id == "backup-token"
 
 
+def test_dynamic_token_policy_does_not_reselect_unhealthy_token_when_all_candidates_are_bad() -> None:
+    pool = TokenPool()
+    pool.register_token(_token("primary-token", model="gpt-4"))
+    pool.register_token(_token("backup-token", model="gpt-4"))
+    pool.mark_token_unhealthy("primary-token", reason="403")
+    pool.mark_token_unhealthy("backup-token", reason="401")
+
+    policy = DynamicTokenPolicy(pool, strategy="health", primary_token_id="primary-token")
+    selected = policy.mark_session_token_unhealthy("s1", reason="403")
+    assert selected is None
+
+
 @pytest.mark.asyncio
 async def test_agent_instance_pool_cache_and_concurrency_limit() -> None:
     pool = AgentInstancePool(max_concurrent_per_instance=4)
@@ -195,3 +207,19 @@ def test_token_interceptor_updates_pool_and_persists(tmp_path) -> None:
     assert health.remaining_tokens == 4321
     assert health.remaining_requests == 43
     assert store.file_path.exists()
+
+
+def test_token_interceptor_marks_hard_failure_unhealthy_and_persists(tmp_path) -> None:
+    token_pool = TokenPool()
+    token_pool.register_token(_token("t1"))
+    store = TokenHealthStore(str(tmp_path))
+    interceptor = TokenHealthInterceptor(token_pool, store)
+
+    interceptor.on_hard_failure("t1", "status_code: 403, AccountOverdueError")
+
+    health = token_pool.get_token_health("t1")
+    assert health is not None
+    assert not health.is_healthy
+    assert health.last_error == "status_code: 403, AccountOverdueError"
+    loaded = store.load()
+    assert loaded["t1"].last_error == "status_code: 403, AccountOverdueError"

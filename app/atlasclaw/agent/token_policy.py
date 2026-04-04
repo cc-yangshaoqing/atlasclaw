@@ -73,7 +73,39 @@ class DynamicTokenPolicy:
                 return current
         with self._lock:
             self._session_token_map.pop(session_key, None)
-        return self.select_for_session(session_key)
+        candidate = self.select_for_session(session_key)
+        if candidate is None:
+            return None
+        health = self.token_pool.get_token_health(candidate.token_id)
+        if health and health.is_healthy:
+            return candidate
+        with self._lock:
+            self._session_token_map.pop(session_key, None)
+        return None
+
+    def mark_session_token_unhealthy(
+        self,
+        session_key: str,
+        *,
+        reason: str = "",
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> Optional[TokenEntry]:
+        """Mark the current session token unhealthy and rotate to the next candidate."""
+        current = self.get_session_token(session_key)
+        if current is not None:
+            self.token_pool.mark_token_unhealthy(current.token_id, reason=reason)
+        with self._lock:
+            self._session_token_map.pop(session_key, None)
+        candidate = self.select_for_session(session_key, provider=provider, model=model)
+        if candidate is None:
+            return None
+        health = self.token_pool.get_token_health(candidate.token_id)
+        if health and health.is_healthy:
+            return candidate
+        with self._lock:
+            self._session_token_map.pop(session_key, None)
+        return None
 
     def release_session_token(self, session_key: str) -> None:
         with self._lock:

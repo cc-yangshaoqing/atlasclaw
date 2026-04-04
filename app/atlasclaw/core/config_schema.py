@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.atlasclaw.heartbeat.models import HeartbeatTargetType
+from app.atlasclaw.tools.web.provider_models import SearchProviderConfig
 
 # Auth config is imported lazily to avoid circular imports at module load time.
 # AuthConfig is referenced only in AtlasClawConfig.auth field annotation.
@@ -149,6 +151,44 @@ class HooksRuntimeConfig(BaseModel):
     """Hook runtime extension configuration."""
 
     script_handlers: list[HookScriptHandlerConfig] = Field(default_factory=list)
+
+
+class ToolGateConfig(BaseModel):
+    """Tool-necessity gate runtime configuration."""
+
+    enable_model_classifier: bool = Field(
+        default=True,
+        description=(
+            "Whether the runtime may perform a dedicated model-backed classification pass "
+            "before the primary answer run. Enabled by default to reduce long reasoning-only "
+            "loops for tool-required requests."
+        ),
+    )
+
+
+class SearchProxyConfig(BaseModel):
+    """Proxy settings for provider-driven web search."""
+
+    trust_env: bool = False
+    proxy_url: str = ""
+    http_proxy: str = ""
+    https_proxy: str = ""
+
+
+class SearchRuntimeConfig(BaseModel):
+    """Provider-driven search runtime configuration."""
+
+    default_provider: str = "bing_html_fallback"
+    cache_ttl_minutes: int = Field(default=15, ge=0)
+    max_query_attempts: int = Field(default=3, ge=1)
+    provider_timeout_seconds: float = Field(default=8.0, ge=0.5, le=60.0)
+    provider_hedge_delay_seconds: float = Field(default=1.2, ge=0.1, le=10.0)
+    overall_timeout_seconds: float = Field(default=10.0, ge=1.0, le=120.0)
+    prefer_grounding: bool = True
+    official_domains: list[str] = Field(default_factory=list)
+    trusted_domains: list[str] = Field(default_factory=list)
+    providers: list[SearchProviderConfig] = Field(default_factory=list)
+    proxy: SearchProxyConfig = Field(default_factory=SearchProxyConfig)
 
 
 class HeartbeatTargetConfig(BaseModel):
@@ -384,6 +424,8 @@ class AtlasClawConfig(BaseModel):
     reset: ResetConfig = Field(default_factory=ResetConfig)
     webhook: WebhookConfig = Field(default_factory=WebhookConfig)
     hooks_runtime: HooksRuntimeConfig = Field(default_factory=HooksRuntimeConfig)
+    tool_gate: ToolGateConfig = Field(default_factory=ToolGateConfig)
+    search_runtime: SearchRuntimeConfig = Field(default_factory=SearchRuntimeConfig)
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
 
     # Auth configuration — loaded from `auth` section of atlasclaw.json.

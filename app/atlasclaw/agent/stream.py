@@ -33,6 +33,7 @@ class StreamEventType(str, Enum):
     ERROR = "error"
     COMPACTION = "compaction"
     THINKING = "thinking"    # thinking/reasoning process
+    RUNTIME = "runtime"
 
 
 @dataclass
@@ -116,6 +117,20 @@ Streaming event
     def thinking_end(cls, elapsed: float = 0) -> "StreamEvent":
         """End thinking phase"""
         return cls(type="thinking", phase="end", metadata={"elapsed": elapsed})
+
+    @classmethod
+    def runtime_update(
+        cls,
+        state: str,
+        message: str = "",
+        *,
+        metadata: Optional[dict] = None,
+    ) -> "StreamEvent":
+        """Create a runtime-status event for frontend execution visibility."""
+        merged_metadata = {"state": state}
+        if metadata:
+            merged_metadata.update(metadata)
+        return cls(type="runtime", phase="update", content=message, metadata=merged_metadata)
 
     def to_dict(self) -> dict:
         """Convert to a dictionary"""

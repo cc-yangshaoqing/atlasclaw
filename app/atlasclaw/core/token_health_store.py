@@ -28,6 +28,7 @@ class TokenHealthStore:
                 "reset_tokens_seconds": health.reset_tokens_seconds,
                 "reset_requests_seconds": health.reset_requests_seconds,
                 "updated_at": health.updated_at.isoformat(),
+                "last_error": health.last_error,
             }
             for token_id, health in health_status.items()
         }
@@ -53,6 +54,7 @@ class TokenHealthStore:
                     updated_at=datetime.fromisoformat(value.get("updated_at"))
                     if value.get("updated_at")
                     else datetime.now(),
+                    last_error=str(value.get("last_error", "")),
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Skip invalid token health record for %s: %s", token_id, exc)

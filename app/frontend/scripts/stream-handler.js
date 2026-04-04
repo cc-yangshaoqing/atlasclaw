@@ -20,6 +20,7 @@ export const EventTypes = {
     ASSISTANT: 'assistant',
     TOOL: 'tool',
     THINKING: 'thinking',
+    RUNTIME: 'runtime',
     ERROR: 'error',
     HEARTBEAT: 'heartbeat'
 };
@@ -42,6 +43,7 @@ export function createStreamHandler(runId, callbacks = {}) {
         onThinkingStart = () => {},
         onThinkingDelta = () => {},
         onThinkingEnd = () => {},
+        onRuntime = () => {},
         onEnd = () => {},
         onError = () => {}
     } = callbacks;
@@ -119,6 +121,16 @@ export function createStreamHandler(runId, callbacks = {}) {
             } else if (data.phase === 'end') {
                 onThinkingEnd({ elapsed: data.elapsed || 0 });
             }
+        });
+
+        eventSource.addEventListener(EventTypes.RUNTIME, (e) => {
+            const data = parseEventData(e.data);
+            console.log('[Stream] Runtime event:', data);
+            onRuntime({
+                state: data.state,
+                message: data.message || '',
+                metadata: data
+            });
         });
     }
 

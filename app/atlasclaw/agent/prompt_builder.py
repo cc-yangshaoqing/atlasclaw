@@ -110,6 +110,7 @@ class PromptBuilder:
         tools: Optional[list[dict]] = None,
         md_skills: Optional[list[dict]] = None,
         target_md_skill: Optional[dict] = None,
+        tool_policy: Optional[dict] = None,
         user_info: Optional["UserInfo"] = None,
         provider_contexts: Optional[dict[str, dict]] = None,
     ) -> str:
@@ -137,6 +138,9 @@ class PromptBuilder:
         # 2. Tooling section
         if tools:
             parts.append(self._build_tooling(tools))
+        tool_policy_section = self._build_tool_policy(tool_policy)
+        if tool_policy_section:
+            parts.append(tool_policy_section)
         
         # 3. Safety section
         parts.append(self._build_safety())
@@ -208,6 +212,9 @@ class PromptBuilder:
     
     def _build_tooling(self, tools: list[dict]) -> str:
         return prompt_sections.build_tooling(tools)
+
+    def _build_tool_policy(self, tool_policy: Optional[dict]) -> str:
+        return prompt_sections.build_tool_policy(tool_policy)
     
     def _build_safety(self) -> str:
         return prompt_sections.build_safety()

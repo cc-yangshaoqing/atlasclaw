@@ -19,7 +19,7 @@ GROUP_PROVIDERS = "group:providers"
 GROUP_TOOLS: dict[str, list[str]] = {
     GROUP_FS: [],
     GROUP_RUNTIME: [],
-    GROUP_WEB: ["web_search", "web_fetch"],
+    GROUP_WEB: ["web_search", "web_fetch", "openmeteo_weather"],
     GROUP_MEMORY: ["memory_search", "memory_get"],
     GROUP_SESSIONS: [
         "sessions_list",

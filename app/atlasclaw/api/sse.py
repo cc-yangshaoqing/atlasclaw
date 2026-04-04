@@ -28,6 +28,7 @@ class SSEEventType(Enum):
     ERROR = "error"
     HEARTBEAT = "heartbeat"
     THINKING = "thinking"
+    RUNTIME = "runtime"
 
 
 @dataclass
@@ -507,6 +508,23 @@ tool
         return self.push_event(run_id, SSEEvent(
             event_type=SSEEventType.THINKING,
             data=data
+        ))
+
+    def push_runtime(
+        self,
+        run_id: str,
+        state: str,
+        message: str = "",
+        *,
+        metadata: Optional[dict[str, Any]] = None,
+    ) -> int:
+        """Push a runtime-status event for frontend execution visibility."""
+        data: dict[str, Any] = {"state": state, "message": message}
+        if metadata:
+            data.update(metadata)
+        return self.push_event(run_id, SSEEvent(
+            event_type=SSEEventType.RUNTIME,
+            data=data,
         ))
         
     def get_active_streams(self) -> list[str]:

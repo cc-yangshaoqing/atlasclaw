@@ -67,6 +67,7 @@ describe('stream-handler.js', () => {
             expect(EventTypes.TOOL).toBe('tool');
             expect(EventTypes.ERROR).toBe('error');
             expect(EventTypes.HEARTBEAT).toBe('heartbeat');
+            expect(EventTypes.RUNTIME).toBe('runtime');
         });
     });
 
@@ -154,6 +155,23 @@ describe('stream-handler.js', () => {
             es.simulateEvent('tool', { tool: 'search', phase: 'end', result: 'done' });
             
             expect(onToolEnd).toHaveBeenCalledWith({ tool_name: 'search', result: 'done' });
+        });
+
+        test('should call onRuntime callback on runtime event', async () => {
+            const { createStreamHandler } = await import('../../app/frontend/scripts/stream-handler.js');
+
+            const onRuntime = jest.fn();
+            const handler = createStreamHandler('run-123', { onRuntime });
+            handler.start();
+
+            const es = MockEventSource.instances[0];
+            es.simulateEvent('runtime', { state: 'retrying', message: 'Retrying now', attempt: 1 });
+
+            expect(onRuntime).toHaveBeenCalledWith({
+                state: 'retrying',
+                message: 'Retrying now',
+                metadata: { state: 'retrying', message: 'Retrying now', attempt: 1 }
+            });
         });
 
         test('should call onEnd callback and close on lifecycle end event', async () => {

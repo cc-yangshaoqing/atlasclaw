@@ -179,23 +179,28 @@ The gate should evaluate:
 
 ### 7.5 Classification Strategy
 
-The gate should use a hybrid strategy:
+Phase 1 should be **classifier-first**, not keyword-first.
 
-1. **Static signals**
-- Time-sensitive language
-- Dynamic listing/market language
-- Action-oriented workflow language
-- Private-system language
+The preferred path is:
 
-2. **Context-aware signals**
-- Known provider/system names
-- User-scoped resource references
-- Real-world decision risk implied by the question
+1. **Explicit gate classifier**
+- A lightweight internal classifier evaluates whether tool use is required.
+- The classifier may be model-assisted, rule-assisted, or provider-assisted, but it must return the common decision schema.
+- Model-backed classification is an **explicitly configured backend**, not a default behavior on every request.
+- The runtime must not silently reuse the primary answer model for an extra blocking pre-classification call unless that backend is intentionally enabled.
 
-3. **Lightweight model-assisted classification**
-- Internal control question only, for example:
-  - "Can this request be answered reliably without using tools or current external/private information?"
-- This is a signal, not final authority.
+2. **Runtime normalization**
+- The runtime validates the classifier output against the `ToolGateDecision` schema.
+- Invalid classifier output is discarded rather than partially trusted.
+
+3. **Neutral fallback**
+- If no classifier is configured, or classifier execution fails, the gate returns a neutral direct-answer default.
+- The runtime may still promote later enforcement based on explicit provider/browser workflows, but the gate itself does not rely on hard-coded keyword buckets.
+- This avoids coupling every normal chat turn to an extra hidden model round-trip.
+
+4. **No hard-coded business keyword tables in the core gate**
+- Phase 1 must not encode domain-specific keyword lists like weather/renting/recruiting/browser actions as the primary classification mechanism.
+- Those heuristics are brittle and not acceptable as the platform's long-term enterprise policy layer.
 
 ### 7.6 Example Decisions
 
@@ -301,13 +306,97 @@ If tool usage is required but no successful grounding was produced:
 
 ---
 
-## 10. Minimal Context Integration
+## 10. Reasoning-Only Response Policy
 
-### 10.1 Why This Exists in Phase 1
+### 10.1 Problem
+
+Some OpenAI-compatible reasoning models may emit one or more responses that contain only
+reasoning/thinking content and no acceptable final text or tool call. In the current runtime,
+that can lead to long silent delays, hidden retries, and poor user trust.
+
+AtlasClaw must treat this as a first-class runtime state instead of an incidental model quirk.
+
+### 10.2 Policy Goals
+
+- Accept reasoning content as an observable intermediate state, not as a valid answer.
+- Bound automatic retries instead of allowing indefinite reasoning-only loops.
+- Escalate to a controlled path when the model does not produce answerable output in time.
+- Expose all of these transitions to the frontend and runtime observers.
+
+### 10.3 Acceptance Rule
+
+- A reasoning-only response is **not accepted as a valid final result**.
+- It may be accepted as an intermediate runtime state for display and observability.
+- A response is classified as `reasoning_only` when it contains:
+  - reasoning/thinking content,
+  - no acceptable assistant text,
+  - no actionable tool call,
+  - no valid final output payload.
+
+### 10.4 Retry Policy
+
+Automatic retry is allowed, but it must be bounded and explicit.
+
+Rules:
+- Automatic retry is allowed only for:
+  - reasoning-only responses,
+  - empty responses,
+  - invalid final outputs that did not satisfy result expectations.
+- Maximum automatic retries for reasoning-only recovery:
+  - `2`
+- Every retry must emit a runtime event with:
+  - retry attempt number,
+  - retry reason,
+  - elapsed time so far.
+
+### 10.5 Escalation Timeline
+
+Phase 1 must enforce the following runtime timing thresholds:
+
+- `T1 = 4s`
+  - If no assistant text or tool call has appeared, mark the run as `reasoning_slow`.
+- `T2 = 8s`
+  - If the run is still reasoning-only, trigger one bounded retry with a stronger instruction:
+    - "Return a direct answer or call a tool. Do not return reasoning only."
+- `T3 = 12s`
+  - If the run is still reasoning-only after retry, enter a **controlled path**.
+- `T4 = 20s`
+  - If the controlled path still cannot produce a valid outcome, terminate with an explicit
+    failure result instead of waiting indefinitely.
+
+### 10.6 Controlled Path
+
+The controlled path is a formal runtime branch, not a temporary fallback.
+
+Rules:
+- If the request is `must_use_tool`, the runtime should enter a tool-first controlled path.
+- If the request is not tool-required, the runtime should force a direct-answer completion path
+  and reject further reasoning-only output.
+- Controlled-path entry must be observable through runtime events and frontend state updates.
+
+### 10.7 Implementation Requirement
+
+Phase 1 must add a response-quality state model that can distinguish at least:
+- `reasoning_only`
+- `has_text`
+- `has_tool_call`
+- `empty`
+- `invalid`
+
+This state model must be evaluated after each model-response handling cycle and drive:
+- retry decisions,
+- controlled-path entry,
+- user-visible state updates.
+
+---
+
+## 11. Minimal Context Integration
+
+### 11.1 Why This Exists in Phase 1
 
 Tool enforcement without context prioritization is incomplete. If the runtime obtains tool results but injects them as ordinary low-priority text beside stale history, the model may still underuse them.
 
-### 10.2 Minimal Integration Requirement
+### 11.2 Minimal Integration Requirement
 
 Phase 1 requires only a minimal context integration rule:
 - when enforcement requires tools, successful tool results must become privileged context for the current turn.
@@ -317,7 +406,7 @@ That means:
 - tool results should be easier for the model to prioritize than stale memory/history,
 - the runtime should distinguish grounded evidence from free-form assistant reasoning.
 
-### 10.3 What Phase 1 Does Not Do
+### 11.3 What Phase 1 Does Not Do
 
 Phase 1 does not yet define:
 - full context source registration,
@@ -329,16 +418,16 @@ Those belong to the separate Full Context Engine spec.
 
 ---
 
-## 11. Prompt and Runtime Integration
+## 12. Prompt and Runtime Integration
 
-### 11.1 Prompt Guidance
+### 12.1 Prompt Guidance
 
 Prompt updates should explicitly state:
 - some requests require tools or verification,
 - the model must not invent evidence,
 - if the runtime marks tool usage as mandatory, the model must follow that policy.
 
-### 11.2 Runtime Priority
+### 12.2 Runtime Priority
 
 Prompt guidance is necessary but not sufficient.
 
@@ -346,7 +435,64 @@ The runtime policy executes before unrestricted answer generation. The prompt sh
 
 ---
 
-## 12. Events and Observability
+## 13. Frontend Runtime Visibility
+
+### 13.1 Goals
+
+The frontend must expose runtime progress clearly enough that users can distinguish:
+- normal reasoning,
+- bounded retry,
+- waiting for tool execution,
+- controlled-path escalation,
+- final answer delivery.
+
+### 13.2 Required UI States
+
+Phase 1 must surface the following user-visible runtime states:
+- `reasoning`
+- `retrying`
+- `waiting_for_tool`
+- `tool_running`
+- `controlled_path`
+- `answered`
+- `failed`
+
+### 13.3 Thinking Display Rules
+
+- Thinking must be visible earlier than final answer text.
+- Thinking content must be retained after completion; it must not disappear when the final answer
+  arrives.
+- Users must be able to toggle thinking visibility on or off.
+- Recommended default:
+  - thinking enabled,
+  - reasoning content collapsed by default,
+  - runtime state badges always visible.
+
+### 13.4 Event Contract
+
+In addition to existing stream events, the runtime must support frontend-consumable events or
+payload phases for:
+- `reasoning.started`
+- `reasoning.delta`
+- `reasoning.completed`
+- `retrying`
+- `waiting_for_tool`
+- `tool.started`
+- `tool.completed`
+- `tool.failed`
+- `controlled_path_entered`
+
+### 13.5 Persistence Requirement
+
+The frontend must not overwrite away the completed reasoning block when assistant output begins.
+Instead, each user turn should preserve:
+- the user message,
+- the runtime status card/timeline,
+- the final assistant answer.
+
+---
+
+## 14. Events and Observability
 
 Suggested event taxonomy:
 - `tool_gate.evaluated`
@@ -358,6 +504,10 @@ Suggested event taxonomy:
 - `tool_enforcement.prefetch_started`
 - `tool_enforcement.prefetch_completed`
 - `tool_enforcement.prefetch_failed`
+- `reasoning.slow`
+- `retrying`
+- `waiting_for_tool`
+- `controlled_path.entered`
 
 Each event should carry:
 - `session_key`
@@ -374,31 +524,37 @@ These events should integrate with the existing Hook Runtime as observable runti
 
 ---
 
-## 13. Testing Strategy
+## 15. Testing Strategy
 
-### 13.1 Unit Tests
+### 15.1 Unit Tests
 - gate classification outputs,
 - matcher resolution,
 - missing-capability behavior,
 - enforcement behavior,
-- anti-fabrication validation.
+- anti-fabrication validation,
+- response-quality-state classification,
+- reasoning-only retry policy.
 
-### 13.2 Integration Tests
+### 15.2 Integration Tests
 - runner + gate + matcher path,
 - provider-targeted requests,
 - browser-required requests,
-- failed tool execution with constrained final response.
+- failed tool execution with constrained final response,
+- reasoning-only response followed by bounded retry,
+- controlled-path entry after repeated reasoning-only responses.
 
-### 13.3 E2E Scenarios
+### 15.3 E2E Scenarios
 - weather/forecast style query,
 - dynamic listing query such as rent/jobs,
 - provider-backed private query,
 - browser-action request,
-- stable knowledge query that should not be forced through tools.
+- stable knowledge query that should not be forced through tools,
+- frontend display of retained thinking block,
+- frontend display of `retrying` / `waiting_for_tool` / `controlled_path`.
 
 ---
 
-## 14. Phase Scope
+## 16. Phase Scope
 
 ### Phase 1
 
@@ -407,9 +563,12 @@ Implement:
 - Capability Matcher,
 - `must_use_tool` enforcement path,
 - anti-fabrication rule,
+- reasoning-only response policy,
+- bounded retry and controlled-path escalation,
 - minimal privileged tool-result context integration,
 - runtime events,
 - prompt updates,
+- frontend runtime state visibility,
 - unit and integration coverage.
 
 ### Later Work
@@ -419,7 +578,7 @@ A richer context system is required but is intentionally separated into a differ
 
 ---
 
-## 15. Recommended Direction
+## 17. Recommended Direction
 
 AtlasClaw should not solve this with more ad hoc query-specific prompt rules.
 
@@ -427,6 +586,8 @@ The correct Phase 1 direction is:
 - determine whether tools are required,
 - match the requirement to actual capabilities,
 - prevent unsupported direct answers,
+- prevent reasoning-only loops from silently stalling the user,
+- expose retry and controlled-path behavior to the frontend,
 - ensure grounded tool results receive minimal privileged context treatment.
 
 That gives AtlasClaw a runtime policy for reliability without prematurely expanding this change into a full context-system rewrite.

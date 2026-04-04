@@ -49,6 +49,7 @@ class ThinkingStreamEmitter:
         self.thinking_start_time: float | None = None
         self.thinking_chunk_count = 0
         self.assistant_emitted = False
+        self.current_cycle_had_thinking = False
 
     async def emit_from_model_response(
         self,
@@ -103,6 +104,7 @@ class ThinkingStreamEmitter:
             self.thinking_started = True
             self.thinking_start_time = time.time()
             self.thinking_chunk_count = 0
+        self.current_cycle_had_thinking = True
 
         thinking_content = getattr(part, "content", "")
         if not thinking_content:
@@ -142,3 +144,7 @@ class ThinkingStreamEmitter:
         wall_elapsed = time.time() - self.thinking_start_time if self.thinking_start_time else 0
         simulated_elapsed = self.thinking_chunk_count * self.chunk_delay_seconds
         return round(max(wall_elapsed, simulated_elapsed), 1)
+
+    def reset_cycle_flags(self) -> None:
+        """Reset per-model-cycle flags used by the runner."""
+        self.current_cycle_had_thinking = False

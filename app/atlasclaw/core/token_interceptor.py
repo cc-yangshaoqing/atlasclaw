@@ -20,3 +20,8 @@ class TokenHealthInterceptor:
             return
         self.token_pool.update_token_health(token_id, lowered)
         self.health_store.save(self.token_pool.export_health_status())
+
+    def on_hard_failure(self, token_id: str, error: str) -> None:
+        """Persist a provider-level hard failure so selection can fail over quickly."""
+        self.token_pool.mark_token_unhealthy(token_id, reason=error)
+        self.health_store.save(self.token_pool.export_health_status())

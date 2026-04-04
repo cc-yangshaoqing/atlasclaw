@@ -64,6 +64,40 @@ def build_tooling(tools: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def build_tool_policy(tool_policy: Optional[dict]) -> str:
+    """Build explicit tool-policy guidance for the current turn."""
+    if not isinstance(tool_policy, dict):
+        return ""
+
+    mode = str(tool_policy.get("mode", "") or "").strip()
+    reason = str(tool_policy.get("reason", "") or "").strip()
+    required_tools = tool_policy.get("required_tools", [])
+    if not mode:
+        return ""
+
+    lines = ["## Tool Policy", ""]
+    lines.append(f"Policy mode: {mode}")
+    if reason:
+        lines.append(f"Reason: {reason}")
+    if isinstance(required_tools, list) and required_tools:
+        lines.append(f"Preferred tools: {', '.join(str(item) for item in required_tools)}")
+    lines.extend(
+        [
+            "",
+            "You must not claim any search, verification, lookup, or provider query happened unless tool execution evidence exists in this run.",
+        ]
+    )
+    if mode == "must_use_tool":
+        lines.append("A grounded tool-backed result is required before you provide a final answer.")
+        lines.append("For this turn, execute at least one required tool before any substantive assistant response.")
+        lines.append("If required tool execution fails or returns no evidence, explicitly state verification failed and do not fabricate results.")
+    elif mode == "prefer_tool":
+        lines.append("Prefer the listed tools or scoped context before answering.")
+    else:
+        lines.append("You may answer directly when the request is stable and does not require verification.")
+    return "\n".join(lines)
+
+
 def build_safety() -> str:
     """Build the safety section."""
     return """## Safety

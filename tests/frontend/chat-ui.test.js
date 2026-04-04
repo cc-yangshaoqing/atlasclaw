@@ -179,13 +179,19 @@ describe('chat-ui.js handler mode', () => {
             expect.objectContaining({
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    session_key: 'session-123',
-                    message: 'hello',
-                    timeout_seconds: 600
-                })
             })
         );
+        const [, requestOptions] = global.fetch.mock.calls[0];
+        const parsedBody = JSON.parse(requestOptions.body);
+        expect(parsedBody).toMatchObject({
+            session_key: 'session-123',
+            message: 'hello',
+            timeout_seconds: 600,
+            context: expect.objectContaining({
+                ui_locale: expect.any(String),
+                timezone: expect.any(String),
+            }),
+        });
 
         // Wait for SSE to be created
         await new Promise(r => setTimeout(r, 100));
@@ -194,10 +200,8 @@ describe('chat-ui.js handler mode', () => {
         expect(MockEventSource.instances).toHaveLength(1);
         expect(MockEventSource.instances[0].url).toMatch(/\/api\/agent\/runs\/run-123\/stream$/);
 
-        // Verify loading dots were shown
-        expect(signals.onResponse).toHaveBeenCalledWith(
-            expect.objectContaining({ html: expect.stringContaining('thinking-loading') })
-        );
+        // Runtime panel should stay hidden until there is model thinking text or a terminal state.
+        expect(signals.onResponse).not.toHaveBeenCalled();
 
         // Simulate stream end to complete handler
         MockEventSource.instances[0].simulateEvent('lifecycle', { phase: 'end' });
@@ -252,6 +256,233 @@ describe('chat-ui.js handler mode', () => {
         await handlerPromise;
 
         expect(signals.onClose).toHaveBeenCalled();
+    });
+
+    test('handler renders assistant markdown safely', async () => {
+        const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+        const element = createChatElement();
+        const signals = createMockSignals();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ session_key: 'session-123' })
+        }).mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({})
+        });
+
+        await initChat(element);
+        global.fetch.mockClear();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ run_id: 'run-markdown' })
+        });
+
+        const handlerPromise = element.handler(
+            { messages: [{ text: 'markdown please', role: 'user' }] },
+            signals
+        );
+
+        await new Promise(r => setTimeout(r, 100));
+        const stream = MockEventSource.instances[0];
+        stream.simulateEvent('assistant', {
+            text: '## 标题\n- **加粗项**\n- [链接](https://example.com)',
+            is_delta: true
+        });
+        await new Promise(r => setTimeout(r, 160));
+
+        const htmlPayload = signals.onResponse.mock.calls.at(-1)?.[0]?.html || '';
+        expect(htmlPayload).toContain('<h2>标题</h2>');
+        expect(htmlPayload).toContain('<strong>加粗项</strong>');
+        expect(htmlPayload).toContain('<a href="https://example.com"');
+        expect(htmlPayload).not.toContain('**加粗项**');
+
+        stream.simulateEvent('lifecycle', { phase: 'end' });
+        await handlerPromise;
+    });
+
+    test('handler preserves thinking content and runtime states after final answer arrives', async () => {
+        const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+        const element = createChatElement();
+        const signals = createMockSignals();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ session_key: 'session-123' })
+        }).mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({})
+        });
+
+        await initChat(element);
+        global.fetch.mockClear();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ run_id: 'run-thinking' })
+        });
+
+        const handlerPromise = element.handler(
+            { messages: [{ text: 'test message', role: 'user' }] },
+            signals
+        );
+
+        await new Promise(r => setTimeout(r, 100));
+
+        const stream = MockEventSource.instances[0];
+        stream.simulateEvent('thinking', { phase: 'start' });
+        stream.simulateEvent('thinking', { phase: 'delta', content: 'I am checking options.' });
+        stream.simulateEvent('runtime', { state: 'retrying', message: 'Retrying with stricter policy.' });
+        stream.simulateEvent('assistant', { text: 'Use high-speed rail.', is_delta: true });
+
+        await new Promise(r => setTimeout(r, 180));
+
+        const htmlPayload = signals.onResponse.mock.calls.at(-1)?.[0]?.html || '';
+        expect(htmlPayload).toContain('Runtime');
+        expect(htmlPayload).toContain('I am checking options.');
+        expect(htmlPayload).toContain('Retrying');
+        expect(htmlPayload).toContain('Use high-speed rail.');
+        expect(htmlPayload).toContain('<details');
+        expect((htmlPayload.match(/runtime-chip reasoning/g) || []).length).toBe(1);
+        expect(htmlPayload).toContain('<span class="runtime-title">Runtime</span><span class="runtime-state-icon done">✓</span>');
+        expect(htmlPayload).toContain('class="runtime-state-icon done"');
+        expect(htmlPayload).not.toContain('details class="runtime-panel" open');
+        expect(htmlPayload).toMatch(/runtime-log-time">([0-9]+ms|[0-9.]+s)</);
+
+        stream.simulateEvent('lifecycle', { phase: 'end' });
+        await handlerPromise;
+    });
+
+    test('handler keeps title in thinking state until answered event arrives', async () => {
+        const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+        const element = createChatElement();
+        const signals = createMockSignals();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ session_key: 'session-123' })
+        }).mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({})
+        });
+
+        await initChat(element);
+        global.fetch.mockClear();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ run_id: 'run-waiting-answer' })
+        });
+
+        const handlerPromise = element.handler(
+            { messages: [{ text: 'keep waiting', role: 'user' }] },
+            signals
+        );
+
+        await new Promise(r => setTimeout(r, 100));
+
+        const stream = MockEventSource.instances[0];
+        stream.simulateEvent('thinking', { phase: 'start' });
+        stream.simulateEvent('thinking', { phase: 'delta', content: 'Still reasoning.' });
+        stream.simulateEvent('thinking', { phase: 'end', elapsed: 1.2 });
+
+        await new Promise(r => setTimeout(r, 120));
+
+        const htmlPayload = signals.onResponse.mock.calls.at(-1)?.[0]?.html || '';
+        expect(htmlPayload).toContain('<span class="runtime-title">Runtime</span><span class="thinking-dots thinking-title-dots">');
+        expect(htmlPayload).not.toContain('class="runtime-state-icon done"');
+
+        stream.simulateEvent('lifecycle', { phase: 'end' });
+        await handlerPromise;
+    });
+
+    test('handler does not reload session history immediately after stream end', async () => {
+        const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+        const element = createChatElement();
+        const signals = createMockSignals();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ session_key: 'session-123' })
+        }).mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({})
+        });
+
+        await initChat(element);
+        global.fetch.mockClear();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ run_id: 'run-no-history-reload' })
+        });
+
+        const handlerPromise = element.handler(
+            { messages: [{ text: 'keep thinking visible', role: 'user' }] },
+            signals
+        );
+
+        await new Promise(r => setTimeout(r, 100));
+
+        const stream = MockEventSource.instances[0];
+        stream.simulateEvent('thinking', { phase: 'start' });
+        stream.simulateEvent('thinking', { phase: 'delta', content: 'Checking grounded sources.' });
+        stream.simulateEvent('assistant', { text: 'Here is the grounded answer.', is_delta: true });
+
+        await new Promise(r => setTimeout(r, 160));
+
+        stream.simulateEvent('lifecycle', { phase: 'end' });
+        await handlerPromise;
+
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+        expect(global.fetch).toHaveBeenCalledWith(
+            expect.stringMatching(/\/api\/agent\/run$/),
+            expect.any(Object)
+        );
+    });
+
+    test('handler surfaces tool_running runtime state when tool execution starts', async () => {
+        const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+        const element = createChatElement();
+        const signals = createMockSignals();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ session_key: 'session-123' })
+        }).mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({})
+        });
+
+        await initChat(element);
+        global.fetch.mockClear();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ run_id: 'run-tool' })
+        });
+
+        const handlerPromise = element.handler(
+            { messages: [{ text: 'search something', role: 'user' }] },
+            signals
+        );
+
+        await new Promise(r => setTimeout(r, 100));
+
+        const stream = MockEventSource.instances[0];
+        stream.simulateEvent('thinking', { phase: 'start' });
+        stream.simulateEvent('thinking', { phase: 'delta', content: 'Planning tool calls.' });
+        stream.simulateEvent('tool', { tool: 'web_search', phase: 'start' });
+
+        await new Promise(r => setTimeout(r, 120));
+
+        const htmlPayload = signals.onResponse.mock.calls.at(-1)?.[0]?.html || '';
+        expect(htmlPayload).toContain('Running tool');
+        expect(htmlPayload).toContain('web_search');
+
+        stream.simulateEvent('lifecycle', { phase: 'end' });
+        await handlerPromise;
     });
 
     test('handler handles API error gracefully', async () => {
@@ -392,5 +623,94 @@ describe('chat-ui.js handler mode', () => {
 
         MockEventSource.instances[0].simulateEvent('lifecycle', { phase: 'end' });
         await handlerPromise;
+    });
+
+    test('handler records per-step elapsed time from run start', async () => {
+        const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+        const element = createChatElement();
+        const signals = createMockSignals();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ session_key: 'session-123' })
+        }).mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({})
+        });
+
+        await initChat(element);
+        global.fetch.mockClear();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ run_id: 'run-timing' })
+        });
+
+        const handlerPromise = element.handler(
+            { messages: [{ text: 'timed thinking', role: 'user' }] },
+            signals
+        );
+
+        await new Promise(r => setTimeout(r, 120));
+
+        const stream = MockEventSource.instances[0];
+        await new Promise(r => setTimeout(r, 260));
+        stream.simulateEvent('thinking', { phase: 'start' });
+        stream.simulateEvent('thinking', { phase: 'delta', content: 'Tracing elapsed runtime steps.' });
+        await new Promise(r => setTimeout(r, 360));
+        stream.simulateEvent('runtime', { state: 'waiting_for_tool', message: 'Waiting for tool selection.' });
+        await new Promise(r => setTimeout(r, 520));
+        stream.simulateEvent('assistant', { text: 'Done.', is_delta: true });
+
+        await new Promise(r => setTimeout(r, 180));
+
+        const htmlPayload = signals.onResponse.mock.calls.at(-1)?.[0]?.html || '';
+        const matches = [...htmlPayload.matchAll(/runtime-log-time">([^<]+)</g)];
+        const times = matches.map((match) => match[1]);
+        expect(times.length).toBeGreaterThan(1);
+        expect(times.some((value) => /[2-9]\d\dms|[1-9]\.\ds/.test(value))).toBe(true);
+
+        stream.simulateEvent('lifecycle', { phase: 'end' });
+        await handlerPromise;
+    });
+
+    test('handler does not synthesize answered state when stream ends without assistant content', async () => {
+        const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+        const element = createChatElement();
+        const signals = createMockSignals();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ session_key: 'session-123' })
+        }).mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({})
+        });
+
+        await initChat(element);
+        global.fetch.mockClear();
+
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({ run_id: 'run-no-answer' })
+        });
+
+        const handlerPromise = element.handler(
+            { messages: [{ text: '明天上海天气', role: 'user' }] },
+            signals
+        );
+
+        await new Promise(r => setTimeout(r, 100));
+
+        const stream = MockEventSource.instances[0];
+        stream.simulateEvent('runtime', { state: 'controlled_path', message: 'Entering controlled path.' });
+        await new Promise(r => setTimeout(r, 80));
+        stream.simulateEvent('lifecycle', { phase: 'end' });
+        await handlerPromise;
+
+        const htmlPayload = signals.onResponse.mock.calls.at(-1)?.[0]?.html || '';
+        expect(htmlPayload).not.toContain('Answered');
+        expect(htmlPayload).toContain('Failed');
+        expect(htmlPayload).toContain('Run ended without a usable answer.');
     });
 });

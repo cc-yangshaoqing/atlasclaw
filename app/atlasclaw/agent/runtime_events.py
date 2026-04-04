@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.atlasclaw.agent.tool_gate_models import CapabilityMatchResult, ToolEnforcementOutcome, ToolGateDecision
 from app.atlasclaw.agent.stream import StreamEvent
 from app.atlasclaw.hooks.runtime import HookRuntime
 from app.atlasclaw.hooks.runtime_models import HookEventType
@@ -177,6 +178,145 @@ class RuntimeEventDispatcher:
                 "error": error,
                 "session_title": session_title,
             },
+        )
+
+    async def trigger_tool_gate_evaluated(
+        self,
+        *,
+        session_key: str,
+        run_id: str,
+        decision: ToolGateDecision,
+    ) -> None:
+        payload = {
+            "needs_tool": decision.needs_tool,
+            "needs_live_data": decision.needs_live_data,
+            "needs_private_context": decision.needs_private_context,
+            "needs_external_system": decision.needs_external_system,
+            "needs_browser_interaction": decision.needs_browser_interaction,
+            "needs_grounded_verification": decision.needs_grounded_verification,
+            "suggested_tool_classes": list(decision.suggested_tool_classes),
+            "confidence": decision.confidence,
+            "reason": decision.reason,
+            "policy": decision.policy.value,
+        }
+        await self._emit_runtime_event(
+            HookEventType.TOOL_GATE_EVALUATED,
+            session_key=session_key,
+            run_id=run_id,
+            payload=payload,
+        )
+        await self._emit_runtime_event(
+            HookEventType.TOOL_GATE_REQUIRED if decision.needs_tool else HookEventType.TOOL_GATE_OPTIONAL,
+            session_key=session_key,
+            run_id=run_id,
+            payload=payload,
+        )
+
+    async def trigger_tool_matcher_resolved(
+        self,
+        *,
+        session_key: str,
+        run_id: str,
+        decision: ToolGateDecision,
+        match_result: CapabilityMatchResult,
+    ) -> None:
+        payload = {
+            "policy": decision.policy.value,
+            "suggested_tool_classes": list(decision.suggested_tool_classes),
+            "resolved_policy": match_result.resolved_policy.value,
+            "resolved_tools": [candidate.model_dump() for candidate in match_result.tool_candidates],
+            "missing_capabilities": list(match_result.missing_capabilities),
+            "reason": match_result.reason,
+            "confidence": decision.confidence,
+        }
+        await self._emit_runtime_event(
+            HookEventType.TOOL_MATCHER_RESOLVED,
+            session_key=session_key,
+            run_id=run_id,
+            payload=payload,
+        )
+        if match_result.missing_capabilities:
+            await self._emit_runtime_event(
+                HookEventType.TOOL_MATCHER_MISSING_CAPABILITY,
+                session_key=session_key,
+                run_id=run_id,
+                payload=payload,
+            )
+
+    async def trigger_tool_enforcement_blocked(
+        self,
+        *,
+        session_key: str,
+        run_id: str,
+        decision: ToolGateDecision,
+        match_result: CapabilityMatchResult,
+        outcome: ToolEnforcementOutcome,
+    ) -> None:
+        await self._emit_runtime_event(
+            HookEventType.TOOL_ENFORCEMENT_BLOCKED_FINAL_ANSWER,
+            session_key=session_key,
+            run_id=run_id,
+            payload={
+                "policy": decision.policy.value,
+                "reason": decision.reason,
+                "resolved_tools": [candidate.model_dump() for candidate in match_result.tool_candidates],
+                "missing_capabilities": list(match_result.missing_capabilities),
+                "failure_message": outcome.failure_message or "",
+                "blocked_final_answer": outcome.blocked_final_answer,
+            },
+        )
+
+    async def trigger_tool_enforcement_prefetch_started(
+        self,
+        *,
+        session_key: str,
+        run_id: str,
+        tool_name: str,
+        query: str,
+    ) -> None:
+        await self._emit_runtime_event(
+            HookEventType.TOOL_ENFORCEMENT_PREFETCH_STARTED,
+            session_key=session_key,
+            run_id=run_id,
+            payload={"tool_name": tool_name, "query": query},
+        )
+
+    async def trigger_tool_enforcement_prefetch_completed(
+        self,
+        *,
+        session_key: str,
+        run_id: str,
+        tool_name: str,
+        query: str,
+        result_count: int,
+        provider: str,
+    ) -> None:
+        await self._emit_runtime_event(
+            HookEventType.TOOL_ENFORCEMENT_PREFETCH_COMPLETED,
+            session_key=session_key,
+            run_id=run_id,
+            payload={
+                "tool_name": tool_name,
+                "query": query,
+                "result_count": result_count,
+                "provider": provider,
+            },
+        )
+
+    async def trigger_tool_enforcement_prefetch_failed(
+        self,
+        *,
+        session_key: str,
+        run_id: str,
+        tool_name: str,
+        query: str,
+        error: str,
+    ) -> None:
+        await self._emit_runtime_event(
+            HookEventType.TOOL_ENFORCEMENT_PREFETCH_FAILED,
+            session_key=session_key,
+            run_id=run_id,
+            payload={"tool_name": tool_name, "query": query, "error": error},
         )
 
     def collect_tool_calls(self, node: Any) -> list[Any]:

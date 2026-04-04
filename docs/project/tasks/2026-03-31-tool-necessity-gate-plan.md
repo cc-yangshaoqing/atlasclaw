@@ -71,6 +71,9 @@ Success criteria:
 - [x] Decision schema defined.
 - [x] General capability dimensions documented.
 - [x] Examples documented beyond weather/time-sensitive questions.
+- [x] Classifier-first strategy documented.
+- [x] Opt-in model-backed classifier strategy documented.
+- [x] Keyword-table approach explicitly rejected for core runtime policy.
 
 Decision dimensions:
 - `needs_tool`
@@ -114,7 +117,22 @@ Chosen rules:
 - The runtime may retry with a stronger instruction, route through a controlled tool-first path, or stop with an explicit explanation that verification failed.
 - The model must not claim a search or lookup happened unless tool execution evidence exists.
 
-### 6. Minimal Context Integration Design
+### 6. Reasoning-Only Response Policy Design
+Goal: define how the runtime handles reasoning-only responses, bounded retries, and controlled-path escalation.
+
+Success criteria:
+- [x] Reasoning-only acceptance rule documented.
+- [x] Retry thresholds documented.
+- [x] Controlled-path entry rules documented.
+- [x] Frontend-visible runtime states documented.
+
+Chosen rules:
+- Reasoning-only content is allowed as an intermediate state, never as a valid final answer.
+- Automatic retry is bounded and evented rather than silent and open-ended.
+- The runtime must escalate into a controlled path after defined thresholds instead of looping indefinitely.
+- Frontend-visible states must include `reasoning`, `retrying`, `waiting_for_tool`, and `controlled_path`.
+
+### 7. Minimal Context Integration Design
 Goal: define the minimum context behavior required for Phase 1 enforcement to work reliably.
 
 Success criteria:
@@ -128,7 +146,7 @@ Chosen rules:
 - Tool results become privileged context when enforcement requires grounding.
 - Full source selection/ranking/budgeting/provenance remain deferred to the Full Context Engine spec.
 
-### 7. Full Context Engine Design
+### 8. Full Context Engine Design
 Goal: define the separate Phase 2 context orchestration system.
 
 Success criteria:
@@ -146,15 +164,16 @@ Full Context Engine responsibilities:
 - provenance and evidence tracking,
 - policy-based context assembly.
 
-### 8. Observability and Events
+### 9. Observability and Events
 Goal: make policy and later context decisions observable and reviewable.
 
 Success criteria:
 - [x] Phase 1 event taxonomy defined.
 - [x] Phase 2 observability direction documented.
 - [x] Hook Runtime relationship documented.
+- [x] Frontend runtime visibility expectations documented.
 
-### 9. Testing Strategy
+### 10. Testing Strategy
 Goal: ensure the design is concrete enough for later implementation.
 
 Success criteria:
@@ -165,15 +184,19 @@ Success criteria:
 
 ## Verification
 - command: review the current runner, prompt, tools, docs, and existing context assembly; then self-review the docs for placeholders, contradictions, staging errors, and scope drift
-- expected: two staged specs where Phase 1 covers runtime policy and Phase 2 covers the full Context Engine
-- actual: spec written at `docs/superpowers/specs/2026-03-31-tool-necessity-gate-design.md`; companion spec written at `docs/superpowers/specs/2026-03-31-full-context-engine-design.md`; state/task/spec reviewed for matching staged scope, terminology, and next step
+- expected: two staged specs where Phase 1 covers runtime policy, bounded reasoning handling, frontend runtime visibility, and Phase 2 covers the full Context Engine
+- actual: spec written at `docs/superpowers/specs/2026-03-31-tool-necessity-gate-design.md`; companion spec written at `docs/superpowers/specs/2026-03-31-full-context-engine-design.md`; state/task/spec reviewed for matching staged scope, terminology, runtime-response policy, and next step
 
 ## Implementation Status
-- [ ] Implementation has not started.
-- [ ] Wait for user review and approval of both written specs.
-- [ ] After approval, write the implementation plan before touching code.
+- [x] Initial Phase 1 implementation was completed and verified.
+- [x] Keyword-table classification was removed from the core gate in favor of explicit classifier-driven decisions plus neutral fallback.
+- [x] Default runtime no longer performs a hidden model-backed gate classification on every request; model-backed classification is explicitly enabled.
+- [x] Reasoning-only response policy extension implemented.
+- [x] Frontend runtime-state visibility (`reasoning`, `retrying`, `waiting_for_tool`, `tool_running`, `controlled_path`) implemented.
+- [x] Controlled-path escalation timing and bounded retry runtime implemented.
+- [x] Post-extension code/task/spec alignment review completed.
+- [x] Final standalone code review for the extension completed.
 
 ## Handoff Notes
-- This workstream is currently at the completed design stage, not implementation.
-- The next protocol step is explicit user review of the written specs.
-- No code changes should be made until the implementation plan is written and approved.
+- Expanded Phase 1 implementation now matches the updated spec, including bounded reasoning-only handling, controlled-path escalation, and retained frontend runtime visibility.
+- Full Context Engine remains the next major runtime track after this completed Phase 1 delivery.

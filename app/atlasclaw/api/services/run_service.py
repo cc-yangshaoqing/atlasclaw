@@ -126,6 +126,13 @@ async def execute_agent_run(
                     event.content,
                     metadata=event.metadata if event.metadata else None,
                 )
+            elif event.type == "runtime":
+                ctx.sse_manager.push_runtime(
+                    run_id,
+                    str((event.metadata or {}).get("state", "")),
+                    event.content,
+                    metadata=event.metadata if event.metadata else None,
+                )
 
         if run_id in ctx.active_runs:
             ctx.active_runs[run_id]["status"] = "completed"

@@ -4,8 +4,8 @@
 > All future development and feature changes MUST consult this document.
 >
 > Related documents:
-> - [Architecture](./ARCHITECTURE.MD) — system design, bootstrap, request lifecycle
-> - [Development Specification](./DEVELOPMENT-SPEC.MD) — code standards, patterns, review checklist
+> - [Architecture](./ARCHITECTURE.MD) 鈥?system design, bootstrap, request lifecycle
+> - [Development Specification](./DEVELOPMENT-SPEC.MD) 鈥?code standards, patterns, review checklist
 
 ---
 
@@ -39,7 +39,7 @@ Provides configuration management, request-scoped dependency injection, workspac
 
 Singleton configuration manager with a 6-level priority chain.
 
-**Priority Chain** (highest → lowest):
+**Priority Chain** (highest 鈫?lowest):
 1. Runtime overrides via `config_manager.set()`
 2. Environment variables (`ATLASCLAW_<SECTION>__<KEY>`)
 3. User config (`~/.atlasclaw/config.json`)
@@ -58,13 +58,13 @@ Singleton configuration manager with a 6-level priority chain.
 | `load_user_config` | `(user_id: str) -> dict` | Load per-user configuration from `<workspace>/users/<user_id>/atlasclaw.json` |
 
 **Properties**:
-- `config: AtlasClawConfig` — Lazily loaded configuration object
-- `resolved_config_path: Optional[Path]` — Absolute path of the loaded config file
+- `config: AtlasClawConfig` 鈥?Lazily loaded configuration object
+- `resolved_config_path: Optional[Path]` 鈥?Absolute path of the loaded config file
 
 **Module-Level Functions**:
-- `get_config_manager() -> ConfigManager` — Get singleton instance
-- `get_config() -> AtlasClawConfig` — Shorthand for `get_config_manager().config`
-- `get_config_path() -> Optional[Path]` — Get resolved config file path
+- `get_config_manager() -> ConfigManager` 鈥?Get singleton instance
+- `get_config() -> AtlasClawConfig` 鈥?Shorthand for `get_config_manager().config`
+- `get_config_path() -> Optional[Path]` 鈥?Get resolved config file path
 
 ### 1.2 SkillDeps (`core/deps.py`)
 
@@ -93,7 +93,7 @@ Request-scoped dependency container passed through `RunContext[SkillDeps]` to al
 | `reset_abort` | `() -> None` | Clear the abort signal |
 
 **Property**:
-- `user_token: str` — Alias for `user_info.raw_token` (backward compatibility)
+- `user_token: str` 鈥?Alias for `user_info.raw_token` (backward compatibility)
 
 **Constructor** accepts `user_token: Optional[str]` keyword argument for backward compatibility. If both `user_info` and `user_token` are provided, the token is merged into a new `UserInfo` instance.
 
@@ -117,7 +117,7 @@ Pydantic models defining all configuration sections.
 
 | Model | Key Fields (with defaults) |
 |---|---|
-| `AtlasClawConfig` | `log_level=INFO`, `workspace`, `agents_dir`, `providers_root`, `agent_defaults`, `messages`, `compaction`, `block_chunker`, `model`, `retry`, `memory`, `sandbox`, `security`, `skills`, `reset`, `webhook`, `auth`, `service_providers` |
+| `AtlasClawConfig` | `log_level=INFO`, `workspace`, `agents_dir`, `providers_root`, `agent_defaults`, `messages`, `compaction`, `block_chunker`, `model`, `retry`, `memory`, `sandbox`, `security`, `skills`, `reset`, `webhook`, `tool_gate`, `auth`, `service_providers` |
 | `QueueConfig` | `mode=COLLECT`, `debounce_ms=1000`, `cap=20`, `drop=OLD` |
 | `ResetConfig` | `mode=DAILY`, `daily_hour=4`, `idle_minutes=60` |
 | `CompactionConfig` | `reserve_tokens_floor=20000`, `soft_threshold_tokens=4000`, `context_window=128000`, `memory_flush_enabled=True` |
@@ -140,20 +140,20 @@ Pydantic models defining all configuration sections.
 
 Multi-token management for LLM API endpoints with health-aware selection.
 
-**Dataclass: `TokenEntry`** — Single token endpoint configuration.
+**Dataclass: `TokenEntry`** 鈥?Single token endpoint configuration.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `token_id` | `str` | — | Unique token identifier |
-| `provider` | `str` | — | Provider name (e.g., `deepseek`, `openai`) |
-| `model` | `str` | — | Model name (e.g., `deepseek-chat`) |
-| `base_url` | `str` | — | API base URL |
-| `api_key` | `str` | — | API key (interpolated from env) |
+| `token_id` | `str` | 鈥?| Unique token identifier |
+| `provider` | `str` | 鈥?| Provider name (e.g., `deepseek`, `openai`) |
+| `model` | `str` | 鈥?| Model name (e.g., `deepseek-chat`) |
+| `base_url` | `str` | 鈥?| API base URL |
+| `api_key` | `str` | 鈥?| API key (interpolated from env) |
 | `api_type` | `str` | `"openai"` | API type (`openai` or `anthropic`) |
 | `priority` | `int` | `0` | Selection priority (higher = preferred) |
 | `weight` | `int` | `100` | Selection weight for weighted strategies |
 
-**Dataclass: `TokenHealth`** — Health snapshot for rate-limit tracking.
+**Dataclass: `TokenHealth`** 鈥?Health snapshot for rate-limit tracking.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -164,10 +164,10 @@ Multi-token management for LLM API endpoints with health-aware selection.
 | `updated_at` | `datetime` | now (UTC) | Last update timestamp |
 
 **Properties**:
-- `health_score: float` — Computed score (0-100) based on remaining tokens/requests
-- `is_healthy: bool` — True if `remaining_requests > 0` and `remaining_tokens > 100`
+- `health_score: float` 鈥?Computed score (0-100) based on remaining tokens/requests
+- `is_healthy: bool` 鈥?True if `remaining_requests > 0` and `remaining_tokens > 100`
 
-**Class: `TokenPool`** — Thread-safe token pool with health-aware selection.
+**Class: `TokenPool`** 鈥?Thread-safe token pool with health-aware selection.
 
 | Method | Signature | Description |
 |---|---|---|
@@ -179,10 +179,10 @@ Multi-token management for LLM API endpoints with health-aware selection.
 | `export_health_status` | `() -> dict[str, TokenHealth]` | Export all health states |
 
 **Selection Strategies**:
-- `health` — Select by health score (highest first), then priority/weight
-- `priority` — Select by priority (highest first), then weight
-- `random` — Weighted random selection
-- `round_robin` — Rotate through available tokens
+- `health` 鈥?Select by health score (highest first), then priority/weight
+- `priority` 鈥?Select by priority (highest first), then weight
+- `random` 鈥?Weighted random selection
+- `round_robin` 鈥?Rotate through available tokens
 
 ### 1.5 Token Health Store (`core/token_health_store.py`)
 
@@ -272,13 +272,13 @@ Creates the global workspace directory structure on first run:
 
 ```
 <workspace>/
-├── agents/
-│   └── main/
-│       ├── SOUL.md
-│       ├── IDENTITY.md
-│       ├── USER.md
-│       └── MEMORY.md
-└── users/
+鈹溾攢鈹€ agents/
+鈹?  鈹斺攢鈹€ main/
+鈹?      鈹溾攢鈹€ SOUL.md
+鈹?      鈹溾攢鈹€ IDENTITY.md
+鈹?      鈹溾攢鈹€ USER.md
+鈹?      鈹斺攢鈹€ MEMORY.md
+鈹斺攢鈹€ users/
 ```
 
 Default `agents/main/` files are copied from the repo template directory at
@@ -296,9 +296,9 @@ Creates per-user directory structure:
 
 ```
 users/<user_id>/
-├── user_setting.json      # User-specific config (channels, preferences)
-├── sessions/
-└── memory/
+鈹溾攢鈹€ user_setting.json      # User-specific config (channels, preferences)
+鈹溾攢鈹€ sessions/
+鈹斺攢鈹€ memory/
 ```
 
 | Method | Signature | Description |
@@ -379,11 +379,11 @@ Instance wrapper logic: when a skill is invoked, if the provider has a single in
 | `delete(session, id)` | Soft delete (or hard delete) |
 
 **API Endpoints** (`/api/provider-configs`):
-- `POST /provider-configs` — Create (returns 201)
-- `GET /provider-configs` — List with pagination/filtering
-- `GET /provider-configs/{id}` — Get by ID
-- `PUT /provider-configs/{id}` — Update
-- `DELETE /provider-configs/{id}` — Delete (returns 204)
+- `POST /provider-configs` 鈥?Create (returns 201)
+- `GET /provider-configs` 鈥?List with pagination/filtering
+- `GET /provider-configs/{id}` 鈥?Get by ID
+- `PUT /provider-configs/{id}` 鈥?Update
+- `DELETE /provider-configs/{id}` 鈥?Delete (returns 204)
 
 ### 1.6 Tenant Management (`core/tenant.py`)
 
@@ -391,8 +391,8 @@ Instance wrapper logic: when a skill is invoked, if the provider has a single in
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `id` | `str` | — | Tenant identifier |
-| `name` | `str` | — | Display name |
+| `id` | `str` | 鈥?| Tenant identifier |
+| `name` | `str` | 鈥?| Display name |
 | `enabled` | `bool` | `True` | Whether tenant is active |
 | `max_sessions` | `int` | `100` | Max sessions quota |
 | `max_agents` | `int` | `10` | Max agents quota |
@@ -404,7 +404,7 @@ Instance wrapper logic: when a skill is invoked, if the provider has a single in
 | `storage_prefix` | `str` | `""` | Storage path prefix |
 | `metadata` | `dict[str, Any]` | `{}` | Additional metadata |
 
-**Dataclass: `TenantUsage`** — Tracks `session_count`, `agent_count`, `memory_entry_count`, `active_runs`, `total_tokens_used`, `total_runs`.
+**Dataclass: `TenantUsage`** 鈥?Tracks `session_count`, `agent_count`, `memory_entry_count`, `active_runs`, `total_tokens_used`, `total_runs`.
 
 **Class: `TenantManager`**
 
@@ -434,17 +434,17 @@ Instance wrapper logic: when a skill is invoked, if the provider has a single in
 
 **Path**: `app/atlasclaw/auth/`
 
-Implements the authentication pipeline: credential extraction → provider authentication → shadow user resolution → UserInfo injection.
+Implements the authentication pipeline: credential extraction 鈫?provider authentication 鈫?shadow user resolution 鈫?UserInfo injection.
 
 ### 2.1 Data Models (`auth/models.py`)
 
-**Exception: `AuthenticationError`** — Raised when authentication fails.
+**Exception: `AuthenticationError`** 鈥?Raised when authentication fails.
 
-**Dataclass: `UserInfo`** — Authenticated user identity injected into SkillDeps.
+**Dataclass: `UserInfo`** 鈥?Authenticated user identity injected into SkillDeps.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `user_id` | `str` | — | Internal shadow user UUID or `"anonymous"` / `"default"` |
+| `user_id` | `str` | 鈥?| Internal shadow user UUID or `"anonymous"` / `"default"` |
 | `display_name` | `str` | `""` | Human-readable name |
 | `tenant_id` | `str` | `"default"` | Tenant/org identifier |
 | `roles` | `list[str]` | `[]` | Role strings |
@@ -458,11 +458,11 @@ Properties: `is_anonymous: bool`, `is_default: bool`
 
 **Sentinel**: `ANONYMOUS_USER = UserInfo(user_id="anonymous", display_name="Anonymous")`
 
-**Dataclass: `AuthResult`** — Returned by `AuthProvider.authenticate()`, not persisted.
+**Dataclass: `AuthResult`** 鈥?Returned by `AuthProvider.authenticate()`, not persisted.
 
 | Field | Type | Default |
 |---|---|---|
-| `subject` | `str` | — |
+| `subject` | `str` | 鈥?|
 | `display_name` | `str` | `""` |
 | `email` | `str` | `""` |
 | `roles` | `list[str]` | `[]` |
@@ -470,7 +470,7 @@ Properties: `is_anonymous: bool`, `is_default: bool`
 | `raw_token` | `str` | `""` |
 | `extra` | `dict[str, Any]` | `{}` |
 
-**Dataclass: `ShadowUser`** — Internal user record persisted in `~/.atlasclaw/users.json`.
+**Dataclass: `ShadowUser`** 鈥?Internal user record persisted in `~/.atlasclaw/users.json`.
 
 | Field | Type | Description |
 |---|---|---|
@@ -511,7 +511,7 @@ Constructor: `provider: AuthProvider`, `shadow_store: ShadowUserStore`, `cache_t
 
 | Method | Signature | Description |
 |---|---|---|
-| `resolve_user` | `(credential: str) -> UserInfo` | Full auth pipeline: check TTL cache → `provider.authenticate()` → `shadow_store.get_or_create()` → convert to `UserInfo` and cache |
+| `resolve_user` | `(credential: str) -> UserInfo` | Full auth pipeline: check TTL cache 鈫?`provider.authenticate()` 鈫?`shadow_store.get_or_create()` 鈫?convert to `UserInfo` and cache |
 
 **Function**: `create_auth_strategy(config, shadow_store) -> Optional[AuthStrategy]`
 
@@ -536,12 +536,12 @@ Constructor: `provider: AuthProvider`, `shadow_store: ShadowUserStore`, `cache_t
 **Auth Provider Architecture**:
 
 *Primary Providers* (configured via `auth.provider` for user login):
-- `none` — No authentication
-- `local` — Username/password against local database
+- `none` 鈥?No authentication
+- `local` 鈥?Username/password against local database
 
 *Secondary Providers* (always available for specific use cases):
-- `oidc_jwt` — JWT token validation for API bearer authentication
-- `oidc_login` — OAuth2 authorization code flow for browser SSO
+- `oidc_jwt` 鈥?JWT token validation for API bearer authentication
+- `oidc_login` 鈥?OAuth2 authorization code flow for browser SSO
 
 *Chained Authentication*: The `AuthStrategy` supports trying multiple providers in sequence (e.g., local auth first, then OIDC JWT).
 
@@ -573,9 +573,9 @@ Thread-safe and idempotent under concurrent access.
 
 ### 2.7 Auth Config (`auth/config.py`)
 
-**Dataclass: `OIDCConfig`** — `issuer`, `client_id`, `client_secret`, `jwks_uri`, `scopes: list[str]`, `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, `redirect_uri`, `pkce_enabled: bool`, `pkce_method: str`
+**Dataclass: `OIDCConfig`** 鈥?`issuer`, `client_id`, `client_secret`, `jwks_uri`, `scopes: list[str]`, `authorization_endpoint`, `token_endpoint`, `userinfo_endpoint`, `redirect_uri`, `pkce_enabled: bool`, `pkce_method: str`
 
-**Dataclass: `AuthConfig`** — `provider: str`, `cache_ttl_seconds: int`, `oidc: OIDCConfig`
+**Dataclass: `AuthConfig`** 鈥?`provider: str`, `cache_ttl_seconds: int`, `oidc: OIDCConfig`
 
 ---
 
@@ -619,7 +619,7 @@ __init__(
 7. Trigger `BEFORE_PROMPT_BUILD` hook
 8. Run `CompactionPipeline` if context exceeds threshold
 9. Check `SessionQueue` for steering/follow-up messages
-10. Execute `PydanticAI Agent.run_stream()` — model inference
+10. Execute `PydanticAI Agent.run_stream()` 鈥?model inference
 11. **Update token health** via `TokenHealthInterceptor.on_response()`
 12. Yield `StreamEvent`s: assistant deltas, tool start/end, errors
 13. Persist transcript entries (append to JSONL)
@@ -629,13 +629,13 @@ Enforces `max_tool_calls` and `timeout_seconds` checkpoints.
 
 ### 3.2 Stream Events (`agent/stream.py`)
 
-**Enum: `StreamEventType`** — `LIFECYCLE`, `ASSISTANT`, `TOOL`, `ERROR`, `COMPACTION`
+**Enum: `StreamEventType`** 鈥?`LIFECYCLE`, `ASSISTANT`, `TOOL`, `ERROR`, `COMPACTION`
 
 **Dataclass: `StreamEvent`**
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `type` | `str` | — | Event type |
+| `type` | `str` | 鈥?| Event type |
 | `phase` | `str` | `""` | Phase (start/end/error/aborted/update) |
 | `content` | `str` | `""` | Content (assistant delta text) |
 | `tool` | `str` | `""` | Tool name |
@@ -644,9 +644,9 @@ Enforces `max_tool_calls` and `timeout_seconds` checkpoints.
 
 **Factory Methods**: `lifecycle_start()`, `lifecycle_end()`, `lifecycle_aborted()`, `assistant_delta(content)`, `tool_start(tool_name)`, `tool_end(tool_name, result)`, `error_event(error)`, `compaction_start()`, `compaction_end()`
 
-**Instance Method**: `to_dict() -> dict` — Serializes to dictionary, omitting empty fields.
+**Instance Method**: `to_dict() -> dict` 鈥?Serializes to dictionary, omitting empty fields.
 
-**Class: `BlockChunker`** — Streaming text chunker with configurable min/max chars and break preference.
+**Class: `BlockChunker`** 鈥?Streaming text chunker with configurable min/max chars and break preference.
 
 Constructor: `min_chars=800`, `max_chars=1200`, `break_preference=PARAGRAPH`, `idle_ms=300`, `text_chunk_limit=None`
 
@@ -656,9 +656,52 @@ Constructor: `min_chars=800`, `max_chars=1200`, `break_preference=PARAGRAPH`, `i
 | `flush` | `() -> Optional[str]` | Flush remaining buffer |
 | `reset` | `() -> None` | Reset buffer state |
 
-**Enum: `BreakPreference`** — `PARAGRAPH`, `NEWLINE`, `SENTENCE`, `WHITESPACE`
+**Enum: `BreakPreference`** 鈥?`PARAGRAPH`, `NEWLINE`, `SENTENCE`, `WHITESPACE`
 
-**Class: `NoReplyFilter`** — Filters `NO_REPLY` tokens from LLM output. Methods: `should_suppress(text) -> bool`, `filter(text) -> str`.
+**Class: `NoReplyFilter`** 鈥?Filters `NO_REPLY` tokens from LLM output. Methods: `should_suppress(text) -> bool`, `filter(text) -> str`.
+
+
+### 3.3A Tool Necessity Gate Runtime (`agent/tool_gate.py`, `agent/tool_gate_models.py`)
+
+Phase 1 adds a classifier-first runtime policy layer in front of unrestricted model completion.
+It is responsible for deciding whether the current turn may answer directly, which runtime
+capabilities can satisfy required grounding, and whether the final answer must be blocked.
+
+**Core models**:
+- `ToolPolicyMode` - `answer_direct`, `prefer_tool`, `must_use_tool`
+- `ToolGateDecision` - normalized classifier output describing whether tools are required
+- `ToolCandidate` - concrete matched runtime tool/provider candidate
+- `CapabilityMatchResult` - resolved tool candidates plus missing capabilities
+- `ToolEnforcementOutcome` - whether the runner blocked the final answer
+
+**Class: `ToolNecessityGate`**
+
+| Method | Signature | Description |
+|---|---|---|
+| `classify` | `(user_message, recent_history) -> ToolGateDecision` | Returns the neutral default when no classifier decision is available |
+| `classify_async` | `(user_message, recent_history, *, classifier=None) -> ToolGateDecision` | Uses an explicit classifier when available, otherwise falls back to `classify()` |
+
+**Class: `CapabilityMatcher`**
+
+| Method | Signature | Description |
+|---|---|---|
+| `match` | `(suggested_tool_classes) -> CapabilityMatchResult` | Maps abstract capability classes to concrete runtime tools |
+
+**Supported capability classes**:
+- `web_search`
+- `web_fetch`
+- `browser`
+- `provider:<type>`
+- `memory`
+- `session`
+- `hooks_context`
+
+**Runtime integration**:
+- `AgentRunner` calls the gate before unrestricted streaming begins
+- explicit injected classifiers may provide the `ToolGateDecision`
+- model-backed classification is available as an opt-in runtime capability and is disabled by default
+- missing required capabilities produce a blocked final answer instead of an ungrounded reply
+- tool-gate and enforcement outcomes are emitted to Hook Runtime events
 
 ### 3.3 Prompt Builder (`agent/prompt_builder.py`)
 
@@ -668,7 +711,7 @@ Constructor: `min_chars=800`, `max_chars=1200`, `break_preference=PARAGRAPH`, `i
 |---|---|---|
 | `mode` | `PromptMode.FULL` | Prompt construction mode |
 | `bootstrap_max_chars` | `20000` | Max bootstrap file size |
-| `workspace_path` | — | Workspace root path |
+| `workspace_path` | 鈥?| Workspace root path |
 | `user_timezone` | `None` | User timezone |
 | `time_format` | `"auto"` | Time format (auto/12/24) |
 | `sandbox` | `SandboxConfig()` | Sandbox settings |
@@ -687,21 +730,21 @@ Constructor: `min_chars=800`, `max_chars=1200`, `break_preference=PARAGRAPH`, `i
 **Bootstrap Files Injected** (in FULL mode): `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`, `HEARTBEAT.md`, `BOOTSTRAP.md`
 
 **Prompt Modes**:
-- `FULL` — Complete runtime prompt with all sections (identity, bootstrap, tools, skills index)
-- `MINIMAL` — Sub-agent mode without optional sections
-- `NONE` — Only basic identity line
+- `FULL` 鈥?Complete runtime prompt with all sections (identity, bootstrap, tools, skills index)
+- `MINIMAL` 鈥?Sub-agent mode without optional sections
+- `NONE` 鈥?Only basic identity line
 
 ### 3.4 Routing & Agent Config (`agent/routing.py`)
 
-**Enum: `DmScope`** — Session isolation for direct messages.
-- `MAIN` — Single shared session
-- `PER_PEER` — Per peer session
-- `PER_CHANNEL_PEER` — Per channel and peer
-- `PER_ACCOUNT_CHANNEL_PEER` — Per account, channel, peer
+**Enum: `DmScope`** 鈥?Session isolation for direct messages.
+- `MAIN` 鈥?Single shared session
+- `PER_PEER` 鈥?Per peer session
+- `PER_CHANNEL_PEER` 鈥?Per channel and peer
+- `PER_ACCOUNT_CHANNEL_PEER` 鈥?Per account, channel, peer
 
-**Enum: `SandboxMode`** — `OFF`, `AGENT`, `SESSION`
+**Enum: `SandboxMode`** 鈥?`OFF`, `AGENT`, `SESSION`
 
-**Dataclass: `ToolPolicy`** — Tool allow/deny filtering.
+**Dataclass: `ToolPolicy`** 鈥?Tool allow/deny filtering.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -712,7 +755,7 @@ Methods: `is_allowed(tool_name: str) -> bool`, `_match_pattern(pattern, name) ->
 
 ### 3.5 Agent Definition Loader (`agent/agent_definition.py`)
 
-**Class: `AgentDefinitionParser`** — Parses agent definition markdown files.
+**Class: `AgentDefinitionParser`** 鈥?Parses agent definition markdown files.
 
 | Method | Signature | Description |
 |---|---|---|
@@ -722,7 +765,7 @@ Methods: `is_allowed(tool_name: str) -> bool`, `_match_pattern(pattern, name) ->
 | `parse_memory_md` | `(content) -> dict` | Extract memory strategy from MEMORY.md |
 | `parse_frontmatter` | `(content) -> tuple[dict, str]` | Parse YAML frontmatter |
 
-**Class: `AgentLoader`** — Loads and assembles `AgentConfig` from the `agents/<agent_id>/` directory.
+**Class: `AgentLoader`** 鈥?Loads and assembles `AgentConfig` from the `agents/<agent_id>/` directory.
 
 | Method | Signature | Description |
 |---|---|---|
@@ -766,7 +809,7 @@ Caches agent instances bound to specific tokens with per-instance concurrency co
 | `concurrency_sem` | `asyncio.Semaphore` | Concurrency limiter |
 | `created_at` | `datetime` | Creation timestamp |
 
-**Property**: `cache_key` — Returns `"{agent_id}:{token_id}"`
+**Property**: `cache_key` 鈥?Returns `"{agent_id}:{token_id}"`
 
 **Class: `AgentInstancePool`**
 
@@ -777,7 +820,7 @@ Constructor: `max_concurrent_per_instance: int = 4`
 | `get_or_create` | `(agent_id, token, agent_factory) -> AgentInstance` | Get existing or create new instance |
 | `get` | `(agent_id, token_id) -> AgentInstance?` | Get existing instance |
 
-**Cache Key**: `"{agent_id}:{token_id}"` — Each token gets its own agent instance.
+**Cache Key**: `"{agent_id}:{token_id}"` 鈥?Each token gets its own agent instance.
 
 **Concurrency**: Each instance has a semaphore limiting concurrent requests (default 4).
 
@@ -791,7 +834,7 @@ HTTP routing, SSE streaming, WebSocket gateway, webhook dispatch, and response h
 
 ### 4.1 Routes & APIContext (`api/routes.py`)
 
-**Dataclass: `APIContext`** — Global context holder for API dependencies.
+**Dataclass: `APIContext`** 鈥?Global context holder for API dependencies.
 
 Holds: `session_manager`, `skill_registry`, `agent_runner`, `provider_registry`, `webhook_manager`, `channel_manager`
 
@@ -809,13 +852,13 @@ Functions: `set_api_context(context: APIContext)`, `get_api_context() -> APICont
 | `QueueModeRequest` | `mode` (collect/steer/followup/steer-backlog/interrupt) |
 | `StatusResponse` | `session_key`, `context_tokens`, `input_tokens`, `output_tokens`, `queue_mode`, `queue_size` |
 
-**Function**: `create_router() -> APIRouter` — Creates the main API router with all endpoints.
+**Function**: `create_router() -> APIRouter` 鈥?Creates the main API router with all endpoints.
 
-**Function**: `install_request_validation_logging(app)` — Adds validation logging middleware.
+**Function**: `install_request_validation_logging(app)` 鈥?Adds validation logging middleware.
 
 ### 4.2 SSE Manager (`api/sse.py`)
 
-**Enum: `SSEEventType`** — `LIFECYCLE`, `ASSISTANT`, `TOOL`, `COMPACTION`, `ERROR`, `HEARTBEAT`
+**Enum: `SSEEventType`** 鈥?`LIFECYCLE`, `ASSISTANT`, `TOOL`, `COMPACTION`, `ERROR`, `HEARTBEAT`
 
 **Dataclass: `SSEEvent`**
 
@@ -828,7 +871,7 @@ Functions: `set_api_context(context: APIContext)`, `get_api_context() -> APICont
 
 Method: `to_sse_format() -> dict`
 
-**Dataclass: `StreamState`** — `run_id: str`, `last_event_id: str`, `event_count: int`, `started_at: float`
+**Dataclass: `StreamState`** 鈥?`run_id: str`, `last_event_id: str`, `event_count: int`, `started_at: float`
 
 **Class: `SSEManager`**
 
@@ -841,13 +884,13 @@ Method: `to_sse_format() -> dict`
 
 WebSocket frame protocol for persistent connections.
 
-**Enum: `FrameType`** — `CONNECT`, `HELLO_OK`, `REQUEST`, `RESPONSE`, `EVENT`
+**Enum: `FrameType`** 鈥?`CONNECT`, `HELLO_OK`, `REQUEST`, `RESPONSE`, `EVENT`
 
-**Enum: `ConnectionState`** — `CONNECTING`, `CONNECTED`, `AUTHENTICATED`, `DISCONNECTING`, `DISCONNECTED`
+**Enum: `ConnectionState`** 鈥?`CONNECTING`, `CONNECTED`, `AUTHENTICATED`, `DISCONNECTING`, `DISCONNECTED`
 
-**Dataclass: `DeviceInfo`** — `device_id`, `platform`, `version`, `user_agent`
+**Dataclass: `DeviceInfo`** 鈥?`device_id`, `platform`, `version`, `user_agent`
 
-**Dataclass: `ConnectionInfo`** — `connection_id`, `device`, `state`, `authenticated_at`, `user_id`, `tenant_id`, `user_info`, `created_at`, `last_activity`
+**Dataclass: `ConnectionInfo`** 鈥?`connection_id`, `device`, `state`, `authenticated_at`, `user_id`, `tenant_id`, `user_info`, `created_at`, `last_activity`
 
 **Frame Dataclasses**: `ConnectFrame`, `HelloOkFrame`, `RequestFrame`, `ResponseFrame`, `EventFrame`
 
@@ -856,39 +899,39 @@ WebSocket frame protocol for persistent connections.
 REST endpoints for configuration management with DB persistence.
 
 **Agent Configs** (`/api/agent-configs`):
-- `POST /agent-configs` — Create agent configuration
-- `GET /agent-configs` — List with pagination
-- `GET /agent-configs/{id}` — Get by ID
-- `PUT /agent-configs/{id}` — Update
-- `DELETE /agent-configs/{id}` — Delete
+- `POST /agent-configs` 鈥?Create agent configuration
+- `GET /agent-configs` 鈥?List with pagination
+- `GET /agent-configs/{id}` 鈥?Get by ID
+- `PUT /agent-configs/{id}` 鈥?Update
+- `DELETE /agent-configs/{id}` 鈥?Delete
 
 **Token Configs** (`/api/token-configs`):
-- `POST /token-configs` — Create token (API key encrypted at rest)
-- `GET /token-configs` — List with pagination
-- `GET /token-configs/{id}` — Get by ID
-- `PUT /token-configs/{id}` — Update
-- `DELETE /token-configs/{id}` — Delete
+- `POST /token-configs` 鈥?Create token (API key encrypted at rest)
+- `GET /token-configs` 鈥?List with pagination
+- `GET /token-configs/{id}` 鈥?Get by ID
+- `PUT /token-configs/{id}` 鈥?Update
+- `DELETE /token-configs/{id}` 鈥?Delete
 
 **Provider Configs** (`/api/provider-configs`):
-- `POST /provider-configs` — Create provider instance config
-- `GET /provider-configs` — List with filters (`provider_type`, `is_active`)
-- `GET /provider-configs/{id}` — Get by ID
-- `PUT /provider-configs/{id}` — Update
-- `DELETE /provider-configs/{id}` — Delete
+- `POST /provider-configs` 鈥?Create provider instance config
+- `GET /provider-configs` 鈥?List with filters (`provider_type`, `is_active`)
+- `GET /provider-configs/{id}` 鈥?Get by ID
+- `PUT /provider-configs/{id}` 鈥?Update
+- `DELETE /provider-configs/{id}` 鈥?Delete
 
 **Users** (`/api/users`):
-- `POST /users` — Create user (password hashed with bcrypt)
-- `GET /users` — List with pagination
-- `GET /users/{id}` — Get by ID
-- `PUT /users/{id}` — Update
-- `DELETE /users/{id}` — Delete
+- `POST /users` 鈥?Create user (password hashed with bcrypt)
+- `GET /users` 鈥?List with pagination
+- `GET /users/{id}` 鈥?Get by ID
+- `PUT /users/{id}` 鈥?Update
+- `DELETE /users/{id}` 鈥?Delete
 
 **Model Configs** (`/api/model-configs`):
-- `POST /model-configs` — Create model configuration (returns 201)
-- `GET /model-configs` — List with pagination and filtering (`provider`, `is_active`)
-- `GET /model-configs/{id}` — Get by ID
-- `PUT /model-configs/{id}` — Update
-- `DELETE /model-configs/{id}` — Delete (returns 204)
+- `POST /model-configs` 鈥?Create model configuration (returns 201)
+- `GET /model-configs` 鈥?List with pagination and filtering (`provider`, `is_active`)
+- `GET /model-configs/{id}` 鈥?Get by ID
+- `PUT /model-configs/{id}` 鈥?Update
+- `DELETE /model-configs/{id}` 鈥?Delete (returns 204)
 
 ### 4.5 Other API Modules
 
@@ -916,8 +959,8 @@ Channel handler abstraction, registry, manager, and built-in handler implementat
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `channel_id` | `str` | — | Channel identifier |
-| `channel_type` | `str` | — | Handler type |
+| `channel_id` | `str` | 鈥?| Channel identifier |
+| `channel_type` | `str` | 鈥?| Handler type |
 | `text_chunk_limit` | `int` | `4096` | Max text per message |
 | `supports_markdown` | `bool` | `True` | Markdown support |
 | `supports_html` | `bool` | `False` | HTML support |
@@ -934,9 +977,9 @@ Channel handler abstraction, registry, manager, and built-in handler implementat
 
 ### 5.2 Channel Data Models (`channels/models.py`)
 
-**Enum: `ChannelMode`** — `INBOUND`, `OUTBOUND`, `BIDIRECTIONAL`
+**Enum: `ChannelMode`** 鈥?`INBOUND`, `OUTBOUND`, `BIDIRECTIONAL`
 
-**Enum: `ConnectionStatus`** — `DISCONNECTED`, `CONNECTING`, `CONNECTED`, `ERROR`
+**Enum: `ConnectionStatus`** 鈥?`DISCONNECTED`, `CONNECTING`, `CONNECTED`, `ERROR`
 
 | Dataclass | Key Fields |
 |---|---|
@@ -1038,7 +1081,7 @@ Built-in tool definitions, profiles, group management, and registration.
 
 ### 6.2 Tool Registration (`tools/registration.py`)
 
-**Function**: `register_builtin_tools(skill_registry, profile) -> list[str]` — Registers all tools for the specified profile and returns registered tool names.
+**Function**: `register_builtin_tools(skill_registry, profile) -> list[str]` 鈥?Registers all tools for the specified profile and returns registered tool names.
 
 ### 6.3 Built-in Tool Groups
 
@@ -1049,26 +1092,26 @@ Built-in tool definitions, profiles, group management, and registration.
 - Legacy runtime tools remain in the source tree for compatibility, but are not registered by default
 
 **Memory** (`tools/memory/`):
-- `search_tool.py` — Search memory entries
-- `get_tool.py` — Retrieve memory by ID
+- `search_tool.py` 鈥?Search memory entries
+- `get_tool.py` 鈥?Retrieve memory by ID
 
 **Sessions** (`tools/sessions/`):
-- `list_tool.py` — List sessions
-- `history_tool.py` — Get session history
-- `send_tool.py` — Send message to session
-- `spawn_tool.py` — Create new session
-- `status_tool.py` — Get session status
-- `subagents_tool.py` — Manage sub-agents
+- `list_tool.py` 鈥?List sessions
+- `history_tool.py` 鈥?Get session history
+- `send_tool.py` 鈥?Send message to session
+- `spawn_tool.py` 鈥?Create new session
+- `status_tool.py` 鈥?Get session status
+- `subagents_tool.py` 鈥?Manage sub-agents
 
 **Web** (`tools/web/`):
-- `search_tool.py` — Web search integration
-- `fetch_tool.py` — Fetch web content
+- `search_tool.py` 鈥?Web search integration
+- `fetch_tool.py` 鈥?Fetch web content
 
 **UI** (`tools/ui/`):
-- `browser_tool.py` — Browser automation
+- `browser_tool.py` 鈥?Browser automation
 
 **Providers** (`tools/providers/`):
-- `instance_tools.py` — List and select provider instances
+- `instance_tools.py` 鈥?List and select provider instances
 
 ---
 
@@ -1089,7 +1132,7 @@ JSONL-based session persistence with hierarchical key formats, async locking, an
 | `PER_CHANNEL_PEER` | `agent:<agentId>:user:<userId>:<channel>:<chatType>:<peerId>` | `agent:main:user:u-a1:telegram:dm:user_42` |
 | `PER_ACCOUNT_CHANNEL_PEER` | `agent:<agentId>:user:<userId>:<channel>:<accountId>:<chatType>:<peerId>` | `agent:main:user:u-a1:telegram:acc1:dm:user_42` |
 
-**Enum: `ChatType`** — `DM`, `GROUP`, `CHANNEL`, `THREAD`
+**Enum: `ChatType`** 鈥?`DM`, `GROUP`, `CHANNEL`, `THREAD`
 
 **Dataclass: `SessionKey`**
 
@@ -1105,11 +1148,11 @@ JSONL-based session persistence with hierarchical key formats, async locking, an
 
 Methods: `to_string(scope) -> str`, `from_string(key) -> SessionKey`
 
-**Dataclass: `IdentityLinks`** — Cross-channel identity mapping. Methods: `resolve(provider_peer_id) -> str`, `add_mapping(canonical_id, provider_peer_id)`
+**Dataclass: `IdentityLinks`** 鈥?Cross-channel identity mapping. Methods: `resolve(provider_peer_id) -> str`, `add_mapping(canonical_id, provider_peer_id)`
 
-**Class: `SessionKeyFactory`** — Creates `SessionKey` instances with identity link resolution.
+**Class: `SessionKeyFactory`** 鈥?Creates `SessionKey` instances with identity link resolution.
 
-**Dataclass: `SessionOrigin`** — Source metadata: `label`, `provider`, `from_id`, `to_id`, `account_id`, `thread_id`
+**Dataclass: `SessionOrigin`** 鈥?Source metadata: `label`, `provider`, `from_id`, `to_id`, `account_id`, `thread_id`
 
 **Dataclass: `SessionMetadata`**
 
@@ -1158,10 +1201,10 @@ Constructor: `workspace_path="."`, `user_id="default"`, `reset_mode=DAILY`, `dai
 **Storage Layout**:
 ```
 <workspace>/users/<user_id>/sessions/
-├── sessions.json                         # Session metadata index
-├── <session_id>.jsonl                    # Main transcript
-├── <session_id>-topic-<thread_id>.jsonl  # Thread transcript
-└── archive/                              # Archived sessions
+鈹溾攢鈹€ sessions.json                         # Session metadata index
+鈹溾攢鈹€ <session_id>.jsonl                    # Main transcript
+鈹溾攢鈹€ <session_id>-topic-<thread_id>.jsonl  # Thread transcript
+鈹斺攢鈹€ archive/                              # Archived sessions
 ```
 
 | Method | Signature | Description |
@@ -1182,7 +1225,7 @@ Constructor: `workspace_path="."`, `user_id="default"`, `reset_mode=DAILY`, `dai
 
 ### 7.3 Session Queue (`session/queue.py`)
 
-**Enum: `QueueMode`** — `COLLECT`, `STEER`, `FOLLOWUP`, `STEER_BACKLOG`, `INTERRUPT`
+**Enum: `QueueMode`** 鈥?`COLLECT`, `STEER`, `FOLLOWUP`, `STEER_BACKLOG`, `INTERRUPT`
 
 **Class: `SessionQueue`**
 
@@ -1204,7 +1247,7 @@ Markdown-backed memory storage with hybrid search (keyword + semantic).
 
 ### 8.1 Memory Manager (`memory/manager.py`)
 
-**Enum: `MemoryType`** — `DAILY`, `LONG_TERM`, `EPHEMERAL`
+**Enum: `MemoryType`** 鈥?`DAILY`, `LONG_TERM`, `EPHEMERAL`
 
 **Dataclass: `MemoryEntry`**
 
@@ -1226,8 +1269,8 @@ Constructor: `workspace`, `memory_dir="memory"`, `long_term_file="MEMORY.md"`, `
 **Storage Layout**:
 ```
 memory/<user_id>/
-├── YYYY-MM-DD.md    # Daily memories (date-scoped)
-└── MEMORY.md        # Long-term persistent memory
+鈹溾攢鈹€ YYYY-MM-DD.md    # Daily memories (date-scoped)
+鈹斺攢鈹€ MEMORY.md        # Long-term persistent memory
 ```
 
 | Method | Signature | Description |
@@ -1243,9 +1286,9 @@ memory/<user_id>/
 ### 8.2 Hybrid Search (`memory/hybrid_search.py`)
 
 Combines keyword matching and semantic similarity with configurable weights:
-- `vector_weight` (default 0.7) — Embedding similarity score
-- `fulltext_weight` (default 0.3) — Keyword match score
-- `time_decay_half_life_days` (default 30) — Recency bias
+- `vector_weight` (default 0.7) 鈥?Embedding similarity score
+- `fulltext_weight` (default 0.3) 鈥?Keyword match score
+- `time_decay_half_life_days` (default 30) 鈥?Recency bias
 
 ---
 
@@ -1263,8 +1306,8 @@ Skill registration, loading, Markdown skill discovery, and frontmatter parsing.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `name` | `str` | — | Validated skill name |
-| `description` | `str` | — | Skill description |
+| `name` | `str` | 鈥?| Validated skill name |
+| `description` | `str` | 鈥?| Skill description |
 | `category` | `str` | `"utility"` | Category classification |
 | `requires_auth` | `bool` | `False` | Requires authentication |
 | `timeout_seconds` | `int` | `30` | Execution timeout |
@@ -1272,7 +1315,7 @@ Skill registration, loading, Markdown skill discovery, and frontmatter parsing.
 | `provider_type` | `Optional[str]` | `None` | For provider skills |
 | `instance_required` | `bool` | `False` | Requires provider instance selection |
 
-**Dataclass: `MdSkillEntry`** — Markdown-based skill.
+**Dataclass: `MdSkillEntry`** 鈥?Markdown-based skill.
 
 | Field | Type | Description |
 |---|---|---|
@@ -1294,7 +1337,7 @@ Skill registration, loading, Markdown skill discovery, and frontmatter parsing.
 | `list_md_skills` | `() -> list[MdSkillEntry]` | List Markdown skills |
 | `get_skill` | `(name: str) -> Optional[SkillMetadata]` | Get skill by name |
 
-**Loading Priority** (highest → lowest):
+**Loading Priority** (highest 鈫?lowest):
 1. Workspace skills: `<workspace>/skills/`
 2. Workspace provider skills: `<workspace>/providers/<provider>/skills/`
 3. Global skills: `~/.atlasclaw/skills/`
@@ -1302,7 +1345,7 @@ Skill registration, loading, Markdown skill discovery, and frontmatter parsing.
 
 ### 9.2 Frontmatter Parser (`skills/frontmatter.py`)
 
-**Dataclass: `FrontmatterResult`** — `metadata: dict[str, Any]`, `body: str`
+**Dataclass: `FrontmatterResult`** 鈥?`metadata: dict[str, Any]`, `body: str`
 
 **Function**: `parse_frontmatter(content: str) -> FrontmatterResult`
 
@@ -1322,7 +1365,7 @@ avoid_when:
 ---
 ```
 
-Features: BOM handling, CRLF → LF conversion, quote stripping, list parsing (dash-prefix items), comment skipping.
+Features: BOM handling, CRLF 鈫?LF conversion, quote stripping, list parsing (dash-prefix items), comment skipping.
 
 ---
 
@@ -1336,7 +1379,7 @@ Extensible hook capabilities split into two layers:
 
 ### 10.1 Hook System (`hooks/system.py`)
 
-**Enum: `HookPhase`** — All lifecycle phases:
+**Enum: `HookPhase`** 鈥?All lifecycle phases:
 
 | Category | Phases |
 |---|---|
@@ -1350,15 +1393,15 @@ Extensible hook capabilities split into two layers:
 | **Compaction** | `BEFORE_COMPACTION`, `AFTER_COMPACTION` |
 
 **Enum: `HookExecutionMode`**
-- `SEQUENTIAL` — Executed in priority order; handlers can modify context
-- `PARALLEL` — Executed concurrently via `asyncio.gather`; observe-only (return values ignored)
+- `SEQUENTIAL` 鈥?Executed in priority order; handlers can modify context
+- `PARALLEL` 鈥?Executed concurrently via `asyncio.gather`; observe-only (return values ignored)
 
 **Dataclass: `HookDefinition`**
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `phase` | `HookPhase` | — | Lifecycle phase |
-| `handler` | `Callable[[dict], Awaitable[Optional[dict]]]` | — | Async handler |
+| `phase` | `HookPhase` | 鈥?| Lifecycle phase |
+| `handler` | `Callable[[dict], Awaitable[Optional[dict]]]` | 鈥?| Async handler |
 | `priority` | `int` | `100` | Lower = earlier execution |
 | `mode` | `HookExecutionMode` | `SEQUENTIAL` | Execution mode |
 | `name` | `str` | `""` | Hook name for identification |
@@ -1376,14 +1419,14 @@ Extensible hook capabilities split into two layers:
 **Execution Order**: Sequential hooks run first (priority-sorted, can modify context), then parallel hooks run concurrently (observe-only).
 
 **Factory Functions**:
-- `create_logging_hook(phase, log_prefix) -> HookDefinition` — Creates a logging observer hook
-- `create_session_memory_hook() -> HookDefinition` — Creates session memory flush hook (AGENT_END phase)
+- `create_logging_hook(phase, log_prefix) -> HookDefinition` 鈥?Creates a logging observer hook
+- `create_session_memory_hook() -> HookDefinition` 鈥?Creates session memory flush hook (AGENT_END phase)
 
 ---
 
 ### 10.2 Runtime Models (`hooks/runtime_models.py`)
 
-**Enum: `HookEventType`** — Generic runtime lifecycle events.
+**Enum: `HookEventType`** 鈥?Generic runtime lifecycle events.
 
 | Category | Events |
 |---|---|
@@ -1394,11 +1437,11 @@ Extensible hook capabilities split into two layers:
 | **Memory** | `MEMORY_CONFIRMED`, `MEMORY_REJECTED` |
 
 **Dataclasses / Models**:
-- `HookEventEnvelope` — persisted runtime event
-- `PendingHookItem` — item awaiting confirmation or rejection
-- `HookDecisionRecord` — decision audit trail
-- `HookWriteMemoryRequest` — request contract for memory promotion
-- `HookContextInjection` — confirmed context payload returned by `ContextSink`
+- `HookEventEnvelope` 鈥?persisted runtime event
+- `PendingHookItem` 鈥?item awaiting confirmation or rejection
+- `HookDecisionRecord` 鈥?decision audit trail
+- `HookWriteMemoryRequest` 鈥?request contract for memory promotion
+- `HookContextInjection` 鈥?confirmed context payload returned by `ContextSink`
 
 ### 10.3 Runtime Store (`hooks/runtime_store.py`)
 
@@ -1453,9 +1496,9 @@ Extensible hook capabilities split into two layers:
 
 **Classes**:
 
-- `HookScriptHandlerDefinition` — runtime-ready local command handler definition
-- `HookScriptRunner` — executes local commands, writes envelopes to stdin, parses stdout JSON
-- `HookScriptExecutionError` — raised for invalid JSON, non-zero exit, or timeout
+- `HookScriptHandlerDefinition` 鈥?runtime-ready local command handler definition
+- `HookScriptRunner` 鈥?executes local commands, writes envelopes to stdin, parses stdout JSON
+- `HookScriptExecutionError` 鈥?raised for invalid JSON, non-zero exit, or timeout
 
 **Supported actions**:
 
@@ -1567,12 +1610,12 @@ Relational database abstraction with SQLAlchemy ORM, supporting SQLite (default)
 | `close` | `() -> None` | Close all connections |
 
 **Module Functions**:
-- `init_database(config: DatabaseConfig) -> DatabaseManager` — Initialize and return manager
-- `get_db_manager() -> DatabaseManager` — Get singleton instance
+- `init_database(config: DatabaseConfig) -> DatabaseManager` 鈥?Initialize and return manager
+- `get_db_manager() -> DatabaseManager` 鈥?Get singleton instance
 
 ### 11.2 ORM Models (`db/models.py`)
 
-**Base: `Base`** — SQLAlchemy declarative base.
+**Base: `Base`** 鈥?SQLAlchemy declarative base.
 
 | Model | Table | Purpose |
 |---|---|---|
@@ -1584,9 +1627,9 @@ Relational database abstraction with SQLAlchemy ORM, supporting SQLite (default)
 | `ModelConfigModel` | `model_configs` | AI model configurations |
 
 **Common Fields**:
-- `id: str` — UUID primary key
-- `created_at: datetime` — Creation timestamp
-- `updated_at: datetime` — Last update timestamp
+- `id: str` 鈥?UUID primary key
+- `created_at: datetime` 鈥?Creation timestamp
+- `updated_at: datetime` 鈥?Last update timestamp
 
 ### 11.3 ORM Services (`db/orm/`)
 
@@ -1604,14 +1647,14 @@ Each model has a corresponding service class for CRUD operations:
 
 All API keys are encrypted at rest using AES-256-GCM. The service provides transparent encryption/decryption:
 
-- `create(session, data: TokenCreate) -> ModelTokenConfigModel` — Encrypts `api_key` before storage
+- `create(session, data: TokenCreate) -> ModelTokenConfigModel` 鈥?Encrypts `api_key` before storage
 - `get_by_id(session, id) -> Optional[ModelTokenConfigModel]`
 - `get_by_name(session, name) -> Optional[ModelTokenConfigModel]`
 - `list_all(session, is_active, page, page_size) -> tuple[list[ModelTokenConfigModel], int]`
-- `update(session, id, data: TokenUpdate) -> Optional[ModelTokenConfigModel]` — Re-encrypts if `api_key` changed
+- `update(session, id, data: TokenUpdate) -> Optional[ModelTokenConfigModel]` 鈥?Re-encrypts if `api_key` changed
 - `delete(session, id) -> bool`
-- `get_decrypted_api_key(token) -> str` — Decrypt API key for runtime use
-- `get_masked_api_key(token) -> str` — Return masked version (e.g., `***d8f`) for display
+- `get_decrypted_api_key(token) -> str` 鈥?Decrypt API key for runtime use
+- `get_masked_api_key(token) -> str` 鈥?Return masked version (e.g., `***d8f`) for display
 
 **Encryption Details**:
 - Algorithm: AES-256-GCM
@@ -1628,7 +1671,7 @@ Provider configurations are encrypted at rest. The `config` JSON field is automa
 - `get_by_id(session, id) -> Optional[ServiceProviderConfigModel]`
 - `get_by_provider_instance(session, provider_type, instance_name) -> Optional[ServiceProviderConfigModel]`
 - `list_all(session, provider_type, is_active, page, page_size) -> tuple[list[ServiceProviderConfigModel], int]`
-- `list_active_as_nested(session) -> dict[str, dict[str, dict]]` — Return nested dict for merge (decrypted)
+- `list_active_as_nested(session) -> dict[str, dict[str, dict]]` 鈥?Return nested dict for merge (decrypted)
 - `update(session, id, data: ServiceProviderConfigUpdate) -> Optional[ServiceProviderConfigModel]`
 - `delete(session, id) -> bool`
 
@@ -1639,18 +1682,18 @@ Provider configurations are encrypted at rest. The `config` JSON field is automa
 - `list_all(session, page, page_size) -> tuple[list[UserModel], int]`
 - `update(session, id, data: UserUpdate) -> Optional[UserModel]`
 - `delete(session, id) -> bool`
-- `verify_password(password, hash) -> bool` — Verify bcrypt password
+- `verify_password(password, hash) -> bool` 鈥?Verify bcrypt password
 
 **ModelConfigService** (`db/orm/model_config.py`):
 - `create(session, data: ModelConfigCreate) -> ModelConfigModel`
 - `get_by_id(session, id) -> Optional[ModelConfigModel]`
 - `get_by_name(session, name) -> Optional[ModelConfigModel]`
 - `list_all(session, provider, is_active, page, page_size) -> tuple[list[ModelConfigModel], int]`
-- `list_active(session) -> list[ModelConfigModel]` — List active configs sorted by priority
+- `list_active(session) -> list[ModelConfigModel]` 鈥?List active configs sorted by priority
 - `update(session, id, data: ModelConfigUpdate) -> Optional[ModelConfigModel]`
 - `delete(session, id) -> bool`
-- `get_masked_api_key(model) -> str` — Mask API key for display
-- `get_decrypted_api_key(model) -> str` — Decrypt API key
+- `get_masked_api_key(model) -> str` 鈥?Mask API key for display
+- `get_decrypted_api_key(model) -> str` 鈥?Decrypt API key
 
 ### 11.4 Pydantic Schemas (`db/schemas.py`)
 
@@ -1672,10 +1715,10 @@ Request/response schemas for API validation:
 - MySQL: Requires `alembic upgrade head` on startup
 
 **Migration Files** (`migrations/versions/`):
-- `001_initial.py` — Initial schema (agents, tokens, users, channels)
-- `002_add_channel_is_default.py` — Add `is_default` to channels
-- `003_add_service_provider_configs.py` — Add `service_provider_configs` table
-- `005_add_model_configs.py` — Add `model_configs` table
+- `001_initial.py` 鈥?Initial schema (agents, tokens, users, channels)
+- `002_add_channel_is_default.py` 鈥?Add `is_default` to channels
+- `003_add_service_provider_configs.py` 鈥?Add `service_provider_configs` table
+- `005_add_model_configs.py` 鈥?Add `model_configs` table
 
 ---
 
@@ -1691,25 +1734,25 @@ LLM provider configuration and failover/retry logic.
 
 | Field | Type | Default |
 |---|---|---|
-| `id` | `str` | — |
-| `name` | `str` | — |
+| `id` | `str` | 鈥?|
+| `name` | `str` | 鈥?|
 | `context_window` | `int` | `200000` |
 | `max_tokens` | `int` | `8192` |
 | `reasoning` | `bool` | `False` |
 
-**Dataclass: `ProviderConfig`** — `provider`, `base_url`, `api_key`, `api_type` (openai/anthropic), `models: list[ModelDefinition]`
+**Dataclass: `ProviderConfig`** 鈥?`provider`, `base_url`, `api_key`, `api_type` (openai/anthropic), `models: list[ModelDefinition]`
 
 **Functions**:
-- `resolve_env(value: str) -> str` — Resolve `${VAR}` or `${VAR:default}` patterns
-- `mask_api_key(key: str) -> str` — Mask to `***abc`
+- `resolve_env(value: str) -> str` 鈥?Resolve `${VAR}` or `${VAR:default}` patterns
+- `mask_api_key(key: str) -> str` 鈥?Mask to `***abc`
 
 ### 11.2 Failover & Retry (`models/failover.py`)
 
-**Enum: `CredentialType`** — `API_KEY`, `OAUTH`, `ACCESS_KEY`
+**Enum: `CredentialType`** 鈥?`API_KEY`, `OAUTH`, `ACCESS_KEY`
 
-**Dataclass: `AuthProfile`** — `profile_id`, `provider`, `credential_type`, `credential`, `cooldown_until`, `cooldown_count`, `disabled_until`
+**Dataclass: `AuthProfile`** 鈥?`profile_id`, `provider`, `credential_type`, `credential`, `cooldown_until`, `cooldown_count`, `disabled_until`
 
-**Dataclass: `ModelFailoverConfig`** — `primary_model`, `fallbacks: list[str]`, `cooldown_sequence: list[timedelta]`, `billing_initial_cooldown`, `billing_max_cooldown`
+**Dataclass: `ModelFailoverConfig`** 鈥?`primary_model`, `fallbacks: list[str]`, `cooldown_sequence: list[timedelta]`, `billing_initial_cooldown`, `billing_max_cooldown`
 
 ---
 
@@ -1721,9 +1764,9 @@ Inbound/outbound message normalization and slash command parsing.
 
 ### 12.1 Message Handling (`messages/handler.py`)
 
-**Enum: `MessageType`** — `TEXT`, `MEDIA`, `ATTACHMENT`, `COMMAND`, `SYSTEM`
+**Enum: `MessageType`** 鈥?`TEXT`, `MEDIA`, `ATTACHMENT`, `COMMAND`, `SYSTEM`
 
-**Enum: `ChatType`** — `DM`, `GROUP`, `THREAD`
+**Enum: `ChatType`** 鈥?`DM`, `GROUP`, `THREAD`
 
 **Dataclass: `InboundMessage`**
 
@@ -1746,17 +1789,17 @@ Inbound/outbound message normalization and slash command parsing.
 
 Properties: `is_group_chat`, `is_command`, `has_media`
 
-**Dataclass: `OutboundMessage`** — `body`, `channel`, `account_id`, `peer_id`, `reply_to_id`, `is_chunk`, `chunk_index`, `is_final`, `metadata`
+**Dataclass: `OutboundMessage`** 鈥?`body`, `channel`, `account_id`, `peer_id`, `reply_to_id`, `is_chunk`, `chunk_index`, `is_final`, `metadata`
 
 ### 12.2 Command Parsing (`messages/command.py`)
 
 **Pattern**: `^/([a-zA-Z][a-zA-Z0-9_-]*)(?:\s+(.*))?$`
 
-**Enum: `CommandCategory`** — `SESSION_CONTROL`, `MODE_SWITCH`, `INFO_QUERY`, `SESSION_MANAGEMENT`, `DEBUG`
+**Enum: `CommandCategory`** 鈥?`SESSION_CONTROL`, `MODE_SWITCH`, `INFO_QUERY`, `SESSION_MANAGEMENT`, `DEBUG`
 
-**Dataclass: `CommandDefinition`** — `name`, `category`, `description`, `aliases: list[str]`, `requires_llm: bool`, `bypass_debounce: bool`, `strip_from_message: bool`, `handler: Optional[Callable]`
+**Dataclass: `CommandDefinition`** 鈥?`name`, `category`, `description`, `aliases: list[str]`, `requires_llm: bool`, `bypass_debounce: bool`, `strip_from_message: bool`, `handler: Optional[Callable]`
 
-**Dataclass: `ParsedCommand`** — `command`, `name`, `args: list[str]`, `kwargs: dict`, `remaining_text`, `is_standalone`, `definition`
+**Dataclass: `ParsedCommand`** 鈥?`command`, `name`, `args: list[str]`, `kwargs: dict`, `remaining_text`, `is_standalone`, `definition`
 
 **Class: `CommandParser`**
 
@@ -1775,7 +1818,7 @@ DAG-based workflow engine with conditional branching.
 
 ### 13.1 Workflow Engine (`workflow/engine.py`)
 
-**Enum: `StepStatus`** — `PENDING`, `RUNNING`, `COMPLETED`, `SKIPPED`, `FAILED`
+**Enum: `StepStatus`** 鈥?`PENDING`, `RUNNING`, `COMPLETED`, `SKIPPED`, `FAILED`
 
 **Dataclass: `WorkflowStep`**
 
@@ -1859,14 +1902,14 @@ Vanilla JavaScript SPA with Deep Chat integration for the chat interface.
 >
 > | Topic | Document | Section |
 > |---|---|---|
-> | System architecture overview | [Architecture](./ARCHITECTURE.MD) | §2 High-Level Architecture |
-> | Bootstrap sequence | [Architecture](./ARCHITECTURE.MD) | §4 Application Bootstrap |
-> | Request lifecycle | [Architecture](./ARCHITECTURE.MD) | §5 Request Lifecycle |
-> | Security model | [Architecture](./ARCHITECTURE.MD) | §8 Security Model |
-> | Extension points | [Architecture](./ARCHITECTURE.MD) | §9 Extension Points |
-> | Code style rules | [Development Spec](./DEVELOPMENT-SPEC.MD) | §1 Code Style |
-> | Architecture patterns | [Development Spec](./DEVELOPMENT-SPEC.MD) | §2 Architecture Patterns |
-> | Testing standards | [Development Spec](./DEVELOPMENT-SPEC.MD) | §6 Testing |
+> | System architecture overview | [Architecture](./ARCHITECTURE.MD) | 搂2 High-Level Architecture |
+> | Bootstrap sequence | [Architecture](./ARCHITECTURE.MD) | 搂4 Application Bootstrap |
+> | Request lifecycle | [Architecture](./ARCHITECTURE.MD) | 搂5 Request Lifecycle |
+> | Security model | [Architecture](./ARCHITECTURE.MD) | 搂8 Security Model |
+> | Extension points | [Architecture](./ARCHITECTURE.MD) | 搂9 Extension Points |
+> | Code style rules | [Development Spec](./DEVELOPMENT-SPEC.MD) | 搂1 Code Style |
+> | Architecture patterns | [Development Spec](./DEVELOPMENT-SPEC.MD) | 搂2 Architecture Patterns |
+> | Testing standards | [Development Spec](./DEVELOPMENT-SPEC.MD) | 搂6 Testing |
 > | Provider creation | [Provider Guide](./PROVIDER-GUIDE.MD) | Full document |
 > | Skill creation | [Skill Guide](./SKILL-GUIDE.MD) | Full document |
 > | Channel integration | [Channel Guide](./CHANNEL-GUIDE.MD) | Full document |

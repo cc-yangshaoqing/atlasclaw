@@ -110,11 +110,14 @@ def create_pydantic_model(token: TokenEntry):
         provider = AnthropicProvider(api_key=token.api_key, base_url=token.base_url)
         return AnthropicModel(token.model, provider=provider)
 
-    from pydantic_ai.models.openai import OpenAIChatModel
+    from pydantic_ai.models.openai import OpenAIChatModel, OpenAIModelProfile
     from pydantic_ai.providers.openai import OpenAIProvider
 
     provider = OpenAIProvider(api_key=token.api_key, base_url=token.base_url)
-    return OpenAIChatModel(token.model, provider=provider)
+    # Use reasoning_content as the OpenAI-compatible thinking field when available.
+    # For models/providers that do not emit it, this remains a no-op.
+    profile = OpenAIModelProfile(openai_chat_thinking_field="reasoning_content")
+    return OpenAIChatModel(token.model, provider=provider, profile=profile)
 
 
 def merge_token_entries(primary: list[TokenEntry], secondary: list[TokenEntry]) -> list[TokenEntry]:

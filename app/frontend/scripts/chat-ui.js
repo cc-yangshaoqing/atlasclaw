@@ -7,7 +7,7 @@ import { getSessionKey, initSession, setSessionKey } from './session-manager.js'
 import { getAgentInfo, getSessionHistory } from './api-client.js'
 import { createStreamHandler } from './stream-handler.js'
 import { buildApiUrl } from './config.js'
-import { t, isLocaleLoaded } from './i18n.js'
+import { t, isLocaleLoaded, getCurrentLocale } from './i18n.js'
 
 let chatElement = null
 let currentStreamHandler = null
@@ -29,6 +29,13 @@ function getMessageContainer() {
     dc.shadowRoot.querySelector('#messages')
 }
 
+function getLatestRuntimePanel(container) {
+  if (!container) return null
+  const panels = container.querySelectorAll('details.runtime-panel')
+  if (!panels.length) return null
+  return panels[panels.length - 1]
+}
+
 function setupScrollListener() {
   const container = getMessageContainer()
   if (!container || container._scrollListenerAttached) return
@@ -47,8 +54,21 @@ function scrollToBottom() {
   container.scrollTop = container.scrollHeight
 }
 
+function syncRuntimePanelState(shouldOpen) {
+  setTimeout(() => {
+    const container = getMessageContainer()
+    if (!container) return
+    const details = getLatestRuntimePanel(container)
+    if (!details) return
+    if (shouldOpen) {
+      details.setAttribute('open', '')
+    } else {
+      details.removeAttribute('open')
+    }
+  }, 0)
+}
+
 const THINKING_STYLES = `
-<style>
 @keyframes thinking-dot-minimal{0%,100%{opacity:.4;transform:translateY(0)}50%{opacity:.8;transform:translateY(-3px)}}
 @keyframes thinking-pulse-minimal{0%,100%{opacity:1}50%{opacity:.5}}
 @keyframes dot-blink{0%,20%{opacity:0}50%{opacity:1}80%,100%{opacity:0}}
@@ -61,29 +81,48 @@ const THINKING_STYLES = `
 .thinking-dots span:nth-child(1){animation-delay:0s}
 .thinking-dots span:nth-child(2){animation-delay:0.2s}
 .thinking-dots span:nth-child(3){animation-delay:0.4s}
-.thinking-block{margin-bottom:8px}
-.thinking-block.thinking{margin-bottom:8px}
-.thinking-header{display:inline-flex;align-items:center;gap:6px;padding:4px 0;cursor:pointer;user-select:none;color:#8b8b8b;font-size:14px;transition:color .2s ease}
-.thinking-header:hover{color:#666}
-.thinking-icon{font-size:14px;line-height:1;display:inline-flex;align-items:center}
-.thinking-block.thinking .thinking-icon{animation:thinking-pulse-minimal 1.5s ease-in-out infinite}
-.thinking-label{font-size:14px;font-weight:400}
-.thinking-timer{font-size:14px;font-variant-numeric:tabular-nums}
-.thinking-toggle{font-size:12px;transition:transform .15s ease;display:inline-flex}
-.thinking-block.open .thinking-toggle{transform:rotate(90deg)}
-.thinking-body{max-height:0;overflow:hidden;transition:max-height .15s ease,opacity .1s ease;opacity:0;padding-left:20px;font-size:14px;line-height:1.6;color:#8b8b8b}
-.thinking-block.open .thinking-body{max-height:60vh;opacity:1;padding:8px 0 8px 20px;overflow-y:auto}
-.thinking-block.thinking .thinking-body{max-height:50vh;opacity:1;padding:8px 0 8px 20px;overflow-y:auto}
+.thinking-body{padding:8px 0 0 0;font-size:14px;line-height:1.7;color:#8b8b8b;max-height:none;overflow:visible}
+.thinking-caption{font-size:12px;font-weight:600;letter-spacing:.02em;color:#64748b;margin-bottom:6px;text-transform:uppercase}
 .thinking-content-text{white-space:pre-wrap;word-break:break-word}
-details.thinking-block{margin-bottom:8px}
-details.thinking-block>summary{display:inline-flex;align-items:center;gap:6px;padding:4px 0;cursor:pointer;user-select:none;color:#8b8b8b;font-size:14px;transition:color .2s ease;list-style:none}
-details.thinking-block>summary::-webkit-details-marker{display:none}
-details.thinking-block>summary::marker{display:none}
-details.thinking-block>summary:hover{color:#666}
-details.thinking-block .thinking-toggle{font-size:12px;transition:transform .15s ease;display:inline-flex}
-details.thinking-block[open] .thinking-toggle{transform:rotate(90deg)}
-details.thinking-block .thinking-body{padding:8px 0 8px 20px;font-size:14px;line-height:1.6;color:#8b8b8b;max-height:60vh;overflow-y:auto;opacity:1}
-</style>
+details.runtime-panel{margin-bottom:16px;padding:14px 16px;border:1px solid rgba(148,163,184,.20);border-radius:18px;background:rgba(248,250,252,.92)}
+details.runtime-panel>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer;user-select:none;list-style:none}
+details.runtime-panel>summary::-webkit-details-marker{display:none}
+details.runtime-panel>summary::marker{display:none}
+.runtime-summary-left{display:flex;align-items:center;gap:8px}
+.runtime-summary-right{display:flex;align-items:center;gap:10px}
+.runtime-state-icon{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;font-size:14px;color:#7c889d}
+.runtime-state-icon.live{animation:thinking-pulse-minimal 1.5s ease-in-out infinite}
+.runtime-state-icon.done{color:#16a34a}
+.runtime-state-icon .thinking-dots{margin-left:0}
+.runtime-title{font-size:15px;font-weight:500;letter-spacing:0;color:#7c889d}
+.runtime-title-elapsed{font-size:13px;font-weight:500;color:#94a3b8;font-variant-numeric:tabular-nums}
+.runtime-toggle{font-size:12px;transition:transform .15s ease;color:#94a3b8}
+details.runtime-panel[open] .runtime-toggle{transform:rotate(90deg)}
+.runtime-body{display:flex;flex-direction:column;gap:10px;padding-top:12px}
+.runtime-statuses{display:flex;flex-wrap:wrap;gap:8px}
+.runtime-chip{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:999px;font-size:13px;font-weight:500;background:#e2e8f0;color:#334155}
+.runtime-chip.active{box-shadow:0 0 0 1px rgba(59,130,246,.16) inset}
+.runtime-chip.reasoning{background:#f3f6ff;color:#5d6ea8}
+.runtime-chip.retrying{background:#fff7ed;color:#c2410c}
+.runtime-chip.waiting_for_tool{background:#ecfeff;color:#155e75}
+.runtime-chip.tool_running{background:#eff6ff;color:#1d4ed8}
+.runtime-chip.controlled_path{background:#f5f3ff;color:#6d28d9}
+.runtime-chip.answered{background:#dcfce7;color:#15803d}
+.runtime-chip.failed{background:#fef2f2;color:#b91c1c}
+.runtime-log{display:flex;flex-direction:column;gap:8px}
+.runtime-log-item{display:flex;gap:10px;align-items:flex-start;font-size:14px;line-height:1.5;color:#475569}
+.runtime-log-label{min-width:120px;font-weight:600;color:#1f2937}
+.runtime-log-time{min-width:44px;font-size:12px;font-variant-numeric:tabular-nums;color:#94a3b8}
+.runtime-log-message{flex:1}
+.response-content{word-break:break-word}
+.response-content p{margin:0 0 12px 0;line-height:1.75}
+.response-content ul,.response-content ol{margin:0 0 12px 20px;padding:0}
+.response-content li{margin:4px 0;line-height:1.7}
+.response-content h1,.response-content h2,.response-content h3{margin:0 0 10px 0;line-height:1.4}
+.response-content code{padding:2px 6px;border-radius:6px;background:#eef2f7;font-size:.95em}
+.response-content a{color:#2563eb;text-decoration:none}
+.response-content a:hover{text-decoration:underline}
+.message-wrapper{display:flex;flex-direction:column;gap:12px}
 `
 
 export async function initChat(element, callbacks = {}) {
@@ -203,7 +242,11 @@ function configureHandler(element) {
         body: JSON.stringify({
           session_key: sessionKey || '',
           message: messageText || '',
-          timeout_seconds: 600
+          timeout_seconds: 600,
+          context: {
+            ui_locale: getCurrentLocale(),
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+          }
         })
       })
 
@@ -227,9 +270,19 @@ function configureHandler(element) {
       return
     }
 
-    signals.onResponse({
-      html: `${THINKING_STYLES}<div class="thinking-loading"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>`
-    })
+    const initialPayload = buildMessageContent(
+      [{ state: 'reasoning', message: 'Starting response analysis.' }],
+      '',
+      '',
+      0,
+      true
+    )
+    if (initialPayload.html) {
+      signals.onResponse({
+        html: initialPayload.html,
+        overwrite: true
+      })
+    }
 
     await handleStreamWithSignals(runId, signals, { sessionKey, messageText })
   }
@@ -298,6 +351,7 @@ function configureI18nAttributes(element) {
   element.auxiliaryStyle = `
     :host { border: none !important; background: transparent !important; box-shadow: none !important; }
     #container, #chat-view, #messages, .messages, .messages-container { border: none !important; background: transparent !important; box-shadow: none !important; }
+    ${THINKING_STYLES}
   `
 
   const placeholder = isLocaleLoaded() ? t('chat.placeholder') : 'Enter your question...'
@@ -335,43 +389,93 @@ function notifyUserTurnStarted(sessionKey, messageText) {
 }
 
 async function notifyRunCompleted(sessionKey) {
-  const hasHistory = await refreshActiveSessionHistory()
+  const hasHistory = true
   if (typeof chatCallbacks.onRunCompleted === 'function') {
     await chatCallbacks.onRunCompleted({ sessionKey, hasHistory })
   }
   notifyConversationState(hasHistory)
 }
 
-function buildMessageText(thinkingContent, responseContent, elapsedSeconds = null, isThinking = false) {
-  if (thinkingContent) {
-    let html = ''
-    if (isThinking) {
-      html += `<div class="thinking-block thinking"><div class="thinking-header"><span class="thinking-icon">?</span><span class="thinking-label">Thinking<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span></span><span class="thinking-toggle">?</span></div><div class="thinking-body"><div class="thinking-content-text">${escapeHtml(thinkingContent)}</div></div></div>`
-      return { html }
-    }
-
-    html += `<details class="thinking-block"><summary><span class="thinking-icon">?</span><span class="thinking-label">Thought process</span>${elapsedSeconds !== null ? `<span class="thinking-timer">${elapsedSeconds}s</span>` : ''}<span class="thinking-toggle">?</span></summary><div class="thinking-body"><div class="thinking-content-text">${escapeHtml(thinkingContent)}</div></div></details>`
-    if (responseContent) {
-      return { html, text: responseContent }
-    }
-    return { html }
-  }
-
-  return { html: `<div class="response-content">${escapeHtml(responseContent || '')}</div>` }
+const RUNTIME_STATE_LABELS = {
+  reasoning: 'Runtime',
+  retrying: 'Retrying',
+  waiting_for_tool: 'Waiting for tool',
+  tool_running: 'Running tool',
+  controlled_path: 'Controlled path',
+  answered: 'Answered',
+  failed: 'Failed'
 }
 
-function buildMessageContent(thinkingContent, responseContent, elapsedSeconds = null, isThinking = false) {
-  const result = buildMessageText(thinkingContent, responseContent, elapsedSeconds, isThinking)
-  if (result.html && result.text) {
-    return { html: `<div class="message-wrapper">${result.html}<div class="response-content">${escapeHtml(result.text)}</div></div>` }
+function buildThinkingHtml(thinkingContent, elapsedSeconds = null, isThinking = false) {
+  if (!thinkingContent) return ''
+  return `<div class="thinking-body"><div class="thinking-caption">Model thinking</div><div class="thinking-content-text">${escapeHtmlWithBreaks(thinkingContent)}</div></div>`
+}
+
+function formatRuntimeHeaderElapsed(elapsedMs) {
+  if (typeof elapsedMs !== 'number' || Number.isNaN(elapsedMs) || elapsedMs < 0) return ''
+  return `${(elapsedMs / 1000).toFixed(1)}s`
+}
+
+function buildRuntimePanel(runtimeEntries, thinkingContent, elapsedMs = null, isThinking = false, panelOpen = null) {
+  const entries = Array.isArray(runtimeEntries) ? runtimeEntries : []
+  const hasThinkingText = !!(thinkingContent && thinkingContent.trim())
+  let visibleEntries = entries
+  if (!hasThinkingText) {
+    const terminalEntry = [...entries].reverse().find((entry) => entry.state === 'answered' || entry.state === 'failed')
+    visibleEntries = terminalEntry ? [terminalEntry] : []
   }
-  if (result.text !== undefined && !result.html) {
-    return { html: `<div class="response-content">${escapeHtml(result.text)}</div>` }
+  if (!visibleEntries.length && !hasThinkingText) {
+    return ''
   }
-  if (result.html) {
-    return { html: `<div class="message-wrapper">${result.html}</div>` }
+  const chipEntries = visibleEntries.filter((entry, index) => {
+    if (index === 0) return true
+    return entry.state !== visibleEntries[index - 1].state
+  })
+  const chips = chipEntries.map((entry, index) => {
+    const label = RUNTIME_STATE_LABELS[entry.state] || entry.state
+    const activeClass = index === chipEntries.length - 1 ? ' active' : ''
+    return `<span class="runtime-chip ${entry.state || ''}${activeClass}">${escapeHtml(label)}</span>`
+  }).join('')
+  const logs = visibleEntries.map((entry) => {
+    const label = RUNTIME_STATE_LABELS[entry.state] || entry.state || 'Runtime'
+    const message = entry.message ? escapeHtml(entry.message) : ''
+    const time = formatElapsed(entry.elapsedMs)
+    return `<div class="runtime-log-item"><span class="runtime-log-time">${escapeHtml(time)}</span><span class="runtime-log-label">${escapeHtml(label)}</span><span class="runtime-log-message">${message}</span></div>`
+  }).join('')
+  const thinkingHtml = buildThinkingHtml(thinkingContent, elapsedMs, isThinking)
+  const hasAnswered = visibleEntries.some((entry) => entry.state === 'answered')
+  const hasFailed = visibleEntries.some((entry) => entry.state === 'failed')
+  const titleIcon = hasAnswered
+    ? '<span class="runtime-state-icon done">✓</span>'
+    : !hasFailed
+    ? '<span class="thinking-dots thinking-title-dots"><span>.</span><span>.</span><span>.</span></span>'
+    : ''
+  const titleElapsed = formatRuntimeHeaderElapsed(elapsedMs)
+  const titleElapsedHtml = titleElapsed
+    ? `<span class="runtime-title-elapsed">${escapeHtml(titleElapsed)}</span>`
+    : ''
+  const shouldOpen = typeof panelOpen === 'boolean' ? panelOpen : isThinking
+  const detailsAttrs = shouldOpen ? ' open' : ''
+  return `<details class="runtime-panel"${detailsAttrs}><summary><div class="runtime-summary-left"><span class="runtime-title">Runtime</span>${titleIcon}${titleElapsedHtml}</div><div class="runtime-summary-right"><span class="runtime-toggle">></span></div></summary><div class="runtime-body">${chips ? `<div class="runtime-statuses">${chips}</div>` : ''}${logs ? `<div class="runtime-log">${logs}</div>` : ''}${thinkingHtml}</div></details>`
+}
+
+function formatElapsed(elapsedMs) {
+  if (typeof elapsedMs !== 'number' || Number.isNaN(elapsedMs) || elapsedMs < 0) return ''
+  if (elapsedMs < 1000) {
+    return `${Math.max(1, Math.round(elapsedMs))}ms`
   }
-  return result
+  return `${(elapsedMs / 1000).toFixed(1)}s`
+}
+
+function buildMessageContent(runtimeEntries, thinkingContent, responseContent, elapsedMs = null, isThinking = false, panelOpen = null) {
+  const runtimeHtml = buildRuntimePanel(runtimeEntries, thinkingContent, elapsedMs, isThinking, panelOpen)
+  const responseHtml = responseContent
+    ? `<div class="response-content">${renderAssistantMarkdown(responseContent)}</div>`
+    : ''
+  if (!runtimeHtml && !responseHtml) {
+    return { html: '' }
+  }
+  return { html: `<div class="message-wrapper">${runtimeHtml}${responseHtml}</div>` }
 }
 
 function escapeHtml(text) {
@@ -382,29 +486,179 @@ function escapeHtml(text) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
-    .replace(/\n/g, '<br>')
+}
+
+function escapeHtmlWithBreaks(text) {
+  return escapeHtml(text).replace(/\n/g, '<br>')
+}
+
+function sanitizeLinkUrl(url) {
+  const normalized = (url || '').trim()
+  if (!normalized) return '#'
+  if (/^https?:\/\//i.test(normalized)) return normalized
+  return '#'
+}
+
+function renderInlineMarkdown(line) {
+  let html = line || ''
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>')
+  html = html.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_match, label, url) => {
+    const safeUrl = sanitizeLinkUrl(url)
+    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer">${label}</a>`
+  })
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>')
+  return html
+}
+
+function renderAssistantMarkdown(text) {
+  const escaped = escapeHtml(text || '').replace(/\r\n/g, '\n')
+  if (!escaped.trim()) return ''
+
+  const lines = escaped.split('\n')
+  const htmlParts = []
+  let paragraph = []
+  let listType = null
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return
+    htmlParts.push(`<p>${renderInlineMarkdown(paragraph.join('<br>'))}</p>`)
+    paragraph = []
+  }
+
+  const flushList = () => {
+    if (!listType) return
+    htmlParts.push(listType === 'ul' ? '</ul>' : '</ol>')
+    listType = null
+  }
+
+  for (const rawLine of lines) {
+    const line = (rawLine || '').trim()
+    if (!line) {
+      flushParagraph()
+      flushList()
+      continue
+    }
+
+    const headingMatch = /^(#{1,3})\s+(.+)$/.exec(line)
+    if (headingMatch) {
+      flushParagraph()
+      flushList()
+      const level = headingMatch[1].length
+      htmlParts.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`)
+      continue
+    }
+
+    const ulMatch = /^[-*]\s+(.+)$/.exec(line)
+    if (ulMatch) {
+      flushParagraph()
+      if (listType !== 'ul') {
+        flushList()
+        htmlParts.push('<ul>')
+        listType = 'ul'
+      }
+      htmlParts.push(`<li>${renderInlineMarkdown(ulMatch[1])}</li>`)
+      continue
+    }
+
+    const olMatch = /^\d+\.\s+(.+)$/.exec(line)
+    if (olMatch) {
+      flushParagraph()
+      if (listType !== 'ol') {
+        flushList()
+        htmlParts.push('<ol>')
+        listType = 'ol'
+      }
+      htmlParts.push(`<li>${renderInlineMarkdown(olMatch[1])}</li>`)
+      continue
+    }
+
+    flushList()
+    paragraph.push(line)
+  }
+
+  flushParagraph()
+  flushList()
+  return htmlParts.join('')
 }
 
 async function handleStreamWithSignals(runId, signals, context) {
   let aiMessageContent = ''
   let hasRenderedDelta = false
   let thinkingContent = ''
+  let runStartTime = Date.now()
+  let runTimerInterval = null
   let thinkingStartTime = null
   let thinkingElapsedSeconds = 0
   let thinkingTimerInterval = null
   let thinkingFinalized = false
   let hasThinkingContent = false
+  let runtimePanelUserOverride = false
+  let runtimePanelOpen = null
+  let runtimeEntries = [{ state: 'reasoning', message: 'Starting response analysis.' }]
+
+  function currentElapsedMs() {
+    if (runStartTime) {
+      return Math.max(0, Date.now() - runStartTime)
+    }
+    return 0
+  }
+
+  function pushRuntimeEntry(state, message, metadata = {}) {
+    const nextEntry = {
+      state: state || 'reasoning',
+      message: message || '',
+      metadata,
+      elapsedMs: currentElapsedMs()
+    }
+    const lastEntry = runtimeEntries[runtimeEntries.length - 1]
+    if (lastEntry && lastEntry.state === nextEntry.state && lastEntry.message === nextEntry.message) {
+      runtimeEntries = [...runtimeEntries.slice(0, -1), nextEntry]
+      return
+    }
+    runtimeEntries = [...runtimeEntries, nextEntry]
+  }
+
+  function autoPanelShouldOpen() {
+    return !thinkingFinalized
+  }
+
+  function currentPanelShouldOpen() {
+    if (runtimePanelUserOverride && typeof runtimePanelOpen === 'boolean') {
+      return runtimePanelOpen
+    }
+    return autoPanelShouldOpen()
+  }
+
+  function bindRuntimePanelToggle() {
+    setTimeout(() => {
+      const container = getMessageContainer()
+      if (!container) return
+      const details = getLatestRuntimePanel(container)
+      if (!details || details._runtimeToggleBound) return
+      details._runtimeToggleBound = true
+      details.addEventListener('toggle', () => {
+        runtimePanelUserOverride = true
+        runtimePanelOpen = !!details.open
+      })
+    }, 0)
+  }
 
   function updateUI() {
     try {
+      const panelShouldOpen = currentPanelShouldOpen()
       const content = buildMessageContent(
+        runtimeEntries,
         thinkingContent,
         aiMessageContent,
-        thinkingElapsedSeconds,
-        !thinkingFinalized && hasThinkingContent
+        currentElapsedMs(),
+        !thinkingFinalized,
+        panelShouldOpen
       )
       if (content.html) {
         signals.onResponse({ html: content.html, overwrite: true })
+        syncRuntimePanelState(panelShouldOpen)
+        bindRuntimePanelToggle()
       }
       setupScrollListener()
       scrollToBottom()
@@ -418,6 +672,9 @@ async function handleStreamWithSignals(runId, signals, context) {
     thinkingStartTime = Date.now()
     thinkingTimerInterval = setInterval(() => {
       thinkingElapsedSeconds = Math.round((Date.now() - thinkingStartTime) / 100) / 10
+      if (!thinkingFinalized) {
+        updateUI()
+      }
     }, 100)
   }
 
@@ -435,85 +692,80 @@ async function handleStreamWithSignals(runId, signals, context) {
     }
   }
 
+  function startRunTimer() {
+    if (runTimerInterval) return
+    runTimerInterval = setInterval(() => {
+      const hasTerminalState = runtimeEntries.some((entry) => entry.state === 'answered' || entry.state === 'failed')
+      if (hasTerminalState && thinkingFinalized) {
+        stopRunTimer()
+        return
+      }
+      updateUI()
+    }, 100)
+  }
+
+  function stopRunTimer() {
+    if (runTimerInterval) {
+      clearInterval(runTimerInterval)
+      runTimerInterval = null
+    }
+  }
+
   return new Promise((resolve) => {
+    startRunTimer()
     currentStreamHandler = createStreamHandler(runId, {
-      onStart: () => {},
+      onStart: () => {
+        pushRuntimeEntry('reasoning', 'Model accepted the request and started reasoning.', { phase: 'start' })
+        updateUI()
+      },
       onDelta: (data) => {
         if (!data.content) return
         if (!thinkingFinalized) {
           thinkingFinalized = true
           stopThinkingTimer()
         }
+        pushRuntimeEntry('answered', 'Final answer is streaming.', { phase: 'answering' })
         aiMessageContent += data.content
         hasRenderedDelta = true
         if (!assistantUpdatePending) {
           assistantUpdatePending = true
           setTimeout(() => {
             assistantUpdatePending = false
-            try {
-              if (hasThinkingContent) {
-                const content = buildMessageContent(thinkingContent, aiMessageContent, thinkingElapsedSeconds, false)
-                const htmlContent = content.html || `<div class="response-content">${escapeHtml(content.text || '')}</div>`
-                signals.onResponse({ html: htmlContent, overwrite: true })
-              } else {
-                signals.onResponse({ html: `<div class="response-content">${escapeHtml(aiMessageContent)}</div>`, overwrite: true })
-              }
-              setupScrollListener()
-              scrollToBottom()
-            } catch (e) {
-              console.warn('[ChatUI] Failed to update message:', e)
-            }
+            updateUI()
           }, 100)
         }
       },
-      onToolStart: () => {},
-      onToolEnd: () => {},
+      onToolStart: (data) => {
+        pushRuntimeEntry('tool_running', `Running tool: ${data?.tool_name || 'tool'}`, { phase: 'running_tool' })
+        updateUI()
+      },
+      onToolEnd: (data) => {
+        pushRuntimeEntry('waiting_for_tool', `Tool completed: ${data?.tool_name || 'tool'}`, { phase: 'tool_completed' })
+        updateUI()
+      },
       onThinkingStart: () => {
         hasThinkingContent = true
+        thinkingFinalized = false
         startThinkingTimer()
         userHasScrolledUp = false
-        thinkingBlockId = `tb-${Date.now()}`
-        const initialHtml = `<div class="message-wrapper">${THINKING_STYLES}
-          <div class="thinking-block thinking" id="${thinkingBlockId}">
-            <div class="thinking-header">
-              <span class="thinking-icon">*</span>
-              <span class="thinking-label">Thinking<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span></span>
-              <span class="thinking-toggle">▸</span>
-            </div>
-            <div class="thinking-body">
-              <div class="thinking-content-text" id="${thinkingBlockId}-content"></div>
-            </div>
-          </div>
-        </div>`
-        signals.onResponse({ html: initialHtml, overwrite: true })
+        pushRuntimeEntry('reasoning', 'Collecting model reasoning.', { phase: 'thinking' })
+        updateUI()
       },
       onThinkingDelta: (data) => {
         const content = data?.content || ''
         if (!content) return
         if (!thinkingStartTime) {
           hasThinkingContent = true
+          thinkingFinalized = false
           startThinkingTimer()
         }
         thinkingContent += content
-        const dc = document.querySelector('deep-chat')
-        if (dc?.shadowRoot && thinkingBlockId) {
-          const contentEl = dc.shadowRoot.querySelector(`#${thinkingBlockId}-content`)
-          if (contentEl) {
-            const escapedContent = content
-              .replace(/&/g, '&amp;')
-              .replace(/</g, '&lt;')
-              .replace(/>/g, '&gt;')
-              .replace(/\n/g, '<br>')
-            contentEl.insertAdjacentHTML('beforeend', escapedContent)
-          }
-        }
         if (!thinkingScrollPending) {
           thinkingScrollPending = true
           setTimeout(() => {
             thinkingScrollPending = false
-            setupScrollListener()
-            scrollToBottom()
-          }, 100)
+            updateUI()
+          }, 80)
         }
       },
       onThinkingEnd: (data) => {
@@ -522,6 +774,11 @@ async function handleStreamWithSignals(runId, signals, context) {
           thinkingElapsedSeconds = data.elapsed
         }
         stopThinkingTimer()
+        pushRuntimeEntry('reasoning', 'Reasoning phase completed.', { phase: 'completed' })
+        updateUI()
+      },
+      onRuntime: (data) => {
+        pushRuntimeEntry(data.state, data.message, data.metadata || {})
         updateUI()
       },
       onEnd: () => {
@@ -529,9 +786,15 @@ async function handleStreamWithSignals(runId, signals, context) {
           assistantUpdatePending = false
           thinkingFinalized = true
           stopThinkingTimer()
-          if (hasRenderedDelta || hasThinkingContent) {
-            updateUI()
+          if (!runtimeEntries.some((entry) => entry.state === 'answered' || entry.state === 'failed')) {
+            if (aiMessageContent.trim()) {
+              pushRuntimeEntry('answered', 'Run completed.', { phase: 'completed' })
+            } else {
+              pushRuntimeEntry('failed', 'Run ended without a usable answer.', { phase: 'completed' })
+            }
           }
+          updateUI()
+          stopRunTimer()
           await notifyRunCompleted(context.sessionKey)
           signals.onClose()
           currentStreamHandler = null
@@ -544,12 +807,9 @@ async function handleStreamWithSignals(runId, signals, context) {
       onError: async (error) => {
         thinkingFinalized = true
         stopThinkingTimer()
-        try {
-          signals.onResponse({
-            html: `<p style="color: #d32f2f;">Error: ${escapeHtml(error?.message || 'Unknown error')}</p>`,
-            overwrite: true
-          })
-        } catch (e) {}
+        pushRuntimeEntry('failed', error?.message || 'Unknown error', { phase: 'error' })
+        updateUI()
+        stopRunTimer()
         await notifyRunCompleted(context.sessionKey)
         signals.onClose()
         currentStreamHandler = null

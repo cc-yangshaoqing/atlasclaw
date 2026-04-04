@@ -71,6 +71,15 @@ _TOOL_REGISTRY: dict[str, tuple[ToolMetadata, str, str]] = {
         "app.atlasclaw.tools.web.fetch_tool",
         "web_fetch_tool",
     ),
+    "openmeteo_weather": (
+        ToolMetadata(
+            name="openmeteo_weather",
+            description="Get current and forecast weather via Open-Meteo APIs",
+            group="web",
+        ),
+        "app.atlasclaw.tools.web.openmeteo_weather_tool",
+        "openmeteo_weather_tool",
+    ),
     # Provider tools
     "list_provider_instances": (
         ToolMetadata(name="list_provider_instances", description="List Provider service instances", group="providers"),

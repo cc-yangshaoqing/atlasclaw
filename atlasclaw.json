@@ -23,8 +23,33 @@
   "providers_root": "../atlasclaw-providers/providers",
   "skills_root": "../atlasclaw-providers/skills",
   "channels_root": "../atlasclaw-providers/channels",
+  "tool_gate": {
+    "enable_model_classifier": true
+  },
+  "search_runtime": {
+    "default_provider": "bing_html_fallback",
+    "provider_timeout_seconds": 8.0,
+    "provider_hedge_delay_seconds": 1.2,
+    "overall_timeout_seconds": 10.0,
+    "prefer_grounding": true,
+    "providers": [
+      {
+        "provider_key": "bing_html_fallback",
+        "provider_type": "search",
+        "timeout_seconds": 8
+      },
+      {
+        "provider_key": "google_html_fallback",
+        "provider_type": "search",
+        "timeout_seconds": 8
+      }
+    ],
+    "proxy": {
+      "trust_env": true
+    }
+  },
   "model": {
-    "primary": "model-1",
+    "primary": "model-2",
     "fallbacks": [],
     "temperature": "${LLM_TEMPERATURE}",
     "selection_strategy": "health",
@@ -146,3 +171,4 @@
     ]
   }
 }
+

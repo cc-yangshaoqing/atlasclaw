@@ -149,6 +149,7 @@ def build_scoped_deps(
         "available_providers": ctx.available_providers,
         "provider_instances": ctx.provider_instances,
         "provider_config": provider_config or {},
+        "tools_snapshot": ctx.skill_registry.snapshot(),
         "skills_snapshot": ctx.skill_registry.snapshot_builtins(),
         "md_skills_snapshot": ctx.skill_registry.md_snapshot(),
         "work_dir": str(
