@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Any, Optional, TYPE_CHECKING
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic_ai import RunContext
 
 from app.atlasclaw.skills.frontmatter import parse_frontmatter
@@ -28,6 +28,7 @@ from app.atlasclaw.skills.md_tool_runtime import (
     should_override_location,
 )
 from app.atlasclaw.core.deps import SkillDeps
+from app.atlasclaw.tools.catalog import GROUP_TOOLS
 
 if TYPE_CHECKING:
     from pydantic_ai import Agent
@@ -97,6 +98,17 @@ class SkillMetadata(BaseModel):
     location: str = "built-in"
     provider_type: Optional[str] = None
     instance_required: bool = False
+    source: str = "builtin"
+    group_ids: list[str] = Field(default_factory=list)
+    capability_class: str = ""
+    priority: int = 100
+    parameters_schema: dict[str, Any] = Field(default_factory=dict)
+    planner_visibility: str = "contextual"
+    aliases: list[str] = Field(default_factory=list)
+    keywords: list[str] = Field(default_factory=list)
+    use_when: list[str] = Field(default_factory=list)
+    avoid_when: list[str] = Field(default_factory=list)
+    result_mode: str = "llm"
 
 
 @dataclass
@@ -166,6 +178,7 @@ class SkillRegistry:
         self._skills: dict[str, tuple[SkillMetadata, Callable]] = {}
         self._md_skills: dict[str, MdSkillEntry] = {}
         self._md_skill_tools: dict[str, set[str]] = {}
+        self._md_tool_profiles: dict[str, dict[str, Any]] = {}
         self._workspace = workspace
         self._allow_script_execution = allow_script_execution
     
@@ -176,11 +189,20 @@ class SkillRegistry:
     ) -> None:
         """Register an executable skill handler."""
         self._skills[metadata.name] = (metadata, handler)
-    
+        if metadata.source in {"md_skill", "provider"}:
+            self._md_tool_profiles[metadata.name] = {
+                "source": metadata.source,
+                "provider_type": metadata.provider_type or "",
+                "group_ids": list(metadata.group_ids or []),
+                "capability_class": metadata.capability_class or "",
+                "priority": int(metadata.priority or 100),
+            }
+
     def unregister(self, name: str) -> bool:
         """Unregister a skill by name."""
         if name in self._skills:
             del self._skills[name]
+            self._md_tool_profiles.pop(name, None)
             return True
         return False
     
@@ -198,6 +220,17 @@ class SkillRegistry:
                 "location": meta.location,
                 "provider_type": meta.provider_type,
                 "instance_required": meta.instance_required,
+                "source": meta.source,
+                "group_ids": list(meta.group_ids),
+                "capability_class": meta.capability_class,
+                "priority": meta.priority,
+                "parameters_schema": self._coerce_parameters_schema(meta.parameters_schema),
+                "planner_visibility": str(meta.planner_visibility or "").strip(),
+                "aliases": list(meta.aliases),
+                "keywords": list(meta.keywords),
+                "use_when": list(meta.use_when),
+                "avoid_when": list(meta.avoid_when),
+                "result_mode": str(meta.result_mode or "").strip(),
             }
             for meta, _ in self._skills.values()
         ]
@@ -220,16 +253,79 @@ class SkillRegistry:
                 "location": meta.location,
                 "provider_type": meta.provider_type,
                 "instance_required": meta.instance_required,
+                "source": meta.source,
+                "group_ids": list(meta.group_ids),
+                "capability_class": meta.capability_class,
+                "priority": meta.priority,
+                "parameters_schema": self._coerce_parameters_schema(meta.parameters_schema),
+                "planner_visibility": str(meta.planner_visibility or "").strip(),
+                "aliases": list(meta.aliases),
+                "keywords": list(meta.keywords),
+                "use_when": list(meta.use_when),
+                "avoid_when": list(meta.avoid_when),
+                "result_mode": str(meta.result_mode or "").strip(),
             }
             for meta, _ in self._skills.values()
             if meta.name not in md_derived
         ]
+
+    def tools_snapshot(self) -> list[dict]:
+        """Return normalized executable-tool metadata for runtime filtering."""
+        normalized: list[dict] = []
+        for meta, _ in self._skills.values():
+            source = self._resolve_tool_source(meta)
+            provider_type = str(meta.provider_type or "").strip()
+            capability_class = self._resolve_capability_class(meta, source)
+            group_ids = self._resolve_group_ids(meta, source, provider_type)
+            record = {
+                "name": meta.name,
+                "description": meta.description,
+                "source": source,
+                "provider_type": provider_type,
+                "group_ids": group_ids,
+                "capability_class": capability_class,
+                "priority": int(meta.priority or 100),
+                "category": meta.category,
+                "location": meta.location,
+                "parameters_schema": self._coerce_parameters_schema(meta.parameters_schema),
+                "planner_visibility": str(meta.planner_visibility or "").strip(),
+                "aliases": list(meta.aliases),
+                "keywords": list(meta.keywords),
+                "use_when": list(meta.use_when),
+                "avoid_when": list(meta.avoid_when),
+                "result_mode": str(meta.result_mode or "").strip(),
+            }
+            normalized.append(record)
+        return normalized
+
+    def tool_groups_snapshot(self) -> dict[str, list[str]]:
+        """Return merged group->tool mappings for built-ins and provider/md tools."""
+        available = {item["name"] for item in self.tools_snapshot()}
+        merged: dict[str, set[str]] = {}
+
+        for group_id, members in GROUP_TOOLS.items():
+            for tool_name in members:
+                if tool_name not in available:
+                    continue
+                merged.setdefault(group_id, set()).add(tool_name)
+
+        for tool in self.tools_snapshot():
+            tool_name = str(tool.get("name", "")).strip()
+            if not tool_name:
+                continue
+            for group_id in tool.get("group_ids", []):
+                normalized_group = str(group_id or "").strip()
+                if not normalized_group:
+                    continue
+                merged.setdefault(normalized_group, set()).add(tool_name)
+
+        return {key: sorted(values) for key, values in merged.items()}
     
     def to_tool_definitions(self) -> list[dict]:
         """Convert registered skills into tool-definition dictionaries."""
         definitions = []
         for meta, handler in self._skills.values():
-            schema = self._extract_schema(handler)
+            schema = self._coerce_parameters_schema(meta.parameters_schema) or self._extract_schema(handler)
             definitions.append({
                 "name": meta.name,
                 "description": meta.description,
@@ -246,17 +342,27 @@ convert Skills register PydanticAI Agent tool
  
 """
         for name, (meta, handler) in self._skills.items():
-            # PydanticAI support tool
-            if hasattr(agent, "tool"):
-                # Inject RunContext and SkillDeps into handler's module globals if needed
-                # This resolves forward reference type hints like "RunContext[SkillDeps]"
-                handler_module = inspect.getmodule(handler)
-                if handler_module:
-                    if 'RunContext' not in handler_module.__dict__:
-                        handler_module.__dict__['RunContext'] = RunContext
-                    if 'SkillDeps' not in handler_module.__dict__:
-                        handler_module.__dict__['SkillDeps'] = SkillDeps
-                agent.tool(handler, name=name)
+            self.register_entry_to_agent(agent, meta, handler)
+
+    def register_entry_to_agent(
+        self,
+        agent: Any,
+        metadata: SkillMetadata,
+        handler: Callable,
+    ) -> None:
+        """Register one executable skill on an agent using metadata-aware schema exposure."""
+        if not hasattr(agent, "tool"):
+            return
+
+        handler_module = inspect.getmodule(handler)
+        if handler_module:
+            if "RunContext" not in handler_module.__dict__:
+                handler_module.__dict__["RunContext"] = RunContext
+            if "SkillDeps" not in handler_module.__dict__:
+                handler_module.__dict__["SkillDeps"] = SkillDeps
+
+        runtime_handler = self._build_runtime_handler(metadata, handler)
+        agent.tool(runtime_handler, name=metadata.name)
     
     async def execute(
         self,
@@ -349,6 +455,158 @@ from count JSON Schema
             "properties": properties,
             "required": required,
         }
+
+    def _build_runtime_handler(
+        self,
+        metadata: SkillMetadata,
+        handler: Callable,
+    ) -> Callable:
+        """Build a metadata-aware runtime handler so the model sees the intended tool schema."""
+        parameters_schema = self._coerce_parameters_schema(metadata.parameters_schema)
+        if not parameters_schema:
+            return handler
+
+        accepts_ctx = self._handler_accepts_ctx(handler)
+        signature = self._build_runtime_signature(parameters_schema)
+        docstring = self._build_runtime_docstring(metadata, parameters_schema)
+
+        async def runtime_handler(ctx: RunContext[SkillDeps], **kwargs: Any) -> Any:
+            if accepts_ctx:
+                result = handler(ctx, **kwargs)
+            else:
+                result = handler(**kwargs)
+            if inspect.isawaitable(result):
+                return await result
+            return result
+
+        runtime_handler.__name__ = re.sub(r"[^a-zA-Z0-9_]", "_", metadata.name) or "atlasclaw_tool"
+        runtime_handler.__qualname__ = runtime_handler.__name__
+        runtime_handler.__doc__ = docstring
+        runtime_handler.__signature__ = signature
+        runtime_handler.__annotations__ = {
+            parameter.name: parameter.annotation
+            for parameter in signature.parameters.values()
+            if parameter.annotation is not inspect.Parameter.empty
+        }
+        runtime_handler.__annotations__["return"] = Any
+        return runtime_handler
+
+    @staticmethod
+    def _handler_accepts_ctx(handler: Callable) -> bool:
+        """Return whether the original handler expects a RunContext-style first argument."""
+        try:
+            params = list(inspect.signature(handler).parameters.keys())
+        except (TypeError, ValueError):
+            return False
+        if not params:
+            return False
+        return params[0] in {"ctx", "context"}
+
+    @staticmethod
+    def _coerce_parameters_schema(raw_schema: Any) -> dict[str, Any]:
+        """Normalize optional JSON-schema metadata into a usable object schema."""
+        if isinstance(raw_schema, str):
+            payload = raw_schema.strip()
+            if not payload:
+                return {}
+            try:
+                raw_schema = json.loads(payload)
+            except json.JSONDecodeError:
+                return {}
+        if not isinstance(raw_schema, dict):
+            return {}
+        schema_type = str(raw_schema.get("type", "") or "").strip().lower()
+        if schema_type and schema_type != "object":
+            return {}
+        properties = raw_schema.get("properties")
+        if not isinstance(properties, dict) or not properties:
+            return {}
+        normalized: dict[str, Any] = {
+            "type": "object",
+            "properties": properties,
+        }
+        required = raw_schema.get("required")
+        if isinstance(required, list):
+            normalized["required"] = [str(item) for item in required if str(item).strip()]
+        return normalized
+
+    def _build_runtime_signature(self, parameters_schema: dict[str, Any]) -> inspect.Signature:
+        """Build an explicit function signature from metadata JSON schema."""
+        parameters: list[inspect.Parameter] = [
+            inspect.Parameter(
+                "ctx",
+                kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                annotation=RunContext[SkillDeps],
+            )
+        ]
+
+        properties = parameters_schema.get("properties", {})
+        required_names = {
+            str(item).strip()
+            for item in parameters_schema.get("required", []) or []
+            if str(item).strip()
+        }
+        for name, schema in properties.items():
+            normalized_name = str(name).strip()
+            if not normalized_name:
+                continue
+            property_schema = schema if isinstance(schema, dict) else {}
+            default = property_schema.get("default", inspect.Parameter.empty)
+            if normalized_name not in required_names and default is inspect.Parameter.empty:
+                default = None
+            parameters.append(
+                inspect.Parameter(
+                    normalized_name,
+                    kind=inspect.Parameter.KEYWORD_ONLY,
+                    default=default,
+                    annotation=self._schema_to_annotation(property_schema),
+                )
+            )
+        return inspect.Signature(parameters=parameters)
+
+    @staticmethod
+    def _schema_to_annotation(property_schema: dict[str, Any]) -> Any:
+        """Map a JSON-schema property to a reasonable Python annotation."""
+        schema_type = str(property_schema.get("type", "") or "").strip().lower()
+        if schema_type == "string":
+            return str
+        if schema_type == "integer":
+            return int
+        if schema_type == "number":
+            return float
+        if schema_type == "boolean":
+            return bool
+        if schema_type == "array":
+            return list[Any]
+        if schema_type == "object":
+            return dict[str, Any]
+        return Any
+
+    @staticmethod
+    def _build_runtime_docstring(
+        metadata: SkillMetadata,
+        parameters_schema: dict[str, Any],
+    ) -> str:
+        """Generate a compact docstring with parameter descriptions for tool exposure."""
+        lines = [metadata.description.strip() or f"Execute {metadata.name}."]
+        properties = parameters_schema.get("properties", {})
+        if not isinstance(properties, dict) or not properties:
+            return "\n".join(lines).strip()
+        required_names = {
+            str(item).strip()
+            for item in parameters_schema.get("required", []) or []
+            if str(item).strip()
+        }
+        lines.append("")
+        lines.append("Args:")
+        for name, schema in properties.items():
+            property_schema = schema if isinstance(schema, dict) else {}
+            description = str(property_schema.get("description", "") or "").strip()
+            type_name = str(property_schema.get("type", "value") or "value").strip()
+            requirement = "required" if str(name).strip() in required_names else "optional"
+            summary = description or f"{type_name} parameter"
+            lines.append(f"    {name}: {summary} ({requirement}).")
+        return "\n".join(lines).strip()
     
     def load_from_directory(
         self,
@@ -606,5 +864,68 @@ register name
         
 """
         return list(self._skills.keys())
+
+    def _resolve_tool_source(self, meta: SkillMetadata) -> str:
+        explicit_source = str(meta.source or "").strip().lower()
+        if explicit_source in {"builtin", "provider", "md_skill"}:
+            return explicit_source
+
+        category = str(meta.category or "").strip().lower()
+        if category.startswith("builtin:"):
+            return "builtin"
+        if str(meta.provider_type or "").strip():
+            return "provider"
+        if meta.name in self._md_tool_profiles:
+            profile_source = str(self._md_tool_profiles[meta.name].get("source", "")).strip()
+            if profile_source in {"builtin", "provider", "md_skill"}:
+                return profile_source
+        return "md_skill"
+
+    def _resolve_capability_class(self, meta: SkillMetadata, source: str) -> str:
+        explicit = str(meta.capability_class or "").strip()
+        if explicit:
+            return explicit
+
+        provider_type = str(meta.provider_type or "").strip()
+        if provider_type:
+            return f"provider:{provider_type}"
+
+        name = str(meta.name or "").strip().lower()
+        if name in {"web_search", "web_fetch"}:
+            return name
+        if name == "browser":
+            return "browser"
+        if name == "openmeteo_weather":
+            return "weather"
+        if source == "md_skill":
+            return "skill"
+        return ""
+
+    def _resolve_group_ids(
+        self,
+        meta: SkillMetadata,
+        source: str,
+        provider_type: str,
+    ) -> list[str]:
+        group_ids = [str(item).strip() for item in (meta.group_ids or []) if str(item).strip()]
+        category = str(meta.category or "").strip().lower()
+        if category.startswith("builtin:"):
+            group_name = category.split(":", 1)[1].strip()
+            if group_name:
+                group_ids.append(f"group:{group_name}")
+        if provider_type:
+            group_ids.append(f"group:{provider_type}")
+        if source == "builtin":
+            group_ids.append("group:atlasclaw")
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for item in group_ids:
+            normalized = item if item.startswith("group:") else f"group:{item}"
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(normalized)
+        return deduped
 
 

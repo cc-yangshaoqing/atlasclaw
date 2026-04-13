@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from app.atlasclaw.core.config import get_config
+from app.atlasclaw.agent.prompt_context_resolver import PromptContextResolver
 from app.atlasclaw.agent import prompt_sections
 
 if TYPE_CHECKING:
@@ -48,6 +49,7 @@ class PromptBuilderConfig:
     """PromptBuilder configuration"""
     mode: PromptMode = PromptMode.FULL
     bootstrap_max_chars: int = 20000
+    bootstrap_total_max_chars: int = 40000
     workspace_path: str = ""
     user_timezone: Optional[str] = None
     time_format: str = "auto"  # auto | 12 | 24
@@ -102,6 +104,8 @@ class PromptBuilder:
         if not config.workspace_path:
             config.workspace_path = str(Path(get_config().workspace.path).expanduser().resolve())
         self.config = config
+        self._context_resolver = PromptContextResolver()
+        self._runtime_warnings: list[str] = []
     
     def build(
         self,
@@ -113,6 +117,8 @@ class PromptBuilder:
         tool_policy: Optional[dict] = None,
         user_info: Optional["UserInfo"] = None,
         provider_contexts: Optional[dict[str, dict]] = None,
+        context_window_tokens: Optional[int] = None,
+        mode_override: Optional[PromptMode] = None,
     ) -> str:
         """
         Build the full system prompt for the current run.
@@ -127,8 +133,12 @@ class PromptBuilder:
         Returns:
             The assembled system prompt text.
         """
-        if self.config.mode == PromptMode.NONE:
+        effective_mode = mode_override or self.config.mode
+
+        if effective_mode == PromptMode.NONE:
             return f"You are {self.config.agent_name}, {self.config.agent_description}."
+
+        self._runtime_warnings.clear()
         
         parts = []
         
@@ -151,7 +161,7 @@ class PromptBuilder:
             if user_ctx:
                 parts.append(user_ctx)
         
-        if self.config.mode == PromptMode.FULL:
+        if effective_mode == PromptMode.FULL:
             # 4. Markdown skill index (HIGHEST PRIORITY - check these first!)
             if md_skills:
                 md_index = self._build_md_skills_index(md_skills, provider_contexts)
@@ -175,7 +185,10 @@ class PromptBuilder:
             parts.append(self._build_documentation())
             
             # 8. Project bootstrap context
-            bootstrap = self._build_bootstrap()
+            bootstrap = self._build_bootstrap(
+                session=session,
+                context_window_tokens=context_window_tokens,
+            )
             if bootstrap:
                 parts.append(bootstrap)
             
@@ -200,6 +213,12 @@ class PromptBuilder:
         parts.append(self._build_runtime_info())
         
         return "\n\n".join(p for p in parts if p)
+
+    def consume_warnings(self) -> list[str]:
+        """Return and clear prompt-build runtime warnings."""
+        warnings = list(self._runtime_warnings)
+        self._runtime_warnings.clear()
+        return warnings
 
     def _build_target_md_skill(self, target_md_skill: dict[str, str]) -> str:
         return prompt_sections.build_target_md_skill(target_md_skill)
@@ -238,7 +257,12 @@ class PromptBuilder:
     def _build_documentation(self) -> str:
         return prompt_sections.build_documentation()
     
-    def _build_bootstrap(self) -> str:
+    def _build_bootstrap(
+        self,
+        *,
+        session: Optional[object] = None,
+        context_window_tokens: Optional[int] = None,
+    ) -> str:
         """
 
 
@@ -255,25 +279,46 @@ inject Bootstrap
         marker_file = workspace / self.config.new_workspace_marker
         is_new_workspace = marker_file.exists()
         
-        any_found = False
+        target_files: list[str] = []
         for filename in self.BOOTSTRAP_FILES:
-            # BOOTSTRAP.md at workspace inject
             if filename == "BOOTSTRAP.md" and not is_new_workspace:
                 continue
-                
-            filepath = workspace / filename
-            if filepath.exists():
-                try:
-                    content = filepath.read_text(encoding="utf-8")
-                    if len(content) > self.config.bootstrap_max_chars:
-                        content = (
-                            content[:self.config.bootstrap_max_chars]
-                            + f"\n...[Truncated at {self.config.bootstrap_max_chars} characters]"
-                        )
-                    sections.append(f"### {filename}\n\n{content}")
-                    any_found = True
-                except Exception as e:
-                    sections.append(f"### {filename}\n\n[Read failed: {e}]")
+            target_files.append(filename)
+
+        existing_target_files: list[str] = []
+        for filename in target_files:
+            file_path = workspace / filename
+            if not file_path.exists():
+                self._record_warning(f"Missing bootstrap file: {filename}")
+                continue
+            existing_target_files.append(filename)
+
+        session_key = getattr(session, "session_key", None) if session is not None else None
+        budget_decision = self._context_resolver.resolve_budgets(
+            configured_total_budget=self.config.bootstrap_total_max_chars,
+            configured_per_file_budget=self.config.bootstrap_max_chars,
+            context_window_tokens=context_window_tokens,
+        )
+        resolved_files = self._context_resolver.resolve(
+            workspace=workspace,
+            filenames=existing_target_files,
+            session_key=str(session_key or ""),
+            total_budget=budget_decision.total_budget,
+            per_file_budget=budget_decision.per_file_budget,
+        )
+        for item in resolved_files:
+            content = item.content
+            if item.truncated:
+                self._record_warning(
+                    "Bootstrap context truncated by budget: "
+                    f"{item.filename} (per_file={budget_decision.per_file_budget}, total={budget_decision.total_budget})"
+                )
+                content = (
+                    f"{content}\n...[Truncated by prompt budget "
+                    f"(per_file={budget_decision.per_file_budget}, total={budget_decision.total_budget}, "
+                    f"source={budget_decision.source})]"
+                )
+            sections.append(f"### {item.filename}\n\n{content}")
         
         # inject BOOTSTRAP.md workspace(run)
         if is_new_workspace and marker_file.exists():
@@ -282,7 +327,15 @@ inject Bootstrap
             except Exception:
                 pass  # 
         
-        return "\n\n".join(sections) if any_found else ""
+        return "\n\n".join(sections) if len(sections) > 2 else ""
+
+    def _record_warning(self, message: str) -> None:
+        normalized = str(message or "").strip()
+        if not normalized:
+            return
+        if normalized in self._runtime_warnings:
+            return
+        self._runtime_warnings.append(normalized)
     
     def is_new_workspace(self) -> bool:
         """
@@ -384,6 +437,7 @@ convertworkspace workspace
             "bootstrap_files": files_info,
             "total_bootstrap_size": total_size,
             "bootstrap_max_chars": self.config.bootstrap_max_chars,
+            "bootstrap_total_max_chars": self.config.bootstrap_total_max_chars,
         }
         
         # mode
