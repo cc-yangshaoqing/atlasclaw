@@ -51,7 +51,7 @@ body {
     padding: 16px 16px 12px;
 }
 
-.new-chat-btn {
+.sidebar-primary-action {
     width: 100%;
     padding: 14px 16px;
     background: linear-gradient(180deg, #323642 0%, #262933 100%);
@@ -64,15 +64,32 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+    gap: 8px;
+    text-decoration: none;
+    letter-spacing: 0.01em;
     transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
     box-shadow: 0 12px 24px rgba(15, 23, 42, 0.24);
-    text-decoration: none;
 }
 
-.new-chat-btn:hover {
+.sidebar-primary-action:hover {
     background: var(--color-primary);
     transform: translateY(-1px);
+}
+
+.sidebar-back-link {
+    margin-bottom: 10px;
+}
+
+.sidebar-back-link-hidden {
+    display: none;
+}
+
+.sidebar-new-chat-hidden {
+    display: none;
+}
+
+.new-chat-btn {
+    gap: 10px;
 }
 
 .sidebar-content {

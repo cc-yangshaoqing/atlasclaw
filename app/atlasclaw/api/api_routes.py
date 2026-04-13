@@ -13,6 +13,8 @@ Note: Channel configuration is managed via /api/channels routes.
 
 from __future__ import annotations
 
+import json
+import logging
 import re
 from datetime import datetime
 from pathlib import Path
@@ -46,6 +48,8 @@ from app.atlasclaw.db.schemas import (
     RoleListResponse,
     ProfileUpdate,
     PasswordChange,
+    UserProviderSettingUpdate,
+    UserProviderSettingsResponse,
 )
 from app.atlasclaw.db.orm.agent_config import AgentConfigService
 from app.atlasclaw.db.orm.audit import AuditService
@@ -63,6 +67,7 @@ from app.atlasclaw.auth.guards import (
     is_same_workspace_user,
 )
 from app.atlasclaw.auth.models import UserInfo
+from app.atlasclaw.api.service_provider_schemas import normalize_provider_config
 from .services.auth_service import load_profile_snapshot
 from .model_config_routes import router as model_config_router
 from .provider_info_routes import router as provider_info_router
@@ -289,6 +294,97 @@ def _provider_config_to_response(item: object) -> ServiceProviderConfigResponse:
     )
 
 
+def _default_user_setting_document() -> dict[str, object]:
+    """Return the default user_setting.json payload."""
+    return {
+        "channels": {},
+        "providers": {},
+        "preferences": {},
+    }
+
+
+def _get_user_setting_path(workspace_path: str, user_id: str) -> Path:
+    """Return the path to a user's user_setting.json file."""
+    return Path(workspace_path).resolve() / "users" / user_id / "user_setting.json"
+
+
+def _load_user_setting_document(workspace_path: str, user_id: str) -> dict[str, object]:
+    """Load the user's settings document, creating a default one when absent."""
+    config_path = _get_user_setting_path(workspace_path, user_id)
+    if not config_path.exists():
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        document = _default_user_setting_document()
+        config_path.write_text(
+            json.dumps(document, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return document
+
+    try:
+        raw_document = json.loads(config_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        raw_document = {}
+
+    document = _default_user_setting_document()
+    if isinstance(raw_document, dict):
+        for section_name in document.keys():
+            section_value = raw_document.get(section_name)
+            if isinstance(section_value, dict):
+                document[section_name] = section_value
+    return document
+
+
+def _save_user_setting_document(workspace_path: str, user_id: str, document: dict[str, object]) -> None:
+    """Persist the user's settings document."""
+    config_path = _get_user_setting_path(workspace_path, user_id)
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(
+        json.dumps(document, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _get_provider_template_config(
+    provider_type: str,
+    instance_name: str,
+) -> Optional[dict[str, object]]:
+    """Resolve a configured system provider template instance from atlasclaw.json."""
+    service_providers = get_config().service_providers or {}
+    provider_instances = service_providers.get(provider_type)
+    if not isinstance(provider_instances, dict):
+        return None
+    template_config = provider_instances.get(instance_name)
+    return dict(template_config) if isinstance(template_config, dict) else None
+
+
+def _normalize_user_provider_config(
+    provider_type: str,
+    instance_name: str,
+    config: dict[str, object],
+) -> dict[str, object]:
+    """Validate user-owned provider config against a system template instance."""
+    template_config = _get_provider_template_config(provider_type, instance_name)
+    if template_config is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider template '{provider_type}.{instance_name}' not found",
+        )
+
+    merged_config = dict(template_config)
+    merged_config.update(dict(config))
+
+    try:
+        normalized_config = normalize_provider_config(provider_type, merged_config)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return {
+        key: value
+        for key, value in normalized_config.items()
+        if key != "base_url"
+    }
+
+
 router = APIRouter(prefix="/api", tags=["Database API"])
 router.include_router(model_config_router)
 router.include_router(provider_info_router)
@@ -491,6 +587,15 @@ async def create_provider_config(
             ),
         )
 
+    try:
+        normalized_config = normalize_provider_config(
+            provider_data.provider_type,
+            provider_data.config,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    provider_data = provider_data.model_copy(update={"config": normalized_config})
     item = await ServiceProviderConfigService.create(session, provider_data)
     return _provider_config_to_response(item)
 
@@ -555,10 +660,11 @@ async def update_provider_config(
         detail="Missing permission: provider_configs.edit",
     )
     update_payload = provider_data.model_dump(exclude_unset=True)
+    current = None
 
     target_provider_type = update_payload.get("provider_type")
     target_instance_name = update_payload.get("instance_name")
-    if target_provider_type or target_instance_name:
+    if target_provider_type or target_instance_name or provider_data.config is not None:
         current = await ServiceProviderConfigService.get_by_id(session, config_id)
         if current is None:
             raise HTTPException(status_code=404, detail="Provider config not found")
@@ -577,6 +683,19 @@ async def update_provider_config(
                     f"Provider config '{check_provider_type}.{check_instance_name}' already exists"
                 ),
             )
+
+    if provider_data.config is not None:
+        effective_provider_type = target_provider_type or current.provider_type
+        try:
+            normalized_config = normalize_provider_config(
+                effective_provider_type,
+                provider_data.config,
+                existing_config=ServiceProviderConfigService.get_config(current),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+        provider_data = provider_data.model_copy(update={"config": normalized_config})
 
     item = await ServiceProviderConfigService.update(session, config_id, provider_data)
     if item is None:
@@ -820,24 +939,31 @@ async def create_user(
     user = await UserService.create(session, user_data)
 
     # Audit log for user creation
-    new_value = AuditService.sanitize_user_data({
-        "id": user.id,
-        "username": user.username,
-        "email": user.email,
-        "display_name": user.display_name,
-        "is_active": user.is_active,
-        "is_admin": user.is_admin,
-        "auth_type": user.auth_type,
-        "roles": user.roles,
-    })
-    await AuditService.log_audit(
-        session=session,
-        entity_type="user",
-        entity_id=user.id,
-        action="CREATE",
-        user_id=authz.user.user_id,
-        new_value=new_value,
-    )
+    try:
+        new_value = AuditService.sanitize_user_data({
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "display_name": user.display_name,
+            "is_active": user.is_active,
+            "is_admin": user.is_admin,
+            "auth_type": user.auth_type,
+            "roles": user.roles,
+        })
+        await AuditService.log_audit(
+            session=session,
+            entity_type="user",
+            entity_id=user.id,
+            action="CREATE",
+            user_id=authz.user.user_id,
+            new_value=new_value,
+        )
+    except Exception as e:
+        logging.getLogger(__name__).warning(
+            "Failed to write audit log for user creation (user=%s): %s",
+            user.username,
+            e,
+        )
 
     return UserResponse.model_validate(user)
 
@@ -916,6 +1042,51 @@ async def update_my_profile(
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")
     return UserResponse.model_validate(updated)
+
+
+@router.get("/users/me/provider-settings", response_model=UserProviderSettingsResponse, status_code=200)
+async def get_my_provider_settings(
+    current_user: UserInfo = Depends(get_current_user),
+) -> UserProviderSettingsResponse:
+    """Get the authenticated user's provider credentials bound to system templates."""
+    workspace_path = str(Path(get_config().workspace.path).resolve())
+    document = _load_user_setting_document(workspace_path, current_user.user_id)
+    providers = document.get("providers", {})
+    return UserProviderSettingsResponse(providers=providers if isinstance(providers, dict) else {})
+
+
+@router.put("/users/me/provider-settings", response_model=UserProviderSettingsResponse, status_code=200)
+async def update_my_provider_settings(
+    provider_data: UserProviderSettingUpdate,
+    current_user: UserInfo = Depends(get_current_user),
+) -> UserProviderSettingsResponse:
+    """Create or update the authenticated user's provider credentials."""
+    workspace_path = str(Path(get_config().workspace.path).resolve())
+    document = _load_user_setting_document(workspace_path, current_user.user_id)
+    providers = document.setdefault("providers", {})
+    if not isinstance(providers, dict):
+        providers = {}
+        document["providers"] = providers
+
+    provider_bucket = providers.setdefault(provider_data.provider_type, {})
+    if not isinstance(provider_bucket, dict):
+        provider_bucket = {}
+        providers[provider_data.provider_type] = provider_bucket
+
+    normalized_config = _normalize_user_provider_config(
+        provider_data.provider_type,
+        provider_data.instance_name,
+        provider_data.config,
+    )
+
+    provider_bucket[provider_data.instance_name] = {
+        "configured": True,
+        "config": normalized_config,
+        "updated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+    _save_user_setting_document(workspace_path, current_user.user_id, document)
+    return UserProviderSettingsResponse(providers=providers)
 
 
 @router.post("/users/me/avatar", response_model=UserResponse, status_code=200)

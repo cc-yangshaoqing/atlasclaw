@@ -75,14 +75,13 @@ Request-scoped dependency container passed through `RunContext[SkillDeps]` to al
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `user_info` | `UserInfo` | `ANONYMOUS_USER` | Authenticated user identity |
-| `extra` | `dict[str, Any]` | `{}` | Additional request-scoped context including provider clients |
+| `extra` | `dict[str, Any]` | `{}` | Additional request-scoped context including provider clients and channel-bound provider instance data |
 | `peer_id` | `str` | `""` | Peer identifier (user or group ID) |
 | `session_key` | `str` | `""` | Stable session key for current conversation |
 | `channel` | `str` | `""` | Source channel name |
 | `abort_signal` | `asyncio.Event` | new Event | Abort signal shared across current run |
 | `session_manager` | `Optional[Any]` | `None` | Per-user scoped SessionManager |
 | `memory_manager` | `Optional[Any]` | `None` | Per-user scoped MemoryManager |
-| `extra` | `dict[str, Any]` | `{}` | Additional request-scoped context |
 
 **Methods**:
 
@@ -296,7 +295,7 @@ Creates per-user directory structure:
 
 ```
 users/<user_id>/
-鈹溾攢鈹€ user_setting.json      # User-specific config (channels, preferences)
+鈹溾攢鈹€ user_setting.json      # User-specific config (channels, providers, preferences)
 鈹溾攢鈹€ sessions/
 鈹斺攢鈹€ memory/
 ```
@@ -1010,6 +1009,11 @@ Class attributes: `channel_type: str`, `channel_name: str`, `channel_icon: str`,
 **Class: `ChannelManager`**
 
 Constructor: `workspace_path: Path`
+
+When a channel connection stores `config.provider_binding`, `ChannelManager` resolves that
+`provider_type/instance_name` against the current user's `user_setting.json` provider section and
+injects `provider_type`, `provider_instance_name`, `provider_instance`, `provider_instances`, and
+`available_providers` into `SkillDeps.extra` for channel-originated agent turns.
 
 | Method | Signature | Description |
 |---|---|---|

@@ -5,7 +5,7 @@
 import { initSession, getSessionKey, setSessionKey } from '../session-manager.js?v=19'
 import { initChat, activateSession, abortCurrentStream, getCurrentAgentInfo } from '../chat-ui.js?v=19'
 import { listSessions, deleteSession } from '../api-client.js?v=19'
-import { t } from '../i18n.js?v=19'
+import { translateIfExists } from '../i18n.js'
 import { updateHeaderTitleText } from '../components/header.js?v=19'
 
 let chatElement = null
@@ -15,6 +15,32 @@ let sessionsCache = []
 let searchQuery = ''
 let pageContainer = null
 let currentAgentName = 'AtlasClaw'
+
+function getTranslatedText(key, fallback) {
+  return translateIfExists(key) || fallback
+}
+
+function getNewChatLabel() {
+  return getTranslatedText('app.newChat', 'New Chat')
+}
+
+function getSessionSearchPlaceholder() {
+  return getTranslatedText('chat.session.searchPlaceholder', 'Search chats...')
+}
+
+function getDeleteSessionLabel() {
+  return getTranslatedText('chat.session.deleteLabel', 'Delete')
+}
+
+function buildSessionDraftTitle(messageText) {
+  const cleaned = String(messageText || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[,.!?，。！？；：]+$/g, '')
+
+  if (!cleaned) return getNewChatLabel()
+  return cleaned.length > 24 ? `${cleaned.slice(0, 23).trim()}...` : cleaned
+}
 
 export async function mount(container) {
   pageContainer = container
@@ -38,11 +64,11 @@ export async function mount(container) {
       </div>
       <div id="confirmDialog" class="confirm-dialog hidden">
         <div class="confirm-content">
-          <h3>${escapeHtml(t('dialog.confirmTitle'))}</h3>
+          <h3>${escapeHtml(getTranslatedText('dialog.confirmTitle', 'Confirm Action'))}</h3>
           <p id="confirmMessage"></p>
           <div class="confirm-buttons">
-            <button class="btn-cancel" type="button">${escapeHtml(t('dialog.cancel'))}</button>
-            <button class="btn-confirm" type="button">${escapeHtml(t('dialog.confirm'))}</button>
+            <button class="btn-cancel" type="button">${escapeHtml(getTranslatedText('dialog.cancel', 'Cancel'))}</button>
+            <button class="btn-confirm" type="button">${escapeHtml(getTranslatedText('dialog.confirm', 'Confirm'))}</button>
           </div>
         </div>
       </div>
@@ -105,7 +131,7 @@ function ensureActiveSessionEntry() {
   if (!exists) {
     sessionsCache.unshift({
       session_key: currentSessionKey,
-      title: 'New Chat',
+      title: getNewChatLabel(),
       title_status: 'empty'
     })
   }
@@ -119,7 +145,7 @@ function renderSidebarContent(container) {
     return `
       <div class="session-list-row${isActive ? ' active' : ''}">
         <button class="session-list-item" type="button" data-session-key="${escapeHtml(session.session_key)}">${escapeHtml(title)}</button>
-        <button class="session-delete-btn" type="button" data-delete-session="${escapeHtml(session.session_key)}" aria-label="Delete">×</button>
+        <button class="session-delete-btn" type="button" data-delete-session="${escapeHtml(session.session_key)}" aria-label="${escapeHtml(getDeleteSessionLabel())}">&times;</button>
       </div>
     `
   }).join('')
@@ -127,7 +153,7 @@ function renderSidebarContent(container) {
   container.innerHTML = `
     <div class="session-sidebar-shell">
       <div class="session-search-shell">
-        <input id="session-search-input" class="session-search-input" type="search" placeholder="Search chats..." value="${escapeHtml(searchQuery)}" />
+        <input id="session-search-input" class="session-search-input" type="search" placeholder="${escapeHtml(getSessionSearchPlaceholder())}" value="${escapeHtml(searchQuery)}" />
       </div>
       <div class="session-list">${itemsHtml}</div>
     </div>
@@ -156,7 +182,7 @@ function getFilteredSessions() {
 }
 
 function getSessionTitle(session) {
-  return (session?.title || '').trim() || 'New Chat'
+  return (session?.title || '').trim() || getNewChatLabel()
 }
 
 async function handleSessionClick(event) {
@@ -173,7 +199,7 @@ async function handleSessionClick(event) {
 
 function handleUserTurnStarted({ sessionKey, messageText }) {
   currentSessionKey = sessionKey
-  const draftTitle = buildDraftTitle(messageText)
+  const draftTitle = buildSessionDraftTitle(messageText)
   upsertSession({ session_key: sessionKey, title: draftTitle, title_status: 'draft' })
   const emptyState = pageContainer?.querySelector('#chat-empty-state')
   if (emptyState) {
@@ -251,7 +277,7 @@ function showConfirmDialog(sessionKey) {
   const message = dialog.querySelector('#confirmMessage')
   const confirmBtn = dialog.querySelector('.btn-confirm')
   if (message) {
-    message.textContent = t('dialog.confirmMessage') || 'Delete this conversation?'
+    message.textContent = getTranslatedText('dialog.confirmMessage', 'Delete this conversation?')
   }
   if (confirmBtn) {
     confirmBtn.onclick = async () => {

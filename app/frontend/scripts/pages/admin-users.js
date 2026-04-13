@@ -510,11 +510,11 @@ async function handleApiError(response) {
   if (status === 401) {
     showToast(translateOrFallback('admin.sessionExpired', 'Session expired. Please login again.'), 'error')
     setTimeout(() => { redirectToLogin() }, 1200)
-    return
+    throw new Error('Session expired')
   }
   if (status === 403) {
     showToast(translateOrFallback('admin.accessDenied', 'Access denied. You do not have permission to manage users.'), 'error')
-    return
+    throw new Error('Access denied')
   }
 
   let errorMessage = translateOrFallback('admin.failedToLoad', 'Failed to load users')
@@ -1108,11 +1108,13 @@ async function handleFormSubmit(event) {
 
   try {
     const result = isEdit ? await updateUser(editUserId, formData) : await createUser(formData)
-    if (result) {
-      showToast(isEdit ? translateOrFallback('admin.updateSuccess', 'User updated successfully') : translateOrFallback('admin.createSuccess', 'User created successfully'), 'success')
-      closeModal()
-      await loadUsers(currentPage, currentSearch)
+    if (!result) {
+      showToast(translateOrFallback('admin.operationFailed', 'Operation failed. Please try again.'), 'error')
+      return
     }
+    showToast(isEdit ? translateOrFallback('admin.updateSuccess', 'User updated successfully') : translateOrFallback('admin.createSuccess', 'User created successfully'), 'success')
+    closeModal()
+    await loadUsers(currentPage, currentSearch)
   } catch (error) {
     showToast(error.message, 'error')
   } finally {

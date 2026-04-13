@@ -322,7 +322,7 @@ providers/                         # Provider repository (code/templates)
 鈹?      鈹斺攢鈹€ MEMORY.md              # Memory strategy
 鈹斺攢鈹€ users/
     鈹斺攢鈹€ <user_id>/
-        鈹溾攢鈹€ user_setting.json      # User-specific config (channels, preferences)
+        鈹溾攢鈹€ user_setting.json      # User-specific config (channels, providers, preferences)
         鈹溾攢鈹€ sessions/              # JSONL session transcripts
         鈹斺攢鈹€ memory/                # Markdown memory files
 ```
@@ -925,7 +925,7 @@ Heartbeat state is intentionally separate from Hook Runtime state:
 - Project root (`atlasclaw.json`) 鈥?Core configuration
 - Workspace root (`<workspace>/atlasclaw.json`) 鈥?Workspace configuration
 - User home (`~/.atlasclaw/config.json`) 鈥?Global user configuration
-- Per-user (`<workspace>/users/<user_id>/user_setting.json`) 鈥?User-specific settings (channels, preferences)
+- Per-user (`<workspace>/users/<user_id>/user_setting.json`) 鈥?User-specific settings (channels, providers, preferences)
 
 ### 11.6 Token Health
 

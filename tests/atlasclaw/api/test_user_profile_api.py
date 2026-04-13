@@ -465,6 +465,112 @@ class TestUserProfileAPI:
 
         _cleanup_manager(manager)
 
+    def test_get_my_provider_settings_reads_user_setting_json(self, tmp_path):
+        """Authenticated users can read their own provider settings from user_setting.json."""
+        manager = _init_database_sync(tmp_path)
+        client = _build_client(tmp_path, _get_auth_config())
+        token = _login_as(client, "testuser", "testpass123")
+        workspace_path = tmp_path / "workspace"
+        user_dir = workspace_path / "users" / "testuser"
+        user_dir.mkdir(parents=True, exist_ok=True)
+        (user_dir / "user_setting.json").write_text(
+            json.dumps(
+                {
+                    "channels": {},
+                    "providers": {
+                        "smartcmp": {
+                            "default": {
+                                "configured": True,
+                                "config": {
+                                    "auth_type": "user_token",
+                                    "user_token": "secret-token",
+                                },
+                                "updated_at": "2026-04-13T10:00:00Z",
+                            }
+                        }
+                    },
+                    "preferences": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with patch(
+            "app.atlasclaw.api.api_routes.get_config",
+            return_value=SimpleNamespace(workspace=SimpleNamespace(path=str(workspace_path))),
+        ):
+            resp = client.get(
+                "/api/users/me/provider-settings",
+                headers={"AtlasClaw-Authenticate": token},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["providers"]["smartcmp"]["default"]["configured"] is True
+        assert data["providers"]["smartcmp"]["default"]["config"]["user_token"] == "secret-token"
+
+        _cleanup_manager(manager)
+
+    def test_put_my_provider_settings_persists_user_token_without_mutating_template_url(self, tmp_path):
+        """Authenticated users can save personal provider credentials without storing base_url."""
+        manager = _init_database_sync(tmp_path)
+        client = _build_client(tmp_path, _get_auth_config())
+        token = _login_as(client, "testuser", "testpass123")
+        workspace_path = tmp_path / "workspace"
+        workspace_path.mkdir(parents=True, exist_ok=True)
+
+        config_path = tmp_path / "atlasclaw.json"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "workspace": {"path": str(workspace_path)},
+                    "service_providers": {
+                        "smartcmp": {
+                            "default": {
+                                "base_url": "https://console.smartcmp.cloud",
+                                "auth_type": "user_token",
+                            }
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with patch(
+            "app.atlasclaw.api.api_routes.get_config",
+            return_value=SimpleNamespace(
+                workspace=SimpleNamespace(path=str(workspace_path)),
+                service_providers={
+                    "smartcmp": {
+                        "default": {
+                            "base_url": "https://console.smartcmp.cloud",
+                            "auth_type": "user_token",
+                        }
+                    }
+                },
+            ),
+        ):
+            resp = client.put(
+                "/api/users/me/provider-settings",
+                json={
+                    "provider_type": "smartcmp",
+                    "instance_name": "default",
+                    "config": {
+                        "auth_type": "user_token",
+                        "user_token": "secret-token",
+                    },
+                },
+                headers={"AtlasClaw-Authenticate": token},
+            )
+
+        assert resp.status_code == 200
+        saved = json.loads((workspace_path / "users" / "testuser" / "user_setting.json").read_text(encoding="utf-8"))
+        assert saved["providers"]["smartcmp"]["default"]["config"]["user_token"] == "secret-token"
+        assert "base_url" not in saved["providers"]["smartcmp"]["default"]["config"]
+
+        _cleanup_manager(manager)
+
     def test_profile_not_accessible_when_unauthenticated(self, tmp_path):
         """Unauthenticated request to profile returns 401."""
         manager = _init_database_sync(tmp_path)

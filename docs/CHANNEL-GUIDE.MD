@@ -1209,6 +1209,11 @@ All channel handlers implement this interface:
 - `validate_config(config)` - Validate connection settings
 - `describe_schema()` - Return configuration schema
 
+The channels API may augment the handler-provided schema with a generic `provider_binding` select
+field. The select options come from the current user's configured provider instances
+(`workspace/users/<user_id>/user_setting.json`), so handlers do not need to declare this field
+themselves unless they need extra channel-specific provider settings.
+
 ### Connection States
 
 ```

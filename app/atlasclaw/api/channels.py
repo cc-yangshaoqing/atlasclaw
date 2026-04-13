@@ -20,6 +20,11 @@ from app.atlasclaw.auth.guards import (
 )
 from app.atlasclaw.channels.manager import ChannelManager
 from app.atlasclaw.channels.registry import ChannelRegistry
+from app.atlasclaw.core.user_provider_bindings import (
+    build_provider_binding_options,
+    build_provider_binding_runtime_context,
+    parse_provider_binding,
+)
 from app.atlasclaw.db import get_db_session_dependency as get_db_session
 from app.atlasclaw.db.orm.channel_config import ChannelConfigService, _decrypt_config
 from app.atlasclaw.db.schemas import ChannelCreate, ChannelUpdate
@@ -31,6 +36,129 @@ router = APIRouter(prefix="/api/channels", tags=["channels"])
 # Global channel manager instance (will be set during app startup)
 _channel_manager: Optional[ChannelManager] = None
 VALIDATION_TIMEOUT_SECONDS = 3.2
+
+
+def _normalize_channel_config(
+    user_id: str,
+    config: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Validate and normalize generic channel config extensions."""
+    normalized_config: Dict[str, Any] = dict(config or {})
+    provider_type = str(normalized_config.get("provider_type", "") or "").strip().lower()
+    provider_binding = str(normalized_config.get("provider_binding", "") or "").strip()
+
+    normalized_config.pop("provider_type", None)
+
+    if not provider_binding:
+        normalized_config.pop("provider_binding", None)
+        return normalized_config
+
+    parsed_binding = parse_provider_binding(provider_binding)
+    if parsed_binding is None:
+        normalized_config.pop("provider_binding", None)
+        return normalized_config
+
+    resolved_provider_type, _ = parsed_binding
+    if provider_type and provider_type != resolved_provider_type:
+        provider_binding = f"{resolved_provider_type}/{parsed_binding[1]}"
+
+    build_provider_binding_runtime_context(user_id, provider_binding)
+    normalized_config["provider_binding"] = provider_binding
+    return normalized_config
+
+
+def _expand_channel_config_for_response(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Expose helper provider fields for channel edit forms."""
+    expanded_config: Dict[str, Any] = dict(config or {})
+    provider_binding = str(expanded_config.get("provider_binding", "") or "").strip()
+    if not provider_binding:
+        expanded_config.pop("provider_type", None)
+        return expanded_config
+
+    parsed_binding = parse_provider_binding(provider_binding)
+    if parsed_binding is None:
+        expanded_config.pop("provider_type", None)
+        return expanded_config
+
+    provider_type, _ = parsed_binding
+    expanded_config["provider_type"] = provider_type
+    return expanded_config
+
+
+def _augment_channel_schema(
+    schema: Optional[Dict[str, Any]],
+    *,
+    user_id: str,
+) -> Dict[str, Any]:
+    """Inject generic provider-binding fields into channel schemas."""
+    base_schema = dict(schema or {})
+    properties = dict(base_schema.get("properties") or {})
+    provider_options = build_provider_binding_options(user_id)
+
+    if provider_options:
+        provider_type_options: list[str] = []
+        provider_type_labels: Dict[str, str] = {}
+        options_by_provider: Dict[str, List[Dict[str, str]]] = {}
+
+        for item in provider_options:
+            option_provider_type = str(item["provider_type"] or "").strip().lower()
+            option_instance_name = str(item["instance_name"] or "").strip()
+            option_value = str(item["value"] or "").strip()
+            if not option_provider_type or not option_instance_name or not option_value:
+                continue
+
+            if option_provider_type not in provider_type_labels:
+                provider_type_options.append(option_provider_type)
+                provider_label = str(item["label"] or option_provider_type).split("/", 1)[0].strip()
+                provider_type_labels[option_provider_type] = provider_label or option_provider_type
+
+            options_by_provider.setdefault(option_provider_type, []).append(
+                {
+                    "value": option_value,
+                    "label": option_instance_name,
+                }
+            )
+
+        provider_field: Dict[str, Any] = {
+            "type": "string",
+            "title": "Authentication Method",
+            "description": (
+                "Choose which authentication configuration this channel should use."
+            ),
+            "enum": provider_type_options,
+            "enumLabels": provider_type_labels,
+        }
+
+        binding_field: Dict[str, Any] = {
+            "type": "string",
+            "title": "Authentication Instance",
+            "description": (
+                "Choose one configured authentication instance under the selected authentication method."
+            ),
+            "enum": [item["value"] for item in provider_options],
+            "enumLabels": {
+                item["value"]: item["instance_name"]
+                for item in provider_options
+            },
+            "optionsByProvider": options_by_provider,
+        }
+
+        ordered_properties: Dict[str, Any] = {}
+        if "connection_mode" in properties:
+            ordered_properties["connection_mode"] = properties["connection_mode"]
+
+        ordered_properties["provider_type"] = provider_field
+        ordered_properties["provider_binding"] = binding_field
+
+        for field_name, field_schema in properties.items():
+            if field_name == "connection_mode":
+                continue
+            ordered_properties[field_name] = field_schema
+
+        properties = ordered_properties
+
+    base_schema["properties"] = properties
+    return base_schema
 
 
 def get_channel_manager() -> ChannelManager:
@@ -163,7 +291,10 @@ async def get_channel_schema(
     # Create temporary instance to get schema
     try:
         handler = handler_class({})
-        return handler.describe_schema()
+        return _augment_channel_schema(
+            handler.describe_schema(),
+            user_id=authz.user.user_id,
+        )
     except Exception as e:
         logger.error(f"Failed to get schema for {channel_type}: {e}")
         return {
@@ -204,6 +335,7 @@ async def list_connections(
     result = []
     for conn in connections:
         conn_data = ChannelConfigService.to_channel_config(conn)
+        conn_data["config"] = _expand_channel_config_for_response(conn_data.get("config"))
         # Get runtime status from channel manager
         runtime_status = manager.get_connection_runtime_status(conn.id)
         conn_data["runtime_status"] = runtime_status
@@ -238,13 +370,18 @@ async def create_connection(
     handler_class = ChannelRegistry.get(channel_type)
     if not handler_class:
         raise HTTPException(status_code=404, detail=f"Channel type not found: {channel_type}")
-    
+
+    try:
+        normalized_config = _normalize_channel_config(user_id, data.config)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     # Create channel config in database
     channel_data = ChannelCreate(
         user_id=user_id,
         name=data.name,
         type=channel_type,
-        config=data.config,
+        config=normalized_config,
         is_active=data.enabled,
         is_default=data.is_default,
     )
@@ -252,7 +389,7 @@ async def create_connection(
     channel = await ChannelConfigService.create(session, channel_data)
     
     # Decrypt config for response
-    config = _decrypt_config(channel.config)
+    config = _expand_channel_config_for_response(_decrypt_config(channel.config))
     
     return ConnectionResponse(
         id=channel.id,
@@ -295,7 +432,10 @@ async def update_connection(
     if data.name is not None:
         update_data.name = data.name
     if data.config is not None:
-        update_data.config = data.config
+        try:
+            update_data.config = _normalize_channel_config(user_id, data.config)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
     if data.enabled is not None:
         update_data.is_active = data.enabled
     if data.is_default is not None:
@@ -304,7 +444,7 @@ async def update_connection(
     channel = await ChannelConfigService.update(session, connection_id, update_data)
     
     # Decrypt config for response
-    config = _decrypt_config(channel.config)
+    config = _expand_channel_config_for_response(_decrypt_config(channel.config))
     
     return ConnectionResponse(
         id=channel.id,
@@ -377,11 +517,16 @@ async def validate_config(
     handler_class = ChannelRegistry.get(channel_type)
     if not handler_class:
         raise HTTPException(status_code=404, detail=f"Channel type not found: {channel_type}")
-    
+
     try:
-        handler = handler_class(data.config)
+        normalized_config = _normalize_channel_config(authz.user.user_id, data.config)
+    except ValueError as exc:
+        return ValidationResponse(valid=False, errors=[str(exc)])
+
+    try:
+        handler = handler_class(normalized_config)
         result = await asyncio.wait_for(
-            handler.validate_config(data.config),
+            handler.validate_config(normalized_config),
             timeout=VALIDATION_TIMEOUT_SECONDS,
         )
         return ValidationResponse(valid=result.valid, errors=result.errors)
@@ -427,9 +572,14 @@ async def verify_connection(
     # Create handler instance and validate
     try:
         config = _decrypt_config(channel.config)
-        handler = handler_class(config)
+        try:
+            normalized_config = _normalize_channel_config(user_id, config)
+        except ValueError as exc:
+            return ValidationResponse(valid=False, errors=[str(exc)])
+
+        handler = handler_class(normalized_config)
         result = await asyncio.wait_for(
-            handler.validate_config(config),
+            handler.validate_config(normalized_config),
             timeout=VALIDATION_TIMEOUT_SECONDS,
         )
         return ValidationResponse(valid=result.valid, errors=result.errors)

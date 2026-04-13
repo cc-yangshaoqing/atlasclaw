@@ -419,11 +419,16 @@ class DatabaseConfig(BaseModel):
 class UserConfig(BaseModel):
     """User-specific configuration stored in users/<id>/user_setting.json
     
-    Note: providers are system-level configuration, not user-level.
+    System provider templates stay in atlasclaw.json. This section stores the
+    authenticated user's personal credentials bound to those templates.
     """
     channels: dict[str, Any] = Field(
         default_factory=dict,
         description="User-level channel configurations (e.g., Feishu bot, DingTalk bot)"
+    )
+    providers: dict[str, Any] = Field(
+        default_factory=dict,
+        description="User-level provider credentials bound to system provider templates"
     )
     preferences: dict[str, Any] = Field(
         default_factory=dict,

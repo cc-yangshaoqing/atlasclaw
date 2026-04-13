@@ -305,6 +305,31 @@ class PasswordChange(BaseModel):
     new_password: str = Field(min_length=1)
 
 
+class UserProviderSettingUpdate(BaseModel):
+    """Schema for updating the authenticated user's provider credentials."""
+
+    provider_type: str = Field(..., min_length=1, max_length=100, description="Provider type")
+    instance_name: str = Field(..., min_length=1, max_length=100, description="Template instance name")
+    config: Dict[str, Any] = Field(default_factory=dict, description="User-owned provider credential config")
+
+
+class UserProviderSettingItem(BaseModel):
+    """Single user-scoped provider credential record."""
+
+    configured: bool = Field(default=True, description="Whether credentials are configured")
+    config: Dict[str, Any] = Field(default_factory=dict, description="User-owned provider credential config")
+    updated_at: Optional[str] = Field(default=None, description="Last updated timestamp")
+
+
+class UserProviderSettingsResponse(BaseModel):
+    """Schema for the authenticated user's provider credentials."""
+
+    providers: Dict[str, Dict[str, UserProviderSettingItem]] = Field(
+        default_factory=dict,
+        description="Provider credentials grouped by provider type and template instance",
+    )
+
+
 # ============== Channel Schemas ==============
 
 

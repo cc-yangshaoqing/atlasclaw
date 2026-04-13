@@ -3,13 +3,17 @@
  *
  * Provides:
  * - renderSidebar(container, { authInfo }) - Render sidebar to container
- * - updateSidebarActive(path) - No-op (kept for backward compatibility)
+ * - updateSidebarActive(path) - Toggle the back-to-chat shortcut for non-chat pages
  */
 
-import { buildAppUrl } from '../config.js'
+import { buildAppUrl, stripBasePath } from '../config.js'
 
 // SVG icons for sidebar
 const ICONS = {
+  back: `<svg width="16" height="16" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="m15 18-6-6 6-6"></path>
+    <path d="M21 12H9"></path>
+  </svg>`,
   chat: `<svg width="18" height="18" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
   </svg>`
@@ -18,6 +22,41 @@ const ICONS = {
 // Store reference to sidebar element for updates
 let sidebarElement = null
 let currentAuthInfo = null
+
+function normalizeSidebarPath(path) {
+  const logicalPath = stripBasePath(String(path || window.location.pathname || '').split(/[?#]/, 1)[0] || '/')
+  if (!logicalPath || logicalPath === '') {
+    return '/'
+  }
+  return logicalPath === '/' ? '/' : logicalPath.replace(/\/$/, '')
+}
+
+function shouldShowBackToChat(path) {
+  return normalizeSidebarPath(path) !== '/'
+}
+
+function syncHeaderActionState(path) {
+  if (!sidebarElement) {
+    return
+  }
+
+  const backLink = sidebarElement.querySelector('[data-sidebar-back]')
+  const newChatLink = sidebarElement.querySelector('[data-new-chat]')
+  if (!backLink || !newChatLink) {
+    return
+  }
+
+  const showBackLink = shouldShowBackToChat(path)
+  const showNewChat = !showBackLink
+
+  backLink.classList.toggle('sidebar-back-link-hidden', !showBackLink)
+  backLink.setAttribute('aria-hidden', showBackLink ? 'false' : 'true')
+  backLink.tabIndex = showBackLink ? 0 : -1
+
+  newChatLink.classList.toggle('sidebar-new-chat-hidden', !showNewChat)
+  newChatLink.setAttribute('aria-hidden', showNewChat ? 'false' : 'true')
+  newChatLink.tabIndex = showNewChat ? 0 : -1
+}
 
 /**
  * Render sidebar into container
@@ -37,7 +76,11 @@ export function renderSidebar(container, { authInfo } = {}) {
   // Navigation buttons moved to Header user dropdown (Task 19)
   container.innerHTML = `
     <div class="sidebar-header">
-      <a href="${buildAppUrl('/')}" class="new-chat-btn" data-nav-path="/" data-new-chat>
+      <a href="${buildAppUrl('/')}" class="sidebar-primary-action sidebar-back-link sidebar-back-link-hidden" data-sidebar-back data-nav-path="/">
+        ${ICONS.back}
+        <span data-i18n="app.backToChat">${getDefaultText('app.backToChat')}</span>
+      </a>
+      <a href="${buildAppUrl('/')}" class="sidebar-primary-action new-chat-btn" data-nav-path="/" data-new-chat>
         ${ICONS.chat}
         <span data-i18n="app.newChat">New Chat</span>
       </a>
@@ -46,6 +89,8 @@ export function renderSidebar(container, { authInfo } = {}) {
       <!-- Dynamic content area - can be filled by page modules -->
     </div>
   `
+
+  syncHeaderActionState(window.location.pathname)
 }
 
 /**
@@ -55,7 +100,7 @@ export function renderSidebar(container, { authInfo } = {}) {
  * @param {string} path - Current route path (unused)
  */
 export function updateSidebarActive(path) {
-  // No-op: sidebar navigation buttons removed
+  syncHeaderActionState(path)
 }
 
 /**
@@ -99,6 +144,7 @@ export function clearSidebarContent() {
  */
 function getDefaultText(key) {
   const defaults = {
+    'app.backToChat': 'Back to Chat',
     'app.newChat': 'New Chat'
   }
   return defaults[key] || key.split('.').pop()

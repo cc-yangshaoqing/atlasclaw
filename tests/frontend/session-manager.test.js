@@ -140,49 +140,60 @@ describe('session-manager.js', () => {
     });
 
     describe('startNewSession', () => {
+        test('should reuse current session when it is still empty', async () => {
+            const {
+                setSessionKey,
+                setSessionHasMessages,
+                startNewSession
+            } = await import('../../app/frontend/scripts/session-manager.js');
+
+            setSessionKey('empty-key');
+            setSessionHasMessages(false);
+            global.fetch.mockClear();
+
+            const result = await startNewSession();
+
+            expect(result).toBe('empty-key');
+            expect(global.fetch).not.toHaveBeenCalled();
+            expect(sessionStorageMock.removeItem).not.toHaveBeenCalledWith('atlasclaw_session_key');
+        });
+
         test('should create a new thread and clear stored active key', async () => {
-            // First call returns existing key
-            sessionStorageMock.getItem.mockReturnValueOnce('old-key');
-            
-            global.fetch.mockResolvedValueOnce({
-                ok: true,
-                json: () => Promise.resolve({ session_key: 'new-key' })
-            });
-            
-            const { initSession, startNewSession } = await import('../../app/frontend/scripts/session-manager.js');
-            
-            // First init
-            await initSession();
-            
-            // Then start new session
-            sessionStorageMock.getItem.mockReturnValueOnce(null);
             global.fetch.mockResolvedValueOnce({
                 ok: true,
                 json: () => Promise.resolve({ session_key: 'brand-new-key' })
             });
-            
-            await startNewSession();
 
-            expect(sessionStorageMock.removeItem).toHaveBeenCalled();
+            const {
+                setSessionKey,
+                setSessionHasMessages,
+                startNewSession
+            } = await import('../../app/frontend/scripts/session-manager.js');
+
+            setSessionKey('old-key');
+            setSessionHasMessages(true);
+
+            const result = await startNewSession();
+
+            expect(result).toBe('brand-new-key');
+            expect(global.fetch).toHaveBeenCalled();
         });
 
         test('should still resolve when creating another thread after existing session', async () => {
-            sessionStorageMock.getItem.mockReturnValueOnce('old-key');
-            
-            global.fetch.mockResolvedValueOnce({
-                ok: true,
-                json: () => Promise.resolve({ session_key: 'new-key' })
-            });
-            
-            const { initSession, startNewSession } = await import('../../app/frontend/scripts/session-manager.js');
-            await initSession();
-            
-            sessionStorageMock.getItem.mockReturnValueOnce(null);
             global.fetch.mockResolvedValueOnce({
                 ok: true,
                 json: () => Promise.resolve({ session_key: 'another-new-key' })
             });
-            
+
+            const {
+                setSessionKey,
+                setSessionHasMessages,
+                startNewSession
+            } = await import('../../app/frontend/scripts/session-manager.js');
+
+            setSessionKey('old-key');
+            setSessionHasMessages(true);
+
             await expect(startNewSession()).resolves.toBeDefined();
         });
     });

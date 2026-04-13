@@ -154,6 +154,7 @@ class UserWorkspaceInitializer:
         
         default_config = {
             "channels": {},       # User-level channel configs (Feishu bot, etc.)
+            "providers": {},      # User-level provider credentials bound to system templates
             "preferences": {}     # User preferences (language, timezone, etc.)
         }
         

@@ -3,11 +3,11 @@
  * Configure DeepChat component integration with AtlasClaw API
  */
 
-import { getSessionKey, initSession, setSessionKey } from './session-manager.js?v=19'
+import { getSessionKey, initSession, setSessionKey, setSessionHasMessages } from './session-manager.js?v=19'
 import { getAgentInfo, getSessionHistory } from './api-client.js?v=19'
 import { createStreamHandler } from './stream-handler.js?v=19'
 import { buildApiUrl } from './config.js?v=19'
-import { t, isLocaleLoaded, getCurrentLocale } from './i18n.js?v=19'
+import { translateIfExists, getCurrentLocale } from './i18n.js'
 
 let chatElement = null
 let currentStreamHandler = null
@@ -253,6 +253,7 @@ export async function activateSession(sessionKey) {
     setSessionKey(currentSessionKey)
   }
   const hasHistory = await restoreSessionHistory(chatElement, currentSessionKey)
+  setSessionHasMessages(hasHistory)
   notifyConversationState(hasHistory)
   return hasHistory
 }
@@ -457,7 +458,7 @@ function configureI18nAttributes(element) {
     ${THINKING_STYLES}
   `
 
-  const placeholder = isLocaleLoaded() ? t('chat.placeholder') : 'Enter your question...'
+  const placeholder = translateIfExists('chat.placeholder') || 'Enter your question...'
   element.textInput = {
     placeholder: {
       text: placeholder,
@@ -480,12 +481,14 @@ function configureI18nAttributes(element) {
 }
 
 function notifyConversationState(hasMessages) {
+  setSessionHasMessages(hasMessages)
   if (typeof chatCallbacks.onConversationStateChange === 'function') {
     chatCallbacks.onConversationStateChange({ hasMessages, agentInfo: currentAgentInfo })
   }
 }
 
 function notifyUserTurnStarted(sessionKey, messageText) {
+  setSessionHasMessages(true)
   if (typeof chatCallbacks.onUserTurnStarted === 'function') {
     chatCallbacks.onUserTurnStarted({ sessionKey, messageText })
   }

@@ -369,6 +369,66 @@ class TestUserService:
     """Tests for UserService CRUD operations."""
 
     @pytest.mark.asyncio
+    async def test_create_user_with_legacy_sqlite_is_admin_column(self):
+        """Creating a user remains compatible with legacy SQLite schemas that still require is_admin."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "legacy-users.db"
+            manager = await init_database(
+                DatabaseConfig(db_type="sqlite", sqlite_path=str(db_path))
+            )
+
+            try:
+                async with manager.engine.begin() as conn:
+                    await conn.execute(text("""
+                        CREATE TABLE users (
+                            id VARCHAR(36) NOT NULL PRIMARY KEY,
+                            username VARCHAR(100) NOT NULL,
+                            email VARCHAR(255),
+                            password VARCHAR(255),
+                            auth_type VARCHAR(100) NOT NULL,
+                            roles JSON,
+                            is_active BOOLEAN NOT NULL,
+                            is_admin BOOLEAN NOT NULL,
+                            display_name VARCHAR(200),
+                            avatar_url VARCHAR(500),
+                            last_login_at DATETIME,
+                            created_at DATETIME NOT NULL,
+                            updated_at DATETIME NOT NULL
+                        )
+                    """))
+                    await conn.execute(text(
+                        "CREATE UNIQUE INDEX ix_users_username ON users (username)"
+                    ))
+                    await conn.execute(text(
+                        "CREATE UNIQUE INDEX ix_users_email ON users (email)"
+                    ))
+                    await conn.execute(text(
+                        "CREATE INDEX ix_users_auth_type ON users (auth_type)"
+                    ))
+
+                async with manager.get_session() as session:
+                    user = await UserService.create(
+                        session,
+                        UserCreate(
+                            username="legacyuser",
+                            email="legacy@example.com",
+                            password="legacy_password_123",
+                            roles={"user": True},
+                        ),
+                    )
+
+                assert user.id is not None
+                assert user.username == "legacyuser"
+                assert user.email == "legacy@example.com"
+
+                async with manager.get_session() as session:
+                    persisted = await UserService.get_by_username(session, "legacyuser")
+                    assert persisted is not None
+                    assert persisted.is_admin is False
+            finally:
+                await manager.close()
+
+    @pytest.mark.asyncio
     async def test_create_user(self, session: AsyncSession):
         """Test creating a user."""
         data = UserCreate(

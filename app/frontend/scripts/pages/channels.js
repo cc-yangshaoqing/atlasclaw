@@ -106,6 +106,10 @@ const ACTION_ICONS = {
     <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
     <line x1="1" y1="1" x2="23" y2="23"></line>
   </svg>`,
+  close: `<svg viewBox="0 0 12 12" fill="none" width="12" height="12" aria-hidden="true">
+    <path d="M2 2L10 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+    <path d="M10 2L2 10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path>
+  </svg>`,
   spinner: `<svg viewBox="0 0 24 24" fill="none" width="16" height="16" aria-hidden="true" class="ch-btn-spinner">
     <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" opacity="0.22"></circle>
     <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></path>
@@ -529,6 +533,119 @@ function getFieldText(key, textType, fallback) {
     return translated
   }
   return fallback || ''
+}
+
+function parseProviderBindingValue(bindingValue) {
+  const rawBindingValue = String(bindingValue || '').trim()
+  if (!rawBindingValue) {
+    return null
+  }
+
+  const separatorIndex = rawBindingValue.indexOf('/')
+  if (separatorIndex <= 0 || separatorIndex >= rawBindingValue.length - 1) {
+    return null
+  }
+
+  const providerType = rawBindingValue.slice(0, separatorIndex).trim().toLowerCase()
+  const instanceName = rawBindingValue.slice(separatorIndex + 1).trim()
+
+  if (!providerType || !instanceName) {
+    return null
+  }
+
+  return { providerType, instanceName }
+}
+
+function getResolvedProviderType(properties, values = {}) {
+  const explicitProviderType = String(values.config?.provider_type || '').trim().toLowerCase()
+  if (explicitProviderType) {
+    return explicitProviderType
+  }
+
+  const parsedBinding = parseProviderBindingValue(values.config?.provider_binding)
+  if (parsedBinding) {
+    return parsedBinding.providerType
+  }
+
+  return ''
+}
+
+function getProviderInstanceOptions(propertySchema, providerType) {
+  const normalizedProviderType = String(providerType || '').trim().toLowerCase()
+  const optionsByProvider = propertySchema?.optionsByProvider
+
+  if (!normalizedProviderType || !optionsByProvider || typeof optionsByProvider !== 'object') {
+    return []
+  }
+
+  const providerOptions = optionsByProvider[normalizedProviderType]
+  return Array.isArray(providerOptions) ? providerOptions : []
+}
+
+function renderSelectOptions(options, selectedValue, { includeBlankOption = false } = {}) {
+  const normalizedSelectedValue = String(selectedValue || '')
+  const optionMarkup = (Array.isArray(options) ? options : []).map(option => {
+    const value = String(option?.value || '')
+    const label = String(option?.label || value)
+    const selected = normalizedSelectedValue === value ? 'selected' : ''
+    return `<option value="${value}" ${selected}>${label}</option>`
+  })
+
+  if (!includeBlankOption) {
+    return optionMarkup.join('')
+  }
+
+  const blankSelected = normalizedSelectedValue === '' ? 'selected' : ''
+  return [`<option value="" ${blankSelected}></option>`, ...optionMarkup].join('')
+}
+
+function markSelectUnselected(selectElement) {
+  if (!selectElement) return
+  selectElement.selectedIndex = -1
+}
+
+function hasSelectValue(selectElement) {
+  return !!String(selectElement?.value || '').trim()
+}
+
+function syncSelectClearButtons(form) {
+  if (!form) return
+
+  form.querySelectorAll('.ch-select-clear').forEach(button => {
+    const targetName = button.dataset.clearTarget
+    if (!targetName) return
+
+    const select = form.querySelector(`select[name="${targetName}"]`)
+    const canClear = !!select && !select.disabled && hasSelectValue(select)
+    const control = button.closest('.ch-select-control-clearable')
+    button.hidden = !canClear
+    button.disabled = !canClear
+    control?.classList.toggle('has-selection', canClear)
+  })
+}
+
+function handleSelectClear(button, schema) {
+  const form = button.closest('.ch-form-card') || button.closest('#configForm')
+  if (!form) return
+
+  const targetName = button.dataset.clearTarget
+  if (!targetName) return
+
+  const select = form.querySelector(`select[name="${targetName}"]`)
+  if (!select) return
+
+  markSelectUnselected(select)
+
+  if (targetName === 'provider_type') {
+    handleProviderChange(select, schema)
+  } else if (targetName === 'provider_binding') {
+    const bindingSelect = form.querySelector('select[data-provider-instance-selector="true"]')
+    if (bindingSelect) {
+      markSelectUnselected(bindingSelect)
+    }
+  }
+
+  syncSelectClearButtons(form)
 }
 
 // ========== URL Routing ==========
@@ -1742,7 +1859,6 @@ function renderConnectionRow(conn) {
   const channelLabel = getChannelName({ type: conn.channel_type, name: conn.channel_type })
   const connectionName = getConnectionDisplayName(conn)
   const idLabel = t('channel.idLabel')
-  const settingsTitle = t('channel.settingsAction')
   const editTitle = t('channel.edit')
   const deleteTitle = t('channel.delete')
 
@@ -1767,7 +1883,6 @@ function renderConnectionRow(conn) {
         <span class="ch-toggle-label">${toggleLabel}</span>
       </div>
       <div class="ch-cell-actions">
-        <button class="ch-action-btn" data-conn-id="${conn.id}" data-action="settings" title="${settingsTitle}" aria-label="${settingsTitle}">${ACTION_ICONS.settings}</button>
         <button class="ch-action-btn" data-conn-id="${conn.id}" data-action="edit" title="${editTitle}" aria-label="${editTitle}">${ACTION_ICONS.edit}</button>
         <button class="ch-action-btn delete" data-conn-id="${conn.id}" data-action="delete" title="${deleteTitle}" aria-label="${deleteTitle}">${ACTION_ICONS.delete}</button>
       </div>
@@ -1916,6 +2031,7 @@ async function renderEditView(type, editId) {
         <div class="ch-form-card">
           ${renderConfigForm(schema, connectionData)}
         </div>
+        ${renderIntegrationConfigBlock(schema, connectionData)}
         <!-- Action Bar -->
         <div class="ch-action-bar">
           <button class="ch-btn-validate" id="btnValidate">
@@ -1973,11 +2089,6 @@ async function renderEditView(type, editId) {
           </div>
         </div>
 
-        <!-- Atlas Aurora Banner -->
-        <div class="ch-aurora-banner">
-          <span class="ch-aurora-small" data-i18n="channel.auroraSmall">${t('channel.auroraSmall')}</span>
-          <span class="ch-aurora-title" data-i18n="channel.auroraTitle">${t('channel.auroraTitle')}</span>
-        </div>
       </div>
     </div>
   `
@@ -2044,6 +2155,7 @@ function renderConfigForm(schema, values = {}) {
   const currentMode = (connectionModeValue !== undefined && connectionModeValue !== '') 
                       ? connectionModeValue 
                       : (properties.connection_mode?.default || '')
+  const currentProviderType = getResolvedProviderType(properties, values)
 
   // Track fields for side-by-side layout
   const fieldPairs = (preferredFieldPairs[currentChannelType] || [])
@@ -2214,17 +2326,89 @@ function renderConfigForm(schema, values = {}) {
     // Handle enum fields (render as select dropdown) - standalone
     if (prop.enum && Array.isArray(prop.enum)) {
       const enumLabels = prop.enumLabels || {}
+      const isModeSelector = key === 'connection_mode'
+      const isProviderSelector = key === 'provider_type'
+      const isProviderInstanceSelector = key === 'provider_binding'
+
+      // Skip provider fields - they are rendered in the integration config block
+      if (isProviderSelector || isProviderInstanceSelector) {
+        continue
+      }
+      const selectAttributes = []
+      let optionMarkup = ''
+
+      if (isModeSelector) {
+        selectAttributes.push('data-mode-selector="true"')
+      }
+
+      if (isProviderSelector) {
+        selectAttributes.push('data-provider-selector="true"')
+        const selectedProviderType = value || currentProviderType
+        if (!selectedProviderType) {
+          selectAttributes.push('data-force-unselected="true"')
+        }
+        const providerOptions = prop.enum.map(opt => ({
+          value: opt,
+          label: getFieldText(`${key}.${opt}`, 'label', enumLabels[opt] || opt)
+        }))
+        optionMarkup = renderSelectOptions(providerOptions, selectedProviderType, {
+          includeBlankOption: false
+        })
+      } else if (isProviderInstanceSelector) {
+        selectAttributes.push('data-provider-instance-selector="true"')
+        const activeProviderType = currentProviderType || parseProviderBindingValue(value)?.providerType || ''
+        const providerOptions = getProviderInstanceOptions(prop, activeProviderType)
+        const selectedBindingValue = providerOptions.some(option => String(option?.value || '') === value)
+          ? value
+          : ''
+        if (!selectedBindingValue) {
+          selectAttributes.push('data-force-unselected="true"')
+        }
+
+        if (!activeProviderType || providerOptions.length === 0) {
+          selectAttributes.push('disabled')
+        }
+
+        if (activeProviderType) {
+          selectAttributes.push(`data-active-provider="${activeProviderType}"`)
+        }
+
+        optionMarkup = renderSelectOptions(providerOptions, selectedBindingValue, {
+          includeBlankOption: false
+        })
+      } else {
+        const selectOptions = prop.enum.map(opt => ({
+          value: opt,
+          label: getFieldText(`${key}.${opt}`, 'label', enumLabels[opt] || opt)
+        }))
+        optionMarkup = renderSelectOptions(selectOptions, value)
+      }
 
       html += `
         <div class="${getFieldGroupClassName(key)}" ${showWhenAttr} style="${shouldShow ? '' : 'display: none;'}">
-          <label class="ch-form-label">${title.toUpperCase()} ${isRequired ? '<span class="required">*</span>' : ''}</label>
-          <select name="${key}" class="ch-form-select" data-mode-selector="${key === 'connection_mode'}">
-            ${prop.enum.map(opt => {
-              const label = getFieldText(`${key}.${opt}`, 'label', enumLabels[opt] || opt)
-              const selected = value === opt ? 'selected' : ''
-              return `<option value="${opt}" ${selected}>${label}</option>`
-            }).join('')}
-          </select>
+          ${isProviderSelector || isProviderInstanceSelector ? `
+            <label class="ch-form-label">${title.toUpperCase()} ${isRequired ? '<span class="required">*</span>' : ''}</label>
+            <div class="ch-select-control ch-select-control-clearable">
+              <select name="${key}" class="ch-form-select" ${selectAttributes.join(' ')}>
+                ${optionMarkup}
+              </select>
+              <button
+                type="button"
+                class="ch-select-clear"
+                data-clear-target="${key}"
+                aria-label="${t('channel.clearSelection') || 'Clear'}"
+                title="${t('channel.clearSelection') || 'Clear'}"
+                hidden
+              >
+                ${ACTION_ICONS.close}
+              </button>
+            </div>
+          ` : `
+            <label class="ch-form-label">${title.toUpperCase()} ${isRequired ? '<span class="required">*</span>' : ''}</label>
+            <select name="${key}" class="ch-form-select" ${selectAttributes.join(' ')}>
+              ${optionMarkup}
+            </select>
+          `}
           ${description ? `<span class="ch-form-hint">${description}</span>` : ''}
         </div>
       `
@@ -2257,6 +2441,94 @@ function renderConfigForm(schema, values = {}) {
   }
 
   return html
+}
+
+/**
+ * Render integration configuration block with provider checkboxes
+ */
+function renderIntegrationConfigBlock(schema, values) {
+  const providerTypeField = schema?.properties?.provider_type
+  const providerBindingField = schema?.properties?.provider_binding
+
+  if (!providerTypeField || !providerBindingField) return ''
+
+  const optionsByProvider = providerBindingField.optionsByProvider || {}
+  const providerTypeLabels = providerTypeField.enumLabels || {}
+
+  // Get current selected bindings
+  const currentBindings = new Set()
+  const currentBinding = values?.config?.provider_binding || values?.provider_binding
+  if (currentBinding) {
+    currentBindings.add(currentBinding)
+  }
+  // 兼容多选绑定的回显
+  const currentBindingList = values?.config?.provider_bindings || values?.provider_bindings || []
+  if (Array.isArray(currentBindingList)) {
+    currentBindingList.forEach(b => {
+      if (b) currentBindings.add(b)
+    })
+  }
+
+  const providerTypes = Object.keys(optionsByProvider)
+
+  if (providerTypes.length === 0) {
+    return `
+      <div class="ch-integration-config-block">
+        <div class="ch-section-header">
+          <h3 data-i18n="channel.integrationConfig">${t('channel.integrationConfig', 'Integration Configuration')}</h3>
+          <p class="ch-section-desc" data-i18n="channel.integrationConfigDesc">${t('channel.integrationConfigDesc', 'Select integration services to enable for this connection')}</p>
+        </div>
+        <div class="ch-integration-empty" data-i18n="channel.noIntegrationAvailable">
+          ${t('channel.noIntegrationAvailable', 'No integration configuration available')}
+        </div>
+      </div>
+    `
+  }
+
+  let groupsHtml = ''
+  for (const providerType of providerTypes) {
+    const instances = optionsByProvider[providerType] || []
+    const providerLabel = providerTypeLabels[providerType] || providerType
+
+    let instancesHtml = ''
+    for (const instance of instances) {
+      const bindingValue = instance.value
+      const instanceLabel = instance.label
+      const isChecked = currentBindings.has(bindingValue) ? 'checked' : ''
+
+      instancesHtml += `
+        <label class="ch-integration-item">
+          <input type="checkbox"
+                 name="integration_binding"
+                 value="${bindingValue}"
+                 ${isChecked}
+                 class="ch-integration-checkbox" />
+          <span class="ch-integration-item-label">${instanceLabel}</span>
+        </label>
+      `
+    }
+
+    groupsHtml += `
+      <div class="ch-integration-group">
+        <div class="ch-integration-group-header">${providerLabel}</div>
+        <div class="ch-integration-group-items">
+          ${instancesHtml}
+        </div>
+      </div>
+    `
+  }
+
+  return `
+    <div class="ch-integration-config-block">
+      <div class="ch-section-header">
+        <h3 data-i18n="channel.integrationConfig">${t('channel.integrationConfig', 'Integration Configuration')}</h3>
+        <p class="ch-section-desc" data-i18n="channel.integrationConfigDesc">${t('channel.integrationConfigDesc', 'Select integration services to enable for this connection')}</p>
+      </div>
+      <div class="ch-integration-groups">
+        ${groupsHtml}
+      </div>
+    </div>
+  `
 }
 
 /**
@@ -2319,6 +2591,41 @@ function handleModeChange(selectElement, schema) {
   })
 }
 
+function handleProviderChange(selectElement, schema) {
+  const form = selectElement.closest('.ch-form-card') || selectElement.closest('#configForm')
+  if (!form) return
+
+  const instanceSelect = form.querySelector('select[data-provider-instance-selector="true"]')
+  if (!instanceSelect) return
+
+  const bindingSchema = schema?.properties?.provider_binding
+  if (!bindingSchema) return
+
+  const providerType = String(selectElement.value || '').trim().toLowerCase()
+  const providerOptions = getProviderInstanceOptions(bindingSchema, providerType)
+  const currentBindingValue = String(instanceSelect.value || '').trim()
+  const nextBindingValue = providerOptions.some(option => String(option?.value || '') === currentBindingValue)
+    ? currentBindingValue
+    : ''
+
+  instanceSelect.innerHTML = renderSelectOptions(providerOptions, nextBindingValue, {
+    includeBlankOption: false
+  })
+  instanceSelect.disabled = !providerType || providerOptions.length === 0
+
+  if (providerType) {
+    instanceSelect.dataset.activeProvider = providerType
+  } else {
+    delete instanceSelect.dataset.activeProvider
+  }
+
+  if (!nextBindingValue && providerOptions.length > 0) {
+    markSelectUnselected(instanceSelect)
+  }
+
+  syncSelectClearButtons(form)
+}
+
 /**
  * Bind mode change events after form render
  */
@@ -2329,6 +2636,28 @@ function bindModeChangeEvents(schema) {
   form.querySelectorAll('select[data-mode-selector="true"]').forEach(select => {
     select.addEventListener('change', () => handleModeChange(select, schema))
   })
+
+  form.querySelectorAll('select[data-provider-selector="true"]').forEach(select => {
+    select.addEventListener('change', () => {
+      handleProviderChange(select, schema)
+      syncSelectClearButtons(form)
+    })
+  })
+
+  form.querySelectorAll('select[data-provider-instance-selector="true"]').forEach(select => {
+    select.addEventListener('change', () => syncSelectClearButtons(form))
+  })
+
+  form.querySelectorAll('select[data-force-unselected="true"]').forEach(select => {
+    markSelectUnselected(select)
+    delete select.dataset.forceUnselected
+  })
+
+  form.querySelectorAll('.ch-select-clear').forEach(button => {
+    button.addEventListener('click', () => handleSelectClear(button, schema))
+  })
+
+  syncSelectClearButtons(form)
 
   // Bind password toggle events
   form.querySelectorAll('.ch-password-toggle').forEach(btn => {
@@ -2480,6 +2809,22 @@ async function handleSave() {
   const primaryToggle = $('#primaryToggle')
   const isDefault = primaryToggle ? primaryToggle.classList.contains('checked') : false
 
+  // Collect selected integration bindings from checkboxes
+  const integrationCheckboxes = form.closest('.ch-edit-main')?.querySelectorAll('.ch-integration-checkbox:checked') || []
+  const selectedBindings = Array.from(integrationCheckboxes).map(cb => cb.value)
+
+  if (selectedBindings.length > 0) {
+    config.provider_binding = selectedBindings[0]
+    if (selectedBindings.length > 1) {
+      config.provider_bindings = selectedBindings
+    }
+    const firstBinding = selectedBindings[0]
+    const slashIdx = firstBinding.indexOf('/')
+    if (slashIdx > 0) {
+      config.provider_type = firstBinding.slice(0, slashIdx)
+    }
+  }
+
   try {
     if (editingConnectionId) {
       await updateConnection(currentChannelType, editingConnectionId, { name, config, is_default: isDefault })
@@ -2536,6 +2881,22 @@ async function handleVerify() {
   if (hasValidationError) {
     showToast(t('channel.requiredFieldsMissing') || 'Please fill in all required fields', 'error')
     return
+  }
+
+  // 收集集成配置勾选结果（与 handleSave 保持一致）
+  const integrationCheckboxes = form.closest('.ch-edit-main')?.querySelectorAll('.ch-integration-checkbox:checked') || []
+  const selectedBindings = Array.from(integrationCheckboxes).map(cb => cb.value)
+
+  if (selectedBindings.length > 0) {
+    config.provider_binding = selectedBindings[0]
+    if (selectedBindings.length > 1) {
+      config.provider_bindings = selectedBindings
+    }
+    const firstBinding = selectedBindings[0]
+    const slashIdx = firstBinding.indexOf('/')
+    if (slashIdx > 0) {
+      config.provider_type = firstBinding.slice(0, slashIdx)
+    }
   }
 
   verificationInFlight = true
