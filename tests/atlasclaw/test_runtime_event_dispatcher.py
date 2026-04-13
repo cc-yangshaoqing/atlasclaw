@@ -4,9 +4,80 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from pydantic_ai.messages import ModelResponse, TextPart, ToolCallPart
 
 from app.atlasclaw.agent.runtime_events import RuntimeEventDispatcher
+from app.atlasclaw.agent.runner_tool.runner_execution_flow_stream import RunnerExecutionFlowStreamMixin
+from app.atlasclaw.agent.runner_tool.runner_execution_payload import RunnerExecutionPayloadMixin
+from app.atlasclaw.agent.runner_tool.runner_execution_runtime import RunnerExecutionRuntimeMixin
+from app.atlasclaw.agent.thinking_stream import ThinkingStreamEmitter
+from app.atlasclaw.agent.tool_gate_models import ToolIntentAction, ToolIntentPlan
+from app.atlasclaw.core.trace import bind_trace_context, resolve_trace_context
+
+
+class _HookCollector:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+
+    async def trigger(self, event_name: str, payload: dict) -> None:
+        self.calls.append((event_name, payload))
+
+
+class _ModelRequestNode:
+    def __init__(self, *, tool_calls: list[dict] | None = None, content: str = "") -> None:
+        self.tool_calls = list(tool_calls or [])
+        self.content = content
+
+
+class _SequencedAgentRun:
+    def __init__(self, snapshots: list[list[dict]]) -> None:
+        self._snapshots = [list(snapshot) for snapshot in snapshots]
+        self._index = 0
+
+    def all_messages(self) -> list[dict]:
+        if not self._snapshots:
+            return []
+        current_index = min(self._index, len(self._snapshots) - 1)
+        self._index += 1
+        return list(self._snapshots[current_index])
+
+
+class _StreamHistory:
+    @staticmethod
+    def normalize_messages(messages):
+        return list(messages)
+
+    @staticmethod
+    def prune_summary_messages(messages):
+        return list(messages)
+
+
+class _StreamTestRunner(
+    RunnerExecutionPayloadMixin,
+    RunnerExecutionRuntimeMixin,
+    RunnerExecutionFlowStreamMixin,
+):
+    def __init__(self, *, nodes: list[object], runtime_hooks: _HookCollector, assistant_hooks: _HookCollector) -> None:
+        self._nodes = list(nodes)
+        self.history = _StreamHistory()
+        self.compaction = SimpleNamespace(
+            should_memory_flush=lambda *args, **kwargs: False,
+            should_compact=lambda *args, **kwargs: False,
+        )
+        self.context_pruning_settings = SimpleNamespace(enabled=False, mode="off")
+        self.hooks = assistant_hooks
+        self.runtime_events = RuntimeEventDispatcher(hooks=runtime_hooks)
+
+    @staticmethod
+    def _extract_tool_call_arguments(raw_args):
+        return raw_args if isinstance(raw_args, dict) else {}
+
+    async def _iter_agent_nodes(self, agent_run):
+        if False:
+            yield None
+        for node in self._nodes:
+            yield node
 
 
 def test_collect_tool_calls_reads_tool_call_parts_from_model_response_node():
@@ -28,4 +99,135 @@ def test_collect_tool_calls_reads_tool_call_parts_from_model_response_node():
             "name": "smartcmp_request_detail",
             "args": {"request_id": "TIC20260316000001"},
         }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_runtime_event_dispatcher_llm_input_carries_loop_metadata() -> None:
+    hooks = _HookCollector()
+    dispatcher = RuntimeEventDispatcher(hooks=hooks)
+    session_key = "agent:main:user:u1:web:dm:peer-1:topic:thread-1"
+
+    await dispatcher.trigger_llm_input(
+        session_key=session_key,
+        run_id="run-1",
+        user_message="hello",
+        system_prompt="system prompt",
+        message_history=[{"role": "user", "content": "history"}],
+        loop_index=2,
+        loop_reason="tool_result_continuation",
+        selected_capability_ids=["tool:smartcmp_list_pending", "provider:smartcmp"],
+    )
+
+    assert hooks.calls
+    event_name, payload = hooks.calls[0]
+    assert event_name == "llm_input"
+    assert payload["trace_id"] == "thread-1"
+    assert payload["thread_id"] == "thread-1"
+    assert payload["run_id"] == "run-1"
+    assert payload["session_key"] == session_key
+    assert payload["loop_index"] == 2
+    assert payload["loop_reason"] == "tool_result_continuation"
+    assert payload["selected_capability_ids"] == ["tool:smartcmp_list_pending", "provider:smartcmp"]
+
+
+@pytest.mark.asyncio
+async def test_stream_emits_loop_status_for_tool_result_reentry() -> None:
+    runtime_hooks = _HookCollector()
+    assistant_hooks = _HookCollector()
+    runner = _StreamTestRunner(
+        nodes=[
+            _ModelRequestNode(
+                tool_calls=[{"name": "lookup_tool", "args": {"query": "alpha"}}],
+            ),
+            _ModelRequestNode(content="Final answer."),
+        ],
+        runtime_hooks=runtime_hooks,
+        assistant_hooks=assistant_hooks,
+    )
+    session_key = "agent:main:user:u1:web:dm:peer-1:topic:thread-2"
+    trace = resolve_trace_context(session_key, run_id="run-2")
+    agent_run = _SequencedAgentRun(
+        snapshots=[
+            [],
+            [{"role": "tool", "tool_name": "lookup_tool", "content": "ok"}],
+            [{"role": "tool", "tool_name": "lookup_tool", "content": "ok"}],
+        ]
+    )
+    state = {
+        "deps": SimpleNamespace(extra={}, is_aborted=lambda: False),
+        "start_time": 0.0,
+        "session": None,
+        "session_key": session_key,
+        "session_manager": SimpleNamespace(mark_compacted=lambda *args, **kwargs: None),
+        "run_id": "run-2",
+        "user_message": "Find the latest result.",
+        "system_prompt": "system prompt",
+        "max_tool_calls": 5,
+        "runtime_context_window": None,
+        "flushed_memory_signatures": set(),
+        "session_message_history": [],
+        "runtime_base_history_len": 0,
+        "persist_run_output_start_index": 0,
+        "synthetic_tool_messages": [],
+        "thinking_emitter": ThinkingStreamEmitter(chunk_delay_seconds=0, chunk_size=1024),
+        "tool_intent_plan": ToolIntentPlan(
+            action=ToolIntentAction.USE_TOOLS,
+            target_tool_names=["lookup_tool"],
+            target_capability_classes=["lookup"],
+        ),
+        "tool_execution_required": False,
+        "buffer_direct_answer_output": False,
+        "buffered_assistant_events": [],
+        "tool_call_summaries": [],
+        "executed_tool_names": [],
+        "available_tools": [],
+    }
+
+    with bind_trace_context(trace):
+        events = [
+            event
+            async for event in runner._run_agent_node_stream(
+                agent_run=agent_run,
+                state=state,
+                _log_step=lambda *args, **kwargs: None,
+            )
+        ]
+
+    runtime_updates = [event for event in events if event.type == "runtime"]
+    initial_status = next(event for event in runtime_updates if event.content == "Analyzing request.")
+    reentry_status = next(
+        event for event in runtime_updates if event.content == "Re-entering model loop with tool evidence."
+    )
+
+    assert initial_status.metadata["loop_index"] == 1
+    assert initial_status.metadata["loop_reason"] == "initial_request"
+    assert initial_status.metadata["selected_capability_ids"] == ["tool:lookup_tool", "capability:lookup"]
+    assert reentry_status.metadata["loop_index"] == 2
+    assert reentry_status.metadata["loop_reason"] == "tool_result_continuation"
+    assert reentry_status.metadata["tool_result_count"] == 1
+    assert reentry_status.metadata["selected_capability_ids"] == ["tool:lookup_tool", "capability:lookup"]
+
+    assert [payload["loop_index"] for event_name, payload in runtime_hooks.calls if event_name == "llm_input"] == [1, 2]
+    assert [payload["loop_reason"] for event_name, payload in runtime_hooks.calls if event_name == "llm_input"] == [
+        "initial_request",
+        "tool_result_continuation",
+    ]
+    assert [
+        payload["selected_capability_ids"] for event_name, payload in runtime_hooks.calls if event_name == "llm_input"
+    ] == [
+        ["tool:lookup_tool", "capability:lookup"],
+        ["tool:lookup_tool", "capability:lookup"],
+    ]
+    assert assistant_hooks.calls == [
+        (
+            "llm_output",
+            {
+                "session_key": session_key,
+                "content": "Final answer.",
+                "trace_id": "thread-2",
+                "thread_id": "thread-2",
+                "run_id": "run-2",
+            },
+        )
     ]

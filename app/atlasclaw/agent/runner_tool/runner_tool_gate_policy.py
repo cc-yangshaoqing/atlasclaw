@@ -41,6 +41,11 @@ class RunnerToolGatePolicyMixin:
             )
             else "default"
         )
+        artifact_goal = None
+        if isinstance(deps.extra, dict):
+            candidate_goal = deps.extra.get("artifact_goal")
+            if isinstance(candidate_goal, dict):
+                artifact_goal = dict(candidate_goal)
         deps.extra["tool_policy"] = {
             "mode": intent_plan.action.value,
             "reason": intent_plan.reason,
@@ -57,6 +62,7 @@ class RunnerToolGatePolicyMixin:
             "target_skill_names": list(intent_plan.target_skill_names),
             "target_group_ids": list(intent_plan.target_group_ids),
             "target_capability_classes": list(intent_plan.target_capability_classes),
+            "artifact_goal": artifact_goal,
         }
 
     @staticmethod

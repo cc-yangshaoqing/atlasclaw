@@ -164,6 +164,9 @@ class SkillsConfig(BaseModel):
     md_skills_max_count: int = Field(default=20, ge=1, description="Maximum number of MD skills shown in the index section")
     md_skills_desc_max_chars: int = Field(default=200, ge=1, description="Maximum characters for a single skill description")
     md_skills_index_max_chars: int = Field(default=3000, ge=1, description="Maximum total characters for the index section")
+    capability_index_max_count: int = Field(default=20, ge=1, description="Maximum number of unified capability entries shown in the capability index section")
+    capability_index_desc_max_chars: int = Field(default=200, ge=1, description="Maximum characters for a single capability description")
+    capability_index_max_chars: int = Field(default=3000, ge=1, description="Maximum total characters for the unified capability index section")
     md_skills_max_file_bytes: int = Field(default=262144, ge=1, description="Maximum size of a single SKILL.md file in bytes (default 256KB)")
     tools_exclusive: list[str] = Field(
         default_factory=list,

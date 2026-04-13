@@ -154,6 +154,7 @@ class RunnerExecutionLoopMixin(RunnerExecutionPreparePhaseMixin, RunnerExecution
             "skill_hint_docs": [],
             "metadata_candidates": {},
             "ranking_trace": {},
+            "artifact_goal": None,
             "answer_committed": False,
             "should_stop": False,
             "latest_agent_messages": [],

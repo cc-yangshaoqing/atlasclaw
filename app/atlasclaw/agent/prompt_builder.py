@@ -64,6 +64,12 @@ class PromptBuilderConfig:
     md_skills_desc_max_chars: int = 200
     # Maximum number of Markdown skill entries in the index section
     md_skills_max_count: int = 20
+    # Total character budget for the unified capability index section
+    capability_index_max_chars: int = 3000
+    # Maximum description length for a single unified capability entry
+    capability_index_desc_max_chars: int = 200
+    # Maximum number of unified capability entries in the index section
+    capability_index_max_count: int = 20
 
 
 class PromptBuilder:
@@ -113,6 +119,7 @@ class PromptBuilder:
         skills: Optional[list[dict]] = None,
         tools: Optional[list[dict]] = None,
         md_skills: Optional[list[dict]] = None,
+        capability_index: Optional[list[dict]] = None,
         target_md_skill: Optional[dict] = None,
         tool_policy: Optional[dict] = None,
         user_info: Optional["UserInfo"] = None,
@@ -163,14 +170,19 @@ class PromptBuilder:
         
         if effective_mode == PromptMode.FULL:
             # 4. Markdown skill index (HIGHEST PRIORITY - check these first!)
-            if md_skills:
-                md_index = self._build_md_skills_index(md_skills, provider_contexts)
-                if md_index:
-                    parts.append(md_index)
-            
-            # 4b. Executable skills (fallback only if no MD skill matches)
-            if skills:
-                parts.append(self._build_skills_listing(skills))
+            if capability_index is not None:
+                capability_section = self._build_capability_index(capability_index)
+                if capability_section:
+                    parts.append(capability_section)
+            else:
+                if md_skills:
+                    md_index = self._build_md_skills_index(md_skills, provider_contexts)
+                    if md_index:
+                        parts.append(md_index)
+
+                # 4b. Executable skills (fallback only if no MD skill matches)
+                if skills:
+                    parts.append(self._build_skills_listing(skills))
 
             if target_md_skill:
                 parts.append(self._build_target_md_skill(target_md_skill))
@@ -247,6 +259,9 @@ class PromptBuilder:
         provider_contexts: Optional[dict[str, dict]] = None,
     ) -> str:
         return prompt_sections.build_md_skills_index(self.config, md_skills, provider_contexts)
+
+    def _build_capability_index(self, capability_index: list[dict]) -> str:
+        return prompt_sections.build_capability_index(self.config, capability_index)
     
     def _build_self_update(self) -> str:
         return prompt_sections.build_self_update()

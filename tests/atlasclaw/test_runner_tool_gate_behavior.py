@@ -6,6 +6,8 @@ import asyncio
 import pytest
 
 from app.atlasclaw.agent.runner_tool.runner_tool_gate_model import RunnerToolGateModelMixin
+from app.atlasclaw.agent.runner_tool.runner_execution_prepare import RunnerExecutionPreparePhaseMixin
+from app.atlasclaw.agent.runner_tool.runner_llm_routing import build_llm_first_intent_plan
 from app.atlasclaw.agent.runner_tool.runner_tool_gate_routing import RunnerToolGateRoutingMixin
 from app.atlasclaw.agent.runner_tool.runner_tool_projection import project_minimal_toolset
 from app.atlasclaw.agent.tool_gate import CapabilityMatcher
@@ -21,6 +23,10 @@ class _GateRunner(RunnerToolGateModelMixin, RunnerToolGateRoutingMixin):
     TOOL_GATE_SHORT_CIRCUIT_MIN_CONFIDENCE = 0.55
     TOOL_GATE_MUST_USE_MIN_CONFIDENCE = 0.85
     TOOL_HINT_RANKER_MIN_METADATA_CONFIDENCE = 0.30
+
+
+class _PrepareRunner(RunnerExecutionPreparePhaseMixin):
+    pass
 
 
 class _HangingAgent:
@@ -1012,3 +1018,54 @@ async def test_plan_tool_intent_with_model_times_out_instead_of_hanging() -> Non
     )
 
     assert plan is None
+
+
+def test_runtime_history_for_tool_turns_keeps_recent_context_even_without_follow_up_flag() -> None:
+    history = _PrepareRunner._build_runtime_message_history_for_turn(
+        session_message_history=[
+            {"role": "user", "content": "查一个 cmp 所有待审批的申请"},
+            {"role": "assistant", "content": "我已经列出了 3 条待审批申请。"},
+        ],
+        used_follow_up_context=False,
+        intent_plan=ToolIntentPlan(
+            action=ToolIntentAction.USE_TOOLS,
+            target_provider_types=["smartcmp"],
+            reason="legacy tool turn",
+        ),
+    )
+
+    assert history == [
+        {"role": "user", "content": "查一个 cmp 所有待审批的申请"},
+        {"role": "assistant", "content": "我已经列出了 3 条待审批申请。"},
+    ]
+
+
+def test_llm_first_intent_plan_keeps_strong_provider_match_on_main_path() -> None:
+    plan = build_llm_first_intent_plan(
+        user_message="查一个 cmp 所有待审批的申请",
+        metadata_plan=ToolIntentPlan(
+            action=ToolIntentAction.USE_TOOLS,
+            target_provider_types=["smartcmp"],
+            target_tool_names=["smartcmp_list_pending"],
+            reason="metadata_recall_matched",
+        ),
+    )
+
+    assert plan.action is ToolIntentAction.USE_TOOLS
+    assert plan.target_provider_types == ["smartcmp"]
+    assert plan.target_tool_names == ["smartcmp_list_pending"]
+
+
+def test_llm_first_intent_plan_does_not_let_metadata_override_artifact_request() -> None:
+    plan = build_llm_first_intent_plan(
+        user_message="将这些申请写入一个新的PPT",
+        metadata_plan=ToolIntentPlan(
+            action=ToolIntentAction.USE_TOOLS,
+            target_provider_types=["smartcmp"],
+            target_tool_names=["smartcmp_list_pending"],
+            reason="metadata_recall_matched",
+        ),
+    )
+
+    assert plan.action is ToolIntentAction.CREATE_ARTIFACT
+    assert "Artifact-style follow-up" in plan.reason

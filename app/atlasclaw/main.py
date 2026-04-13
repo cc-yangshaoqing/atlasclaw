@@ -506,7 +506,17 @@ async def lifespan(app: FastAPI):
     agent = _build_agent_for("main", seed_token)
 
     # Create AgentRunner
-    prompt_builder = PromptBuilder(PromptBuilderConfig(workspace_path=workspace_path))
+    prompt_builder = PromptBuilder(
+        PromptBuilderConfig(
+            workspace_path=workspace_path,
+            md_skills_max_count=config.skills.md_skills_max_count,
+            md_skills_desc_max_chars=config.skills.md_skills_desc_max_chars,
+            md_skills_max_index_chars=config.skills.md_skills_index_max_chars,
+            capability_index_max_count=config.skills.capability_index_max_count,
+            capability_index_desc_max_chars=config.skills.capability_index_desc_max_chars,
+            capability_index_max_chars=config.skills.capability_index_max_chars,
+        )
+    )
     runtime_pruning_config = config.context_pruning
     runtime_context_pruning_settings = AgentContextPruningSettings(
         mode=runtime_pruning_config.mode,

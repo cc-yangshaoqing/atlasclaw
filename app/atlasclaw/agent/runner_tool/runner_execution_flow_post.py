@@ -9,6 +9,7 @@ from app.atlasclaw.agent.runner_tool.runner_execution_payload import (
     build_direct_answer_recovery_payload,
     build_tool_failure_fallback_payload,
 )
+from app.atlasclaw.agent.runner_tool.runner_llm_routing import messages_satisfy_artifact_goal
 from app.atlasclaw.agent.runner_tool.runner_tool_messages import overlay_synthetic_tool_messages
 from app.atlasclaw.agent.runner_tool.runner_tool_projection import (
     tool_required_turn_has_real_execution,
@@ -448,13 +449,24 @@ class RunnerExecutionFlowPostMixin:
             start_index=persist_run_output_start_index,
             executed_tool_names=state.get("executed_tool_names"),
         )
+        artifact_goal = state.get("artifact_goal")
+        artifact_completion_missing = bool(artifact_goal) and not messages_satisfy_artifact_goal(
+            messages=final_messages,
+            start_index=persist_run_output_start_index,
+            target_tool_names=[
+                str(item.get("name", "") or "").strip()
+                for item in tool_call_summaries
+                if isinstance(item, dict) and str(item.get("name", "") or "").strip()
+            ],
+            artifact_goal=artifact_goal,
+        )
         preferred_tool_only_answer = ""
         if tool_required_has_real_execution:
             candidate_tool_only_answer = self._build_tool_only_markdown_answer_from_messages(
                 messages=final_messages,
                 start_index=persist_run_output_start_index,
             )
-            if candidate_tool_only_answer:
+            if candidate_tool_only_answer and not artifact_completion_missing:
                 preferred_tool_only_answer = candidate_tool_only_answer
                 if bool(state.get("force_tool_only_finalize")):
                     final_assistant = preferred_tool_only_answer
@@ -468,12 +480,15 @@ class RunnerExecutionFlowPostMixin:
             run_output_start_index=persist_run_output_start_index,
         )
 
-        should_fail_for_missing_evidence = tool_execution_required and (
-            not tool_required_has_real_execution
-            or bool(missing_required_tools)
-            or isinstance(state.get("repeated_tool_failure"), dict)
-            or isinstance(state.get("repeated_tool_no_progress"), dict)
-            or isinstance(state.get("repeated_tool_loop"), dict)
+        should_fail_for_missing_evidence = artifact_completion_missing or (
+            tool_execution_required
+            and (
+                not tool_required_has_real_execution
+                or bool(missing_required_tools)
+                or isinstance(state.get("repeated_tool_failure"), dict)
+                or isinstance(state.get("repeated_tool_no_progress"), dict)
+                or isinstance(state.get("repeated_tool_loop"), dict)
+            )
         )
         should_block_assistant_emit = should_fail_for_missing_evidence
 
@@ -637,6 +652,13 @@ class RunnerExecutionFlowPostMixin:
                         f"Tool execution repeated the same failure for {repeated_tool_name}: "
                         f"{repeated_error}"
                     )
+            if artifact_completion_missing:
+                artifact_label = str(
+                    (artifact_goal or {}).get("label", "") or (artifact_goal or {}).get("kind", "")
+                ).strip() or "requested artifact"
+                failure_message = (
+                    f"The runtime gathered intermediate data, but it did not actually produce the requested {artifact_label}."
+                )
             planned_tool_names = [
                 str(item.get("name", "") or "").strip()
                 for item in tool_call_summaries
@@ -649,12 +671,19 @@ class RunnerExecutionFlowPostMixin:
                 start_index=persist_run_output_start_index,
                 planned_tool_names=planned_tool_names,
             )
+            if artifact_completion_missing:
+                artifact_label = str(
+                    (artifact_goal or {}).get("label", "") or (artifact_goal or {}).get("kind", "")
+                ).strip() or "requested artifact"
+                fallback_reasons.append(
+                    f"The runtime never produced the requested {artifact_label}; only intermediate lookup results were available."
+                )
             fallback_answer = ""
             if self._should_attempt_missing_tool_evidence_fallback(
                 state=state,
                 tool_required_has_real_execution=tool_required_has_real_execution,
                 missing_required_tools=missing_required_tools,
-            ):
+            ) or artifact_completion_missing:
                 yield StreamEvent.runtime_update(
                     "warning",
                     "Tool execution did not yield usable evidence. Falling back to a direct model answer.",
@@ -812,7 +841,7 @@ class RunnerExecutionFlowPostMixin:
                         messages=final_messages,
                         start_index=persist_run_output_start_index,
                     )
-                    if tool_only_answer:
+                    if tool_only_answer and not artifact_completion_missing:
                         final_assistant = tool_only_answer
                         persist_messages = self._sanitize_turn_messages_for_persistence(
                             messages=final_messages,

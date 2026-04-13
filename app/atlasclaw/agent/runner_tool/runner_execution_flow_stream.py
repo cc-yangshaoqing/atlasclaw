@@ -6,6 +6,10 @@ import time
 from typing import Any, AsyncIterator
 
 from app.atlasclaw.agent.context_pruning import prune_context_messages, should_apply_context_pruning
+from app.atlasclaw.agent.runner_tool.runner_llm_routing import (
+    messages_satisfy_artifact_goal,
+    selected_capability_ids_from_intent_plan,
+)
 from app.atlasclaw.agent.runner_tool.runner_tool_messages import (
     extract_synthetic_tool_messages_from_next_node,
     merge_synthetic_tool_messages,
@@ -179,15 +183,46 @@ class RunnerExecutionFlowStreamMixin:
                 state["current_attempt_has_tool"] = False
                 thinking_emitter = state.get("thinking_emitter")
                 thinking_emitter.reset_cycle_flags()
-                _log_step("llm_input_dispatch_start", attempt=current_model_attempt)
+                prior_tool_call_summaries = list(state.get("tool_call_summaries") or [])
+                selected_capability_ids = selected_capability_ids_from_intent_plan(
+                    state.get("tool_intent_plan")
+                )
+                loop_message, loop_reason = self._describe_llm_reentry(
+                    attempt=current_model_attempt,
+                    tool_call_summaries=prior_tool_call_summaries,
+                )
+                loop_metadata = {
+                    "phase": "model_request",
+                    "attempt": current_model_attempt,
+                    "elapsed": round(time.monotonic() - start_time, 1),
+                    "loop_index": current_model_attempt,
+                    "loop_reason": loop_reason,
+                    "selected_capability_ids": list(selected_capability_ids),
+                }
+                if prior_tool_call_summaries:
+                    loop_metadata["tool_result_count"] = len(prior_tool_call_summaries)
+                _log_step(
+                    "llm_input_dispatch_start",
+                    attempt=current_model_attempt,
+                    loop_index=current_model_attempt,
+                    loop_reason=loop_reason,
+                )
                 await self.runtime_events.trigger_llm_input(
                     session_key=session_key,
                     run_id=run_id,
                     user_message=user_message,
                     system_prompt=system_prompt,
                     message_history=runtime_current_messages,
+                    loop_index=current_model_attempt,
+                    loop_reason=loop_reason,
+                    selected_capability_ids=selected_capability_ids,
                 )
-                _log_step("llm_input_dispatch_done", attempt=current_model_attempt)
+                _log_step(
+                    "llm_input_dispatch_done",
+                    attempt=current_model_attempt,
+                    loop_index=current_model_attempt,
+                    loop_reason=loop_reason,
+                )
                 payload_profile = self._build_llm_payload_profile(
                     system_prompt=system_prompt,
                     user_message=user_message,
@@ -197,6 +232,8 @@ class RunnerExecutionFlowStreamMixin:
                     "llm_payload_profile",
                     stage=f"attempt_{current_model_attempt}",
                     attempt=current_model_attempt,
+                    loop_index=current_model_attempt,
+                    loop_reason=loop_reason,
                     **payload_profile,
                 )
                 if isinstance(deps.extra, dict):
@@ -204,6 +241,8 @@ class RunnerExecutionFlowStreamMixin:
                     entry = {
                         "stage": f"attempt_{current_model_attempt}",
                         "attempt": current_model_attempt,
+                        "loop_index": current_model_attempt,
+                        "loop_reason": loop_reason,
                         **payload_profile,
                     }
                     if isinstance(existing_profiles, list):
@@ -212,20 +251,8 @@ class RunnerExecutionFlowStreamMixin:
                         deps.extra["_llm_payload_profiles"] = [entry]
                 yield StreamEvent.runtime_update(
                     "reasoning",
-                    (
-                        "Analyzing request."
-                        if current_model_attempt == 1
-                        else (
-                            "Preparing final response from tool results."
-                            if state.get("tool_call_summaries")
-                            else "Continuing reasoning."
-                        )
-                    ),
-                    metadata={
-                        "phase": "model_request",
-                        "attempt": current_model_attempt,
-                        "elapsed": round(time.monotonic() - start_time, 1),
-                    },
+                    loop_message,
+                    metadata=loop_metadata,
                 )
 
             thinking_emitter = state.get("thinking_emitter")
@@ -461,6 +488,7 @@ class RunnerExecutionFlowStreamMixin:
                     start_index=persist_run_output_start_index,
                     planned_tool_names=current_node_tool_names,
                     available_tools=list(state.get("available_tools") or []),
+                    artifact_goal=state.get("artifact_goal"),
                 ):
                     state["force_tool_only_finalize"] = True
                     yield StreamEvent.runtime_update(
@@ -668,6 +696,7 @@ class RunnerExecutionFlowStreamMixin:
         start_index: int,
         planned_tool_names: list[str],
         available_tools: list[dict[str, Any]],
+        artifact_goal: dict[str, Any] | None = None,
     ) -> bool:
         normalized_planned = [
             str(name).strip()
@@ -675,6 +704,13 @@ class RunnerExecutionFlowStreamMixin:
             if str(name).strip()
         ]
         if not normalized_planned:
+            return False
+        if artifact_goal and not messages_satisfy_artifact_goal(
+            messages=messages,
+            start_index=start_index,
+            target_tool_names=normalized_planned,
+            artifact_goal=artifact_goal,
+        ):
             return False
         tool_index = {
             str(tool.get("name", "") or "").strip(): tool
@@ -936,4 +972,16 @@ class RunnerExecutionFlowStreamMixin:
                     return signature
             return ""
         return ""
+
+    @staticmethod
+    def _describe_llm_reentry(
+        *,
+        attempt: int,
+        tool_call_summaries: list[dict[str, Any]],
+    ) -> tuple[str, str]:
+        if attempt <= 1:
+            return "Analyzing request.", "initial_request"
+        if tool_call_summaries:
+            return "Re-entering model loop with tool evidence.", "tool_result_continuation"
+        return "Re-entering model loop to continue reasoning.", "reasoning_retry"
 

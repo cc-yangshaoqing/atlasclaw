@@ -23,6 +23,7 @@ def build_system_prompt(
         "skills": collect_skills_snapshot(deps),
         "tools": collect_tools_snapshot(agent=agent, deps=deps),
         "md_skills": collect_md_skills_snapshot(deps),
+        "capability_index": collect_capability_index_snapshot(agent=agent, deps=deps),
         "target_md_skill": collect_target_md_skill(deps),
         "tool_policy": collect_tool_policy(deps),
         "user_info": deps.user_info,
@@ -61,6 +62,66 @@ def collect_md_skills_snapshot(deps) -> list[dict]:
         if isinstance(value, list):
             return [item for item in value if isinstance(item, dict)]
     return []
+
+
+def collect_capability_index_snapshot(*, agent: Any, deps) -> list[dict]:
+    """Build a compact capability index snapshot for prompt rendering."""
+    capability_index: list[dict] = []
+    tool_names: set[str] = set()
+
+    for item in collect_md_skills_snapshot(deps):
+        name = str(item.get("qualified_name") or item.get("name") or "unknown").strip()
+        capability_index.append(
+            {
+                "capability_id": _build_capability_id("md_skill", name or "unknown"),
+                "kind": "md_skill",
+                "name": name or "unknown",
+                "description": str(item.get("description", "") or "").strip(),
+                "locator": str(item.get("file_path", "") or "").strip() or name or "unknown",
+            }
+        )
+
+    for item in collect_tools_snapshot(agent=agent, deps=deps):
+        tool_name = str(item.get("name") or "unknown").strip() or "unknown"
+        tool_names.add(tool_name)
+        capability_index.append(
+            {
+                "capability_id": _build_capability_id("tool", tool_name),
+                "kind": "tool",
+                "name": tool_name,
+                "description": str(item.get("description", "") or "").strip(),
+                "locator": _format_tool_locator(item),
+            }
+        )
+
+    for item in collect_skills_snapshot(deps):
+        skill_name = str(item.get("name") or "unknown").strip() or "unknown"
+        if skill_name in tool_names:
+            continue
+        capability_index.append(
+            {
+                "capability_id": _build_capability_id("skill", skill_name),
+                "kind": "skill",
+                "name": skill_name,
+                "description": str(item.get("description", "") or "").strip(),
+                "locator": (
+                    str(item.get("location") or item.get("category") or "built-in").strip()
+                    or "built-in"
+                ),
+            }
+        )
+
+    return capability_index
+
+
+def _build_capability_id(kind: str, name: str) -> str:
+    normalized_kind = str(kind or "").strip().lower()
+    normalized_name = str(name or "").strip()
+    if normalized_kind == "tool":
+        prefix = "tool"
+    else:
+        prefix = "skill"
+    return f"{prefix}:{normalized_name or 'unknown'}"
 
 
 def collect_target_md_skill(deps) -> Optional[dict]:
@@ -417,6 +478,32 @@ def collect_tools_snapshot(*, agent: Any, deps=None) -> list[dict]:
         )
 
     return tools
+
+
+def _format_tool_locator(tool: dict[str, Any]) -> str:
+    """Render a compact tool signature for capability-index rendering."""
+    name = str(tool.get("name", "unknown") or "unknown").strip() or "unknown"
+    parameters_schema = tool.get("parameters_schema", {})
+    if not isinstance(parameters_schema, dict):
+        return name
+    properties = parameters_schema.get("properties")
+    if not isinstance(properties, dict) or not properties:
+        return name
+    required = {
+        str(item).strip()
+        for item in (parameters_schema.get("required", []) or [])
+        if str(item).strip()
+    }
+    parts: list[str] = []
+    for param_name in properties.keys():
+        normalized_name = str(param_name or "").strip()
+        if not normalized_name:
+            continue
+        suffix = "" if normalized_name in required else "?"
+        parts.append(f"{normalized_name}{suffix}")
+    if not parts:
+        return name
+    return f"{name}({', '.join(parts)})"
 
 
 def _iter_tool_entries(agent: Any):

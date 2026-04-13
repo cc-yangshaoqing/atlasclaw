@@ -21,6 +21,7 @@ class ToolIntentAction(str, Enum):
     DIRECT_ANSWER = "direct_answer"
     ASK_CLARIFICATION = "ask_clarification"
     USE_TOOLS = "use_tools"
+    CREATE_ARTIFACT = "create_artifact"
 
 
 class ToolCandidate(BaseModel):

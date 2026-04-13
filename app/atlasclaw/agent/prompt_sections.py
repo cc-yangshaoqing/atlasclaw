@@ -81,6 +81,7 @@ def build_tool_policy(tool_policy: Optional[dict]) -> str:
     target_skill_names = tool_policy.get("target_skill_names", [])
     target_group_ids = tool_policy.get("target_group_ids", [])
     target_capability_classes = tool_policy.get("target_capability_classes", [])
+    artifact_goal = tool_policy.get("artifact_goal")
     if not mode:
         return ""
 
@@ -100,6 +101,12 @@ def build_tool_policy(tool_policy: Optional[dict]) -> str:
         lines.append(
             f"Target capabilities: {', '.join(str(item) for item in target_capability_classes)}"
         )
+    if isinstance(artifact_goal, dict):
+        artifact_label = str(
+            artifact_goal.get("label", "") or artifact_goal.get("kind", "")
+        ).strip()
+        if artifact_label:
+            lines.append(f"Requested artifact: {artifact_label}")
     if retry_count > 0:
         lines.append(f"Retry attempt: {retry_count}")
         if isinstance(retry_missing_tools, list) and retry_missing_tools:
@@ -138,6 +145,14 @@ def build_tool_policy(tool_policy: Optional[dict]) -> str:
     elif mode == "ask_clarification":
         lines.append("Ask one focused clarification question and wait for the user response.")
         lines.append("Do not call unrelated tools and do not fabricate missing inputs.")
+    elif mode == "create_artifact":
+        lines.append("This turn is an artifact-generation request.")
+        lines.append(
+            "You may use tools when they help gather or save data, but do not stop after intermediate lookup results."
+        )
+        lines.append(
+            "Either produce the requested artifact, ask one focused clarification question, or explain what blocked artifact creation."
+        )
     else:
         lines.append("You may answer directly when the request is stable and does not require tool execution.")
         if not preferred_tools:
@@ -240,6 +255,112 @@ def build_md_skills_index(
             elif remaining > 0:
                 accumulated += note[:remaining]
     return accumulated
+
+
+def build_capability_index(config, capability_index: list[dict]) -> str:
+    """Build a unified compact capability index for skills, tools, and MD skills."""
+    if not capability_index:
+        return ""
+
+    max_count = max(1, int(getattr(config, "capability_index_max_count", 20) or 20))
+    desc_max = max(1, int(getattr(config, "capability_index_desc_max_chars", 200) or 200))
+    budget = max(1, int(getattr(config, "capability_index_max_chars", 3000) or 3000))
+    home_prefix = str(Path.home())
+
+    normalized_entries: list[dict[str, str]] = []
+    for raw_entry in capability_index:
+        if not isinstance(raw_entry, dict):
+            continue
+        kind = str(raw_entry.get("kind", "") or "").strip().lower()
+        if kind not in {"md_skill", "tool", "skill"}:
+            kind = "capability"
+        name = str(raw_entry.get("name") or raw_entry.get("qualified_name") or "unknown").strip()
+        capability_id = str(raw_entry.get("capability_id", "") or "").strip()
+        description = str(raw_entry.get("description", "") or "").strip()
+        locator = str(raw_entry.get("locator", "") or "").strip()
+        if locator.startswith(home_prefix):
+            locator = "~" + locator[len(home_prefix) :]
+        normalized_entries.append(
+            {
+                "kind": kind,
+                "capability_id": capability_id or name or "unknown",
+                "name": name or "unknown",
+                "description": description,
+                "locator": locator,
+            }
+        )
+
+    if not normalized_entries:
+        return ""
+
+    total_count = len(normalized_entries)
+    selected_entries = normalized_entries[:max_count]
+    sections: list[tuple[str, list[dict[str, str]]]] = [
+        ("Markdown Skills", [entry for entry in selected_entries if entry["kind"] == "md_skill"]),
+        ("Tools", [entry for entry in selected_entries if entry["kind"] == "tool"]),
+        ("Built-in Skills", [entry for entry in selected_entries if entry["kind"] == "skill"]),
+    ]
+    uncategorized = [entry for entry in selected_entries if entry["kind"] == "capability"]
+    if uncategorized:
+        sections.append(("Capabilities", uncategorized))
+
+    rendered_lines = [
+        "## Capabilities",
+        "",
+        "Capabilities are listed as compact metadata only to save context tokens.",
+        (
+            "When you need detailed instructions for a capability, use the referenced "
+            "locator rather than expecting a full body in context."
+        ),
+        "Format: `capability_id | name | description | locator`",
+        "",
+    ]
+
+    def _fits(lines: list[str], extra: list[str]) -> bool:
+        candidate = list(lines)
+        candidate.extend(extra)
+        return len("\n".join(candidate)) <= budget
+
+    truncated = False
+    shown_count = 0
+
+    for heading, entries in sections:
+        if not entries:
+            continue
+        section_lines = [f"### {heading}", ""]
+        if not _fits(rendered_lines, section_lines):
+            truncated = True
+            break
+        rendered_lines.extend(section_lines)
+        for entry in entries:
+            description = entry["description"]
+            if len(description) > desc_max:
+                description = description[: desc_max - 3] + "..."
+            line = (
+                f"- `{entry['capability_id']}` | {entry['name']} | {description} | "
+                f"`{entry['locator']}`"
+            )
+            if not _fits(rendered_lines, [line]):
+                truncated = True
+                break
+            rendered_lines.append(line)
+            shown_count += 1
+        if truncated:
+            break
+
+    if shown_count < total_count:
+        note = f"Showing {shown_count} of {total_count} capabilities due to budget/count limits"
+        note_lines = ["", f"<!-- {note} -->"]
+        if _fits(rendered_lines, note_lines):
+            rendered_lines.extend(note_lines)
+        else:
+            note_text = f"\n<!-- {note} -->"
+            while note_text and not _fits(rendered_lines, [note_text]):
+                note_text = note_text[:-1]
+            if note_text:
+                rendered_lines.append(note_text)
+
+    return "\n".join(rendered_lines)
 
 
 def build_self_update() -> str:

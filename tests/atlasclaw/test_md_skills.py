@@ -735,6 +735,9 @@ class TestConfigSchema:
         assert cfg.md_skills_max_count == 20
         assert cfg.md_skills_desc_max_chars == 200
         assert cfg.md_skills_index_max_chars == 3000
+        assert cfg.capability_index_max_count == 20
+        assert cfg.capability_index_desc_max_chars == 200
+        assert cfg.capability_index_max_chars == 3000
         assert cfg.md_skills_max_file_bytes == 262144
         assert cfg.tools_exclusive == []
         assert cfg.allow_script_execution is True
@@ -743,10 +746,12 @@ class TestConfigSchema:
         """自定义值验证"""
         cfg = SkillsConfig(
             md_skills_max_count=50,
+            capability_index_max_count=60,
             md_skills_max_file_bytes=524288,
             tools_exclusive=["read"],
         )
         assert cfg.md_skills_max_count == 50
+        assert cfg.capability_index_max_count == 60
         assert cfg.md_skills_max_file_bytes == 524288
         assert cfg.tools_exclusive == ["read"]
 
@@ -758,6 +763,7 @@ class TestConfigSchema:
 
         pbcfg = PromptBuilderConfig()
         assert pbcfg.md_skills_max_index_chars == 3000
+        assert pbcfg.capability_index_max_chars == 3000
 
 
 class TestBuiltinToolCatalog:

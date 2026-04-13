@@ -7,7 +7,13 @@ from types import SimpleNamespace
 from pydantic_ai import Agent
 
 from app.atlasclaw.agent.prompt_builder import PromptMode
-from app.atlasclaw.agent.runner_prompt_context import collect_tools_snapshot
+from app.atlasclaw.agent.prompt_builder import PromptBuilder, PromptBuilderConfig
+from app.atlasclaw.agent import prompt_sections
+from app.atlasclaw.agent.runner_prompt_context import (
+    build_system_prompt,
+    collect_capability_index_snapshot,
+    collect_tools_snapshot,
+)
 from app.atlasclaw.agent.runner_tool.runner_execution_prepare import (
     build_explicit_tool_execution_prompt,
     select_execution_prompt_mode,
@@ -336,6 +342,152 @@ def test_collect_tools_snapshot_does_not_stringify_none_provider_metadata() -> N
             "planner_visibility": "general",
         }
     ]
+
+
+def test_collect_capability_index_snapshot_orders_sources_and_omits_bodies() -> None:
+    agent = SimpleNamespace(
+        tools=[
+            {
+                "name": "web_search",
+                "description": "Search the web",
+                "parameters_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                    },
+                },
+            }
+        ]
+    )
+    deps = SimpleNamespace(
+        extra={
+            "tools_snapshot_authoritative": True,
+            "tools_snapshot": [
+                {
+                    "name": "web_search",
+                    "description": "Search the web",
+                    "parameters_schema": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"},
+                        },
+                    },
+                }
+            ],
+            "md_skills_snapshot": [
+                {
+                    "name": "jira",
+                    "qualified_name": "jira:search",
+                    "description": "Search Jira",
+                    "file_path": "/skills/jira/SKILL.md",
+                    "body": "FULL BODY SHOULD NOT APPEAR",
+                }
+            ],
+            "skills_snapshot": [
+                {
+                    "name": "archive_issue",
+                    "description": "Archive issue",
+                    "location": "built-in",
+                }
+            ],
+        }
+    )
+
+    snapshot = collect_capability_index_snapshot(agent=agent, deps=deps)
+
+    assert [item["kind"] for item in snapshot] == ["md_skill", "tool", "skill"]
+    assert snapshot[0]["capability_id"] == "skill:jira:search"
+    assert snapshot[1]["capability_id"] == "tool:web_search"
+    assert snapshot[2]["capability_id"] == "skill:archive_issue"
+    assert snapshot[0]["locator"] == "/skills/jira/SKILL.md"
+    assert snapshot[1]["locator"] == "web_search(query?)"
+    assert snapshot[2]["locator"] == "built-in"
+    assert all("body" not in item for item in snapshot)
+
+
+def test_build_system_prompt_uses_unified_capability_index_surface(tmp_path) -> None:
+    agent = SimpleNamespace(
+        tools=[
+            {
+                "name": "web_search",
+                "description": "Search the web",
+                "parameters_schema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                    },
+                },
+            }
+        ]
+    )
+    deps = SimpleNamespace(
+        user_info=SimpleNamespace(
+            user_id="anonymous",
+            display_name="",
+            tenant_id="default",
+            roles=[],
+        ),
+        extra={
+            "md_skills_snapshot": [
+                {
+                    "name": "jira",
+                    "qualified_name": "jira:search",
+                    "description": "Search Jira",
+                    "file_path": "/skills/jira/SKILL.md",
+                    "body": "FULL BODY SHOULD NOT APPEAR",
+                }
+            ],
+            "skills_snapshot": [
+                {
+                    "name": "archive_issue",
+                    "description": "Archive issue",
+                    "location": "built-in",
+                }
+            ],
+        },
+    )
+    builder = PromptBuilder(
+        PromptBuilderConfig(
+            workspace_path=str(tmp_path),
+            capability_index_max_chars=2000,
+        )
+    )
+
+    prompt = build_system_prompt(builder, session=None, deps=deps, agent=agent)
+
+    assert "## Capabilities" in prompt
+    assert "skill:jira:search" in prompt
+    assert "## Built-in Tools (Use ONLY if no MD Skill matches)" not in prompt
+    assert "<available_skills>" not in prompt
+    assert "FULL BODY SHOULD NOT APPEAR" not in prompt
+
+
+def test_build_capability_index_truncates_stably_with_budget() -> None:
+    config = PromptBuilderConfig(
+        workspace_path="",
+        capability_index_max_chars=420,
+        capability_index_max_count=10,
+        capability_index_desc_max_chars=40,
+    )
+    capability_index = [
+        {
+            "kind": "md_skill",
+            "capability_id": f"skill:skill{i}",
+            "name": f"skill{i}",
+            "description": "D" * 120,
+            "locator": f"/skills/skill{i}/SKILL.md",
+        }
+        for i in range(8)
+    ]
+
+    first = prompt_sections.build_capability_index(config, capability_index)
+    second = prompt_sections.build_capability_index(config, capability_index)
+
+    assert first == second
+    assert len(first) <= 420
+    assert "Showing" in first
+    assert "## Capabilities" in first
+    assert "D" * 41 not in first
 
 
 def test_select_execution_prompt_mode_uses_minimal_for_small_explicit_toolset() -> None:

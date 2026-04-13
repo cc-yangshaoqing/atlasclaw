@@ -933,6 +933,106 @@ async def test_tool_required_turn_with_terminal_no_results_falls_back_to_llm_ans
 
 
 @pytest.mark.asyncio
+async def test_artifact_request_with_only_lookup_results_falls_back_in_same_turn() -> None:
+    runner = _PostRunner()
+    runner.fallback_answer = (
+        "我已经拿到了申请列表，但这轮没有真正生成 PPT 文件。"
+        "如果继续，我可以把这些申请整理成适合写入 PPT 的大纲内容。"
+    )
+    session_manager = _SessionManager()
+    state = {
+        "start_time": 0.0,
+        "session_key": "s-artifact-1",
+        "session_manager": session_manager,
+        "session": SimpleNamespace(title=""),
+        "run_id": "run-artifact-1",
+        "user_message": "将这些申请写入一个新的PPT",
+        "system_prompt": "system",
+        "deps": SimpleNamespace(extra={}),
+        "tool_gate_decision": ToolGateDecision(
+            needs_tool=False,
+            reason="artifact request",
+            policy=ToolPolicyMode.ANSWER_DIRECT,
+        ),
+        "tool_match_result": SimpleNamespace(missing_capabilities=[], tool_candidates=[]),
+        "available_tools": [
+            {
+                "name": "smartcmp_list_pending",
+                "capability_class": "provider:smartcmp",
+                "result_mode": "tool_only_ok",
+            }
+        ],
+        "artifact_goal": {"kind": "pptx", "label": "PowerPoint deck"},
+        "tool_execution_required": False,
+        "max_tool_calls": 5,
+        "timeout_seconds": 60.0,
+        "_token_failover_attempt": 0,
+        "_emit_lifecycle_bounds": False,
+        "selected_token_id": None,
+        "release_slot": None,
+        "tool_execution_retry_count": 0,
+        "persist_override_messages": None,
+        "persist_override_base_len": 0,
+        "run_output_start_index": 1,
+        "persist_run_output_start_index": 1,
+        "buffered_assistant_events": [],
+        "tool_call_summaries": [{"name": "smartcmp_list_pending", "args": {}}],
+        "assistant_output_streamed": False,
+        "model_stream_timed_out": False,
+        "model_timeout_error_message": "",
+        "current_model_attempt": 1,
+        "thinking_emitter": SimpleNamespace(assistant_emitted=False),
+        "context_history_for_hooks": [],
+        "session_title": "",
+        "tool_intent_plan": ToolIntentPlan(
+            action=ToolIntentAction.CREATE_ARTIFACT,
+            reason="artifact request",
+        ),
+    }
+
+    events = []
+    async for event in runner._process_agent_run_outcome(
+        agent_run=_AgentRun(
+            [
+                {"role": "user", "content": "将这些申请写入一个新的PPT"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "tc-1", "name": "smartcmp_list_pending", "args": {}}],
+                },
+                {
+                    "role": "tool",
+                    "tool_name": "smartcmp_list_pending",
+                    "content": {
+                        "output": "count=3",
+                        "details": {
+                            "items": [
+                                {"id": "REQ-1", "name": "申请一"},
+                                {"id": "REQ-2", "name": "申请二"},
+                            ]
+                        },
+                    },
+                },
+            ]
+        ),
+        state=state,
+        _log_step=lambda *args, **kwargs: None,
+    ):
+        events.append(event)
+
+    answered_states = [
+        event
+        for event in events
+        if event.type == "runtime" and str(event.metadata.get("state", "")).strip() == "answered"
+    ]
+    assistant_chunks = [event.content for event in events if event.type == "assistant"]
+
+    assert answered_states
+    assert runner.fallback_calls
+    assert any("没有真正生成 PPT 文件" in chunk for chunk in assistant_chunks)
+
+
+@pytest.mark.asyncio
 async def test_direct_answer_turn_replaces_tool_call_markup_with_recovery_answer() -> None:
     runner = _PostRunner()
     runner.direct_answer_recovery_answer = (
@@ -1357,6 +1457,46 @@ def test_should_finalize_from_repeated_terminal_no_results_tool_payload() -> Non
     )
 
     assert should_finalize is True
+
+
+def test_should_not_finalize_tool_only_result_when_artifact_goal_is_unsatisfied() -> None:
+    runner = _StreamRunnerWithEvidence()
+
+    should_finalize = runner._should_finalize_from_tool_results(
+        messages=[
+            {"role": "user", "content": "将这些申请写入一个新的PPT"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{"id": "tc-1", "name": "smartcmp_list_pending", "args": {}}],
+            },
+            {
+                "role": "tool",
+                "tool_name": "smartcmp_list_pending",
+                "content": {
+                    "output": "count=3",
+                    "details": {
+                        "items": [
+                            {"id": "REQ-1", "name": "申请一"},
+                            {"id": "REQ-2", "name": "申请二"},
+                        ]
+                    },
+                },
+            },
+        ],
+        start_index=1,
+        planned_tool_names=["smartcmp_list_pending"],
+        available_tools=[
+            {
+                "name": "smartcmp_list_pending",
+                "capability_class": "provider:smartcmp",
+                "result_mode": "tool_only_ok",
+            }
+        ],
+        artifact_goal={"kind": "pptx", "label": "PowerPoint deck"},
+    )
+
+    assert should_finalize is False
 
 
 @pytest.mark.asyncio

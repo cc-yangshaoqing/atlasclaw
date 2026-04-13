@@ -179,6 +179,12 @@ class RunnerToolGateModelMixin:
             str(item or "").strip().lower() in {"web_search", "web_fetch", "weather", "browser"}
             for item in plan.target_capability_classes
         )
+        if plan.action is ToolIntentAction.CREATE_ARTIFACT:
+            return ToolGateDecision(
+                reason=plan.reason or "Planner selected artifact creation.",
+                confidence=0.7,
+                policy=ToolPolicyMode.ANSWER_DIRECT,
+            )
         if plan.action is ToolIntentAction.DIRECT_ANSWER:
             return ToolGateDecision(
                 reason=plan.reason or "Planner selected direct answer.",
@@ -1013,6 +1019,10 @@ class RunnerToolGateModelMixin:
             "clarify": ToolIntentAction.ASK_CLARIFICATION.value,
             "ask": ToolIntentAction.ASK_CLARIFICATION.value,
             "ask_clarification": ToolIntentAction.ASK_CLARIFICATION.value,
+            "create_artifact": ToolIntentAction.CREATE_ARTIFACT.value,
+            "artifact": ToolIntentAction.CREATE_ARTIFACT.value,
+            "create_file": ToolIntentAction.CREATE_ARTIFACT.value,
+            "export": ToolIntentAction.CREATE_ARTIFACT.value,
             "use_tool": ToolIntentAction.USE_TOOLS.value,
             "use_tools": ToolIntentAction.USE_TOOLS.value,
             "tool": ToolIntentAction.USE_TOOLS.value,

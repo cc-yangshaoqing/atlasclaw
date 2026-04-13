@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, Optional
 
 from pydantic_ai.messages import ToolCallPart
 
@@ -50,16 +50,28 @@ class RuntimeEventDispatcher:
         user_message: str,
         system_prompt: str,
         message_history: list[dict],
+        loop_index: Optional[int] = None,
+        loop_reason: Optional[str] = None,
+        selected_capability_ids: Optional[list[str]] = None,
     ) -> None:
+        payload = {
+            "session_key": session_key,
+            "user_message": user_message,
+            "system_prompt": system_prompt,
+            "message_history": message_history,
+        }
+        if loop_index is not None:
+            payload["loop_index"] = int(loop_index)
+        if loop_reason:
+            payload["loop_reason"] = str(loop_reason)
+        if isinstance(selected_capability_ids, list):
+            payload["selected_capability_ids"] = [
+                str(item).strip() for item in selected_capability_ids if str(item).strip()
+            ]
         payload = self._with_trace_fields(
             session_key=session_key,
             run_id=run_id,
-            payload={
-                "session_key": session_key,
-                "user_message": user_message,
-                "system_prompt": system_prompt,
-                "message_history": message_history,
-            },
+            payload=payload,
         )
         logger.info(
             "llm_trace %s",
@@ -69,6 +81,9 @@ class RuntimeEventDispatcher:
                 "user_message": sanitize_log_value(user_message),
                 "system_prompt": sanitize_log_value(system_prompt),
                 "message_history": sanitize_log_value(message_history),
+                "loop_index": loop_index,
+                "loop_reason": sanitize_log_value(loop_reason),
+                "selected_capability_ids": sanitize_log_value(selected_capability_ids or []),
             },
         )
         if self.hooks:

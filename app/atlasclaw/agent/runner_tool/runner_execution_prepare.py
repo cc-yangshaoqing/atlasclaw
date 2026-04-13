@@ -10,10 +10,13 @@ from app.atlasclaw.agent.prompt_builder import PromptMode
 from app.atlasclaw.agent.context_pruning import prune_context_messages, should_apply_context_pruning
 from app.atlasclaw.agent.context_window_guard import evaluate_context_window_guard
 from app.atlasclaw.agent.runner_prompt_context import build_system_prompt, collect_tool_groups_snapshot, collect_tools_snapshot
+from app.atlasclaw.agent.runner_tool.runner_llm_routing import (
+    build_llm_first_intent_plan,
+    resolve_artifact_goal,
+)
 from app.atlasclaw.agent.runner_tool.runner_tool_projection import (
     DEFAULT_COORDINATION_TOOL_NAMES,
     project_minimal_toolset,
-    project_planner_toolset,
     turn_action_requires_tool_execution,
 )
 from app.atlasclaw.agent.stream import StreamEvent
@@ -207,6 +210,7 @@ class RunnerExecutionPreparePhaseMixin:
         tool_hint_docs = state.get("tool_hint_docs")
         metadata_candidates = state.get("metadata_candidates")
         ranking_trace = state.get("ranking_trace")
+        artifact_goal = state.get("artifact_goal")
         runtime_message_history = state.get("runtime_message_history")
         session_message_history = state.get("session_message_history")
         runtime_base_history_len = state.get("runtime_base_history_len")
@@ -381,6 +385,17 @@ class RunnerExecutionPreparePhaseMixin:
                 raw_user_message=user_message,
                 resolved_tool_request=tool_request_message,
             )
+            artifact_goal = resolve_artifact_goal(tool_request_message)
+            if isinstance(deps.extra, dict):
+                if artifact_goal is not None:
+                    deps.extra["artifact_goal"] = dict(artifact_goal)
+                else:
+                    deps.extra.pop("artifact_goal", None)
+            _log_step(
+                "artifact_goal_resolved",
+                artifact_kind=str((artifact_goal or {}).get("kind", "") or ""),
+                artifact_label=str((artifact_goal or {}).get("label", "") or ""),
+            )
             metadata_candidates = self._recall_provider_skill_candidates_from_metadata(
                 user_message=tool_request_message,
                 recent_history=message_history,
@@ -428,143 +443,23 @@ class RunnerExecutionPreparePhaseMixin:
                     metadata_candidates.get("preferred_tool_names", []) or []
                 ),
             )
-            planner_available_tools, planner_tool_projection_trace = project_planner_toolset(
-                allowed_tools=available_tools,
+            metadata_tool_intent_plan = self._build_metadata_fallback_tool_intent_plan(
                 metadata_candidates=metadata_candidates,
-                used_follow_up_context=used_follow_up_context,
-                min_metadata_confidence=self.TOOL_HINT_RANKER_MIN_METADATA_CONFIDENCE,
+                available_tools=available_tools,
             )
-            planner_provider_hint_docs = self._filter_hint_docs_for_planner_tools(
-                hint_docs=provider_hint_docs,
-                planner_available_tools=planner_available_tools,
-            )
-            planner_skill_hint_docs = self._filter_hint_docs_for_planner_tools(
-                hint_docs=skill_hint_docs,
-                planner_available_tools=planner_available_tools,
-            )
-            planner_tool_hint_docs = self._filter_hint_docs_for_planner_tools(
-                hint_docs=tool_hint_docs,
-                planner_available_tools=planner_available_tools,
-            )
-            _log_step(
-                "planner_toolset_projected",
-                before_count=int(planner_tool_projection_trace.get("before_count", 0) or 0),
-                after_count=int(planner_tool_projection_trace.get("after_count", 0) or 0),
-                reason=str(planner_tool_projection_trace.get("reason", "") or ""),
-            )
-            yield StreamEvent.runtime_update(
-                "reasoning",
-                "Planning tool routing.",
-                metadata={
-                    "phase": "tool_intent_planning",
-                    "elapsed": round(time.monotonic() - start_time, 1),
-                },
-            )
-            classifier_history = self._build_classifier_history(
+            if metadata_tool_intent_plan is not None:
+                _log_step(
+                    "tool_intent_metadata_hint_resolved",
+                    action=metadata_tool_intent_plan.action.value,
+                    target_provider_types=list(metadata_tool_intent_plan.target_provider_types),
+                    target_skill_names=list(metadata_tool_intent_plan.target_skill_names),
+                    target_capability_classes=list(metadata_tool_intent_plan.target_capability_classes),
+                    target_tool_names=list(metadata_tool_intent_plan.target_tool_names),
+                )
+            tool_intent_plan = build_llm_first_intent_plan(
                 user_message=tool_request_message,
-                recent_history=message_history,
-                used_follow_up_context=used_follow_up_context,
+                metadata_plan=metadata_tool_intent_plan,
             )
-            _log_step(
-                "tool_intent_planner_resolved",
-                classifier_enabled=bool(self.tool_gate_model_classifier_enabled),
-            )
-            tool_gate_cache_key = self._build_tool_gate_cache_key(
-                session_key=session_key,
-                resolved_tool_request=tool_request_message,
-                used_follow_up_context=used_follow_up_context,
-                recent_history=classifier_history,
-                available_tools=available_tools,
-                metadata_candidates=metadata_candidates,
-            )
-            cached_tool_intent_plan = self._get_cached_tool_intent_plan(tool_gate_cache_key)
-            if cached_tool_intent_plan is not None:
-                tool_intent_plan = cached_tool_intent_plan
-                _log_step(
-                    "tool_intent_plan_cache_hit",
-                    cache_key=tool_gate_cache_key[:12],
-                )
-            else:
-                _log_step(
-                    "tool_intent_plan_cache_miss",
-                    cache_key=tool_gate_cache_key[:12],
-                )
-                tool_intent_plan = self._build_projected_toolset_short_circuit_intent_plan(
-                    planner_available_tools=planner_available_tools,
-                )
-                if tool_intent_plan is not None:
-                    _log_step("tool_intent_plan_projected_toolset_short_circuit")
-                if tool_intent_plan is None:
-                    tool_intent_plan = self._build_metadata_fallback_tool_intent_plan(
-                        metadata_candidates=metadata_candidates,
-                        available_tools=available_tools,
-                    )
-                    if tool_intent_plan is not None:
-                        _log_step("tool_intent_plan_metadata_short_circuit")
-                if tool_intent_plan is None and self.tool_gate_model_classifier_enabled:
-                    _log_step(
-                        "tool_intent_plan_model_start",
-                        planner_tool_count=len(planner_available_tools),
-                    )
-                    tool_intent_plan = await self._plan_tool_intent_with_model(
-                        agent=runtime_agent,
-                        deps=deps,
-                        user_message=tool_request_message,
-                        recent_history=classifier_history,
-                        available_tools=planner_available_tools,
-                        provider_hint_docs=planner_provider_hint_docs,
-                        skill_hint_docs=planner_skill_hint_docs,
-                        tool_hint_docs=planner_tool_hint_docs,
-                    )
-                    planner_status = ""
-                    planner_timeout_seconds = 0.0
-                    if isinstance(getattr(deps, "extra", None), dict):
-                        planner_status = str(
-                            deps.extra.get("_tool_intent_planner_status", "") or ""
-                        ).strip()
-                        try:
-                            planner_timeout_seconds = float(
-                                deps.extra.get("_tool_intent_planner_timeout_seconds", 0.0) or 0.0
-                            )
-                        except Exception:
-                            planner_timeout_seconds = 0.0
-                    if planner_status == "timeout":
-                        _log_step(
-                            "tool_intent_plan_model_timeout",
-                            timeout_seconds=round(planner_timeout_seconds, 3),
-                            planner_tool_count=len(planner_available_tools),
-                        )
-                        yield StreamEvent.runtime_update(
-                            "warning",
-                            "Tool routing planner timed out; continuing with fallback routing.",
-                            metadata={
-                                "phase": "tool_intent_planning_timeout",
-                                "elapsed": round(time.monotonic() - start_time, 1),
-                                "timeout_seconds": round(planner_timeout_seconds, 3),
-                            },
-                        )
-                    else:
-                        _log_step(
-                            "tool_intent_plan_model_done",
-                            resolved=bool(tool_intent_plan),
-                            status=planner_status or "ok",
-                            planner_tool_count=len(planner_available_tools),
-                        )
-                if tool_intent_plan is None:
-                    tool_intent_plan = ToolIntentPlan(
-                        action=ToolIntentAction.DIRECT_ANSWER,
-                        reason="Intent planner unavailable; runtime fell back to direct-answer mode.",
-                    )
-            tool_intent_plan = self._align_tool_intent_plan_with_metadata(
-                plan=tool_intent_plan,
-                metadata_candidates=metadata_candidates,
-                available_tools=available_tools,
-            )
-            if cached_tool_intent_plan is None:
-                self._store_tool_intent_plan_cache(
-                    cache_key=tool_gate_cache_key,
-                    plan=tool_intent_plan,
-                )
             if isinstance(deps.extra, dict):
                 deps.extra["tool_intent_plan"] = tool_intent_plan.model_dump(mode="python")
             _log_step(
@@ -585,10 +480,7 @@ class RunnerExecutionPreparePhaseMixin:
                 allowed_tools=available_tools,
                 intent_plan=tool_intent_plan,
             )
-            if tool_intent_plan.action is ToolIntentAction.USE_TOOLS:
-                runtime_visible_tools = list(available_tools)
-            else:
-                runtime_visible_tools = []
+            runtime_visible_tools = list(available_tools)
             runtime_allowed_tool_names = [
                 str(tool.get("name", "") or "").strip()
                 for tool in runtime_visible_tools
@@ -599,7 +491,10 @@ class RunnerExecutionPreparePhaseMixin:
                 deps.extra["tool_projection_trace"] = dict(tool_projection_trace)
                 deps.extra["tools_snapshot"] = list(available_tools)
                 deps.extra["tools_snapshot_authoritative"] = True
-                deps.extra["runtime_allowed_tool_names"] = list(runtime_allowed_tool_names)
+                if tool_intent_plan.action is ToolIntentAction.USE_TOOLS:
+                    deps.extra["runtime_allowed_tool_names"] = list(runtime_allowed_tool_names)
+                else:
+                    deps.extra.pop("runtime_allowed_tool_names", None)
                 deps.extra["tool_groups_snapshot"] = self._build_filtered_group_map(
                     tool_groups_snapshot,
                     available_tools,
@@ -891,6 +786,7 @@ class RunnerExecutionPreparePhaseMixin:
                 "tool_hint_docs": tool_hint_docs,
                 "metadata_candidates": metadata_candidates,
                 "ranking_trace": ranking_trace,
+                "artifact_goal": artifact_goal,
                 "prompt_mode": prompt_mode,
             })
 
@@ -930,11 +826,5 @@ class RunnerExecutionPreparePhaseMixin:
     ) -> list[dict[str, Any]]:
         if not session_message_history:
             return []
-        if used_follow_up_context:
-            return list(session_message_history)
-        if intent_plan is None:
-            return list(session_message_history)
-        if intent_plan.action is not ToolIntentAction.USE_TOOLS:
-            return list(session_message_history)
-        return []
+        return list(session_message_history)
 
