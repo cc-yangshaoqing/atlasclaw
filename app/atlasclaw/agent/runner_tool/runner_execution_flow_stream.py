@@ -233,6 +233,9 @@ class RunnerExecutionFlowStreamMixin:
             tool_execution_required = bool(state.get("tool_execution_required")) or turn_action_requires_tool_execution(
                 tool_intent_plan
             )
+            buffer_assistant_output = bool(
+                tool_execution_required or state.get("buffer_direct_answer_output")
+            )
             tool_call_summaries = state.get("tool_call_summaries") or []
             if hasattr(node, "model_response") and node.model_response:
                 async for event in thinking_emitter.emit_from_model_response(
@@ -240,7 +243,7 @@ class RunnerExecutionFlowStreamMixin:
                     hooks=self.hooks,
                     session_key=session_key,
                 ):
-                    if event.type == "assistant" and tool_execution_required:
+                    if event.type == "assistant" and buffer_assistant_output:
                         state.get("buffered_assistant_events").append(event)
                         state["current_attempt_has_text"] = True
                     else:
@@ -255,7 +258,7 @@ class RunnerExecutionFlowStreamMixin:
                     hooks=self.hooks,
                     session_key=session_key,
                 ):
-                    if event.type == "assistant" and tool_execution_required:
+                    if event.type == "assistant" and buffer_assistant_output:
                         state.get("buffered_assistant_events").append(event)
                         state["current_attempt_has_text"] = True
                     else:

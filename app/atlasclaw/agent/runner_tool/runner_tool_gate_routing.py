@@ -217,11 +217,10 @@ class RunnerToolGateRoutingMixin:
     def _tool_gate_has_strict_need(decision: ToolGateDecision) -> bool:
         return any(
             [
-                bool(decision.needs_live_data),
-                bool(decision.needs_grounded_verification),
                 bool(decision.needs_external_system),
                 bool(decision.needs_browser_interaction),
                 bool(decision.needs_private_context),
+                bool(decision.needs_grounded_verification and not decision.needs_live_data),
             ]
         )
     def _resolve_contextual_tool_request(

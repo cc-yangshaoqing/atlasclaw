@@ -297,7 +297,7 @@ def collect_tools_snapshot(*, agent: Any, deps=None) -> list[dict]:
             result_mode=tool.get("result_mode"),
         )
 
-    if tools_snapshot_authoritative and tools:
+    if tools_snapshot_authoritative:
         return tools
 
     for tool in _iter_tool_entries(agent):

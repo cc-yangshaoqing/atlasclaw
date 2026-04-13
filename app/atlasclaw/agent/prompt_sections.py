@@ -140,6 +140,12 @@ def build_tool_policy(tool_policy: Optional[dict]) -> str:
         lines.append("Do not call unrelated tools and do not fabricate missing inputs.")
     else:
         lines.append("You may answer directly when the request is stable and does not require tool execution.")
+        if not preferred_tools:
+            lines.append("No tools are available in this turn.")
+            lines.append(
+                "Do not emit tool-call markup, XML tags, or pseudo tool invocations like "
+                "`<tool_call>` or `<web_search>`."
+            )
     return "\n".join(lines)
 
 

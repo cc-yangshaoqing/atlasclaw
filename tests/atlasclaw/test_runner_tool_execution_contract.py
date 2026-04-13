@@ -68,6 +68,10 @@ class _PostRunner(
     def __init__(self) -> None:
         self.history = _History()
         self.runtime_events = _RuntimeEvents()
+        self.fallback_answer = ""
+        self.fallback_calls = []
+        self.direct_answer_recovery_answer = ""
+        self.direct_answer_recovery_calls = []
 
     @staticmethod
     def _collect_buffered_assistant_text(buffered_events):
@@ -95,6 +99,14 @@ class _PostRunner(
         if False:
             yield None
         return
+
+    async def _generate_missing_tool_evidence_fallback_answer(self, **kwargs):
+        self.fallback_calls.append(kwargs)
+        return self.fallback_answer
+
+    async def _generate_direct_answer_recovery_answer(self, **kwargs):
+        self.direct_answer_recovery_calls.append(kwargs)
+        return self.direct_answer_recovery_answer
 
     async def _maybe_finalize_title(self, **kwargs):
         return None
@@ -700,8 +712,12 @@ def test_sanitize_turn_messages_for_persistence_drops_unmatched_tool_calls() -> 
 
 
 @pytest.mark.asyncio
-async def test_tool_required_turn_fails_when_required_tool_only_returns_errors() -> None:
+async def test_tool_required_turn_with_tool_error_falls_back_to_llm_answer() -> None:
     runner = _PostRunner()
+    runner.fallback_answer = (
+        "我没能通过 CMP 工具取到这条工单的详情。"
+        "请确认工单标识是否正确，或稍后再试一次。"
+    )
     session_manager = _SessionManager()
     state = {
         "start_time": 0.0,
@@ -796,8 +812,203 @@ async def test_tool_required_turn_fails_when_required_tool_only_returns_errors()
         for event in events
         if event.type == "runtime" and str(event.metadata.get("state", "")).strip() == "answered"
     ]
-    assert failed_states
-    assert answered_states == []
+    assistant_chunks = [event.content for event in events if event.type == "assistant"]
+    assert failed_states == []
+    assert answered_states
+    assert runner.fallback_calls
+    assert any("CMP 工具" in chunk for chunk in assistant_chunks)
+    await runner._await_background_post_success_tasks()
+    assert session_manager.persisted_messages is not None
+
+
+@pytest.mark.asyncio
+async def test_tool_required_turn_with_terminal_no_results_falls_back_to_llm_answer() -> None:
+    runner = _PostRunner()
+    runner.fallback_answer = (
+        "工具没有查到明确结果。以下是基于已有知识的建议："
+        "可以优先考虑崇明岛环岛绿道、滴水湖环湖骑行线和淀山湖周边骑行路线。"
+    )
+    session_manager = _SessionManager()
+    state = {
+        "start_time": 0.0,
+        "session_key": "s-3b",
+        "session_manager": session_manager,
+        "session": SimpleNamespace(title=""),
+        "run_id": "run-3b",
+        "user_message": "我想查下上海周边的骑行公园",
+        "system_prompt": "system",
+        "deps": SimpleNamespace(extra={}),
+        "tool_gate_decision": ToolGateDecision(
+            needs_tool=True,
+            needs_live_data=True,
+            reason="public search",
+            policy=ToolPolicyMode.PREFER_TOOL,
+        ),
+        "tool_match_result": SimpleNamespace(missing_capabilities=[], tool_candidates=[]),
+        "available_tools": [{"name": "web_search", "capability_class": "web_search"}],
+        "tool_execution_required": True,
+        "max_tool_calls": 5,
+        "timeout_seconds": 60.0,
+        "_token_failover_attempt": 0,
+        "_emit_lifecycle_bounds": False,
+        "selected_token_id": None,
+        "release_slot": None,
+        "tool_execution_retry_count": 0,
+        "persist_override_messages": None,
+        "persist_override_base_len": 0,
+        "run_output_start_index": 1,
+        "persist_run_output_start_index": 1,
+        "buffered_assistant_events": [],
+        "tool_call_summaries": [{"name": "web_search", "args": {"query": "上海周边骑行公园"}}],
+        "assistant_output_streamed": False,
+        "model_stream_timed_out": False,
+        "model_timeout_error_message": "",
+        "current_model_attempt": 1,
+        "thinking_emitter": SimpleNamespace(assistant_emitted=False),
+        "context_history_for_hooks": [],
+        "session_title": "",
+        "tool_intent_plan": ToolIntentPlan(
+            action=ToolIntentAction.USE_TOOLS,
+            target_capability_classes=["web_search"],
+            target_tool_names=["web_search"],
+            reason="public search",
+        ),
+        "repeated_tool_no_progress": {
+            "tool_name": "web_search",
+            "count": 2,
+            "signature": '{"details":{"citations":[],"results":[],"summary":""},"is_error":false,"outcome":"no_results"}',
+        },
+    }
+
+    events = []
+    async for event in runner._process_agent_run_outcome(
+        agent_run=_AgentRun(
+            [
+                {"role": "user", "content": "我想查下上海周边的骑行公园"},
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [{"id": "tc-1", "name": "web_search", "args": {"query": "上海周边骑行公园"}}],
+                },
+                {
+                    "role": "tool",
+                    "tool_name": "web_search",
+                    "content": {
+                        "content": [{"type": "text", "text": "Search '上海周边骑行公园' returned no results"}],
+                        "details": {
+                            "provider": "bing_html_fallback",
+                            "query": "上海周边骑行公园",
+                            "summary": "",
+                            "results": [],
+                            "citations": [],
+                        },
+                        "is_error": False,
+                    },
+                },
+            ]
+        ),
+        state=state,
+        _log_step=lambda *args, **kwargs: None,
+    ):
+        events.append(event)
+
+    failed_states = [
+        event
+        for event in events
+        if event.type == "runtime" and str(event.metadata.get("state", "")).strip() == "failed"
+    ]
+    answered_states = [
+        event
+        for event in events
+        if event.type == "runtime" and str(event.metadata.get("state", "")).strip() == "answered"
+    ]
+    assistant_chunks = [event.content for event in events if event.type == "assistant"]
+
+    assert failed_states == []
+    assert answered_states
+    assert runner.fallback_calls
+    assert any("崇明岛" in chunk for chunk in assistant_chunks)
+    await runner._await_background_post_success_tasks()
+    assert session_manager.persisted_messages is not None
+
+
+@pytest.mark.asyncio
+async def test_direct_answer_turn_replaces_tool_call_markup_with_recovery_answer() -> None:
+    runner = _PostRunner()
+    runner.direct_answer_recovery_answer = (
+        "上海周边适合休闲骑行的选择可以先看崇明岛环岛绿道、滴水湖环湖路线和淀山湖周边绿道。"
+        "如果你更偏爱公园场景，也可以优先考虑顾村公园和世纪公园周边的城市绿道。"
+    )
+    session_manager = _SessionManager()
+    state = {
+        "start_time": 0.0,
+        "session_key": "s-direct-answer",
+        "session_manager": session_manager,
+        "session": SimpleNamespace(title=""),
+        "run_id": "run-direct-answer",
+        "user_message": "我想查下上海周边的骑行公园",
+        "system_prompt": "system",
+        "deps": SimpleNamespace(extra={}),
+        "tool_gate_decision": ToolGateDecision(
+            needs_tool=False,
+            reason="public recommendation",
+            policy=ToolPolicyMode.ANSWER_DIRECT,
+        ),
+        "tool_match_result": SimpleNamespace(missing_capabilities=[], tool_candidates=[]),
+        "available_tools": [],
+        "tool_execution_required": False,
+        "max_tool_calls": 5,
+        "timeout_seconds": 60.0,
+        "_token_failover_attempt": 0,
+        "_emit_lifecycle_bounds": False,
+        "selected_token_id": None,
+        "release_slot": None,
+        "tool_execution_retry_count": 0,
+        "persist_override_messages": None,
+        "persist_override_base_len": 0,
+        "run_output_start_index": 1,
+        "persist_run_output_start_index": 1,
+        "buffered_assistant_events": [],
+        "tool_call_summaries": [],
+        "assistant_output_streamed": False,
+        "model_stream_timed_out": False,
+        "model_timeout_error_message": "",
+        "current_model_attempt": 1,
+        "thinking_emitter": SimpleNamespace(assistant_emitted=False),
+        "context_history_for_hooks": [],
+        "session_title": "",
+        "tool_intent_plan": ToolIntentPlan(
+            action=ToolIntentAction.DIRECT_ANSWER,
+            reason="public recommendation",
+        ),
+    }
+
+    events = []
+    async for event in runner._process_agent_run_outcome(
+        agent_run=_AgentRun(
+            [
+                {"role": "user", "content": "我想查下上海周边的骑行公园"},
+                {"role": "assistant", "content": "<tool_call>\n<web_search\n</think>"},
+            ]
+        ),
+        state=state,
+        _log_step=lambda *args, **kwargs: None,
+    ):
+        events.append(event)
+
+    assistant_chunks = [event.content for event in events if event.type == "assistant"]
+    answered_states = [
+        event
+        for event in events
+        if event.type == "runtime" and str(event.metadata.get("state", "")).strip() == "answered"
+    ]
+
+    assert answered_states
+    assert runner.direct_answer_recovery_calls
+    assert any("崇明岛" in chunk for chunk in assistant_chunks)
+    assert all("<tool_call>" not in chunk for chunk in assistant_chunks)
+    await runner._await_background_post_success_tasks()
+    assert session_manager.persisted_messages is not None
 
 
 @pytest.mark.asyncio

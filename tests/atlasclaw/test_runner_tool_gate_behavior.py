@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import asyncio
+
+import pytest
+
 from app.atlasclaw.agent.runner_tool.runner_tool_gate_model import RunnerToolGateModelMixin
 from app.atlasclaw.agent.runner_tool.runner_tool_gate_routing import RunnerToolGateRoutingMixin
 from app.atlasclaw.agent.runner_tool.runner_tool_projection import project_minimal_toolset
@@ -17,6 +21,11 @@ class _GateRunner(RunnerToolGateModelMixin, RunnerToolGateRoutingMixin):
     TOOL_GATE_SHORT_CIRCUIT_MIN_CONFIDENCE = 0.55
     TOOL_GATE_MUST_USE_MIN_CONFIDENCE = 0.85
     TOOL_HINT_RANKER_MIN_METADATA_CONFIDENCE = 0.30
+
+
+class _HangingAgent:
+    async def run(self, *args, **kwargs):
+        await asyncio.sleep(3600)
 
 
 def test_normalize_external_intent_does_not_force_must_use_tool() -> None:
@@ -68,6 +77,59 @@ def test_align_external_system_intent_keeps_prefer_tool_policy() -> None:
 
     assert aligned_decision.policy is ToolPolicyMode.PREFER_TOOL
     assert aligned_decision.suggested_tool_classes == ["provider:smartcmp"]
+
+
+def test_normalize_live_data_only_intent_keeps_answer_direct_without_tool_hints() -> None:
+    runner = _GateRunner()
+    decision = ToolGateDecision(
+        needs_live_data=True,
+        reason="public info request",
+        policy=ToolPolicyMode.ANSWER_DIRECT,
+    )
+
+    normalized = runner._normalize_tool_gate_decision(decision)
+
+    assert normalized.policy is ToolPolicyMode.ANSWER_DIRECT
+    assert normalized.needs_external_system is False
+
+
+def test_tool_gate_classifier_prompt_does_not_force_public_realtime_queries_into_tools() -> None:
+    runner = _GateRunner()
+
+    prompt = runner._build_tool_gate_classifier_prompt(
+        [
+            {
+                "name": "web_search",
+                "description": "Search the public web",
+                "capability_class": "web_search",
+            }
+        ]
+    )
+
+    assert "Requests about current or near-future changing facts must prefer tool-backed verification" not in prompt
+    assert "Use web_search/web_fetch for public web real-time verification" not in prompt
+    assert "Use answer_direct when the request can be handled from model knowledge" in prompt
+
+
+def test_tool_intent_planner_prompt_treats_generic_web_tools_as_fallback_not_clear_match() -> None:
+    runner = _GateRunner()
+
+    prompt = runner._build_tool_intent_plan_prompt(
+        available_tools=[
+            {
+                "name": "web_search",
+                "description": "Search the public web",
+                "capability_class": "web_search",
+                "group_ids": ["group:web"],
+            }
+        ],
+        provider_hint_docs=[],
+        skill_hint_docs=[],
+        tool_hint_docs=[],
+    )
+
+    assert "Generic fallback tools such as web_search or web_fetch do not count as a strong capability match by themselves." in prompt
+    assert "For public recommendations, broad Q&A, and general knowledge requests, prefer `direct_answer`" in prompt
 
 
 def test_metadata_fallback_accepts_single_provider_tool_consensus_below_threshold() -> None:
@@ -921,3 +983,32 @@ def test_metadata_fallback_accepts_single_tool_consensus_from_tool_candidates() 
     assert plan.action.value == "use_tools"
     assert plan.target_capability_classes == ["weather"]
     assert plan.target_tool_names == ["openmeteo_weather"]
+
+
+@pytest.mark.asyncio
+async def test_plan_tool_intent_with_model_times_out_instead_of_hanging() -> None:
+    runner = _GateRunner()
+    runner.TOOL_GATE_MODEL_TIMEOUT_SECONDS = 0.01
+
+    plan = await asyncio.wait_for(
+        runner._plan_tool_intent_with_model(
+            agent=_HangingAgent(),
+            deps=type("Deps", (), {"extra": {}})(),
+            user_message="我想查下上海周边的骑行公园",
+            recent_history=[],
+            available_tools=[
+                {
+                    "name": "web_search",
+                    "description": "Search the public web",
+                    "capability_class": "web_search",
+                    "group_ids": ["group:web"],
+                }
+            ],
+            provider_hint_docs=[],
+            skill_hint_docs=[],
+            tool_hint_docs=[],
+        ),
+        timeout=1.0,
+    )
+
+    assert plan is None

@@ -452,6 +452,14 @@ class RunnerExecutionPreparePhaseMixin:
                 after_count=int(planner_tool_projection_trace.get("after_count", 0) or 0),
                 reason=str(planner_tool_projection_trace.get("reason", "") or ""),
             )
+            yield StreamEvent.runtime_update(
+                "reasoning",
+                "Planning tool routing.",
+                metadata={
+                    "phase": "tool_intent_planning",
+                    "elapsed": round(time.monotonic() - start_time, 1),
+                },
+            )
             classifier_history = self._build_classifier_history(
                 user_message=tool_request_message,
                 recent_history=message_history,
@@ -494,6 +502,10 @@ class RunnerExecutionPreparePhaseMixin:
                     if tool_intent_plan is not None:
                         _log_step("tool_intent_plan_metadata_short_circuit")
                 if tool_intent_plan is None and self.tool_gate_model_classifier_enabled:
+                    _log_step(
+                        "tool_intent_plan_model_start",
+                        planner_tool_count=len(planner_available_tools),
+                    )
                     tool_intent_plan = await self._plan_tool_intent_with_model(
                         agent=runtime_agent,
                         deps=deps,
@@ -504,6 +516,40 @@ class RunnerExecutionPreparePhaseMixin:
                         skill_hint_docs=planner_skill_hint_docs,
                         tool_hint_docs=planner_tool_hint_docs,
                     )
+                    planner_status = ""
+                    planner_timeout_seconds = 0.0
+                    if isinstance(getattr(deps, "extra", None), dict):
+                        planner_status = str(
+                            deps.extra.get("_tool_intent_planner_status", "") or ""
+                        ).strip()
+                        try:
+                            planner_timeout_seconds = float(
+                                deps.extra.get("_tool_intent_planner_timeout_seconds", 0.0) or 0.0
+                            )
+                        except Exception:
+                            planner_timeout_seconds = 0.0
+                    if planner_status == "timeout":
+                        _log_step(
+                            "tool_intent_plan_model_timeout",
+                            timeout_seconds=round(planner_timeout_seconds, 3),
+                            planner_tool_count=len(planner_available_tools),
+                        )
+                        yield StreamEvent.runtime_update(
+                            "warning",
+                            "Tool routing planner timed out; continuing with fallback routing.",
+                            metadata={
+                                "phase": "tool_intent_planning_timeout",
+                                "elapsed": round(time.monotonic() - start_time, 1),
+                                "timeout_seconds": round(planner_timeout_seconds, 3),
+                            },
+                        )
+                    else:
+                        _log_step(
+                            "tool_intent_plan_model_done",
+                            resolved=bool(tool_intent_plan),
+                            status=planner_status or "ok",
+                            planner_tool_count=len(planner_available_tools),
+                        )
                 if tool_intent_plan is None:
                     tool_intent_plan = ToolIntentPlan(
                         action=ToolIntentAction.DIRECT_ANSWER,
@@ -539,10 +585,21 @@ class RunnerExecutionPreparePhaseMixin:
                 allowed_tools=available_tools,
                 intent_plan=tool_intent_plan,
             )
+            if tool_intent_plan.action is ToolIntentAction.USE_TOOLS:
+                runtime_visible_tools = list(available_tools)
+            else:
+                runtime_visible_tools = []
+            runtime_allowed_tool_names = [
+                str(tool.get("name", "") or "").strip()
+                for tool in runtime_visible_tools
+                if isinstance(tool, dict) and str(tool.get("name", "") or "").strip()
+            ]
+            available_tools = runtime_visible_tools
             if isinstance(deps.extra, dict):
                 deps.extra["tool_projection_trace"] = dict(tool_projection_trace)
                 deps.extra["tools_snapshot"] = list(available_tools)
                 deps.extra["tools_snapshot_authoritative"] = True
+                deps.extra["runtime_allowed_tool_names"] = list(runtime_allowed_tool_names)
                 deps.extra["tool_groups_snapshot"] = self._build_filtered_group_map(
                     tool_groups_snapshot,
                     available_tools,
@@ -551,6 +608,7 @@ class RunnerExecutionPreparePhaseMixin:
                 "tool_projection_applied",
                 before_count=int(tool_projection_trace.get("before_count", 0) or 0),
                 after_count=int(tool_projection_trace.get("after_count", 0) or 0),
+                runtime_visible_count=len(available_tools),
                 reason=str(tool_projection_trace.get("reason", "") or ""),
                 coordination_tools=list(tool_projection_trace.get("coordination_tools", []) or []),
             )
@@ -810,6 +868,7 @@ class RunnerExecutionPreparePhaseMixin:
                 "reasoning_retry_count": reasoning_retry_count,
                 "run_output_start_index": run_output_start_index,
                 "tool_execution_required": tool_execution_required,
+                "buffer_direct_answer_output": (not tool_execution_required and not bool(available_tools)),
                 "reasoning_retry_limit": reasoning_retry_limit,
                 "model_stream_timed_out": model_stream_timed_out,
                 "model_timeout_error_message": model_timeout_error_message,

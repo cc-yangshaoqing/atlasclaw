@@ -43,6 +43,23 @@ def test_collect_tools_snapshot_keeps_authoritative_snapshot_without_remerge() -
     ]
 
 
+def test_collect_tools_snapshot_keeps_authoritative_empty_snapshot_without_remerge() -> None:
+    agent = SimpleNamespace(
+        tools=[
+            {"name": "web_search", "description": "search web"},
+            {"name": "web_fetch", "description": "fetch web page"},
+        ]
+    )
+    deps = SimpleNamespace(
+        extra={
+            "tools_snapshot": [],
+            "tools_snapshot_authoritative": True,
+        }
+    )
+    snapshot = collect_tools_snapshot(agent=agent, deps=deps)
+    assert snapshot == []
+
+
 def test_collect_tools_snapshot_merges_agent_tools_when_snapshot_not_authoritative() -> None:
     agent = SimpleNamespace(
         tools=[

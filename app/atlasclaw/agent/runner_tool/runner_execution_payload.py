@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 import hashlib
 import json
 from typing import Any, Optional
 
+from app.atlasclaw.agent.runner_tool.runner_agent_override import resolve_override_tools
 from app.atlasclaw.core.deps import SkillDeps
 
 
@@ -37,6 +39,100 @@ def build_finalize_payload(
             f"Tool evidence:\n{chr(10).join(evidence_lines)}\n\n"
             "Return concise markdown. Use bullets or short paragraphs when helpful. "
             "If there are source links in the evidence, keep them as markdown links.\n"
+        ),
+    }
+
+
+def build_tool_failure_fallback_payload(
+    *,
+    user_message: str,
+    tool_results: list[dict[str, Any]],
+    attempted_tools: list[dict[str, Any]] | list[str] | None = None,
+    failure_reasons: list[str] | None = None,
+) -> dict[str, str]:
+    """Build a minimal payload for same-turn fallback after tool execution failed."""
+    evidence_lines: list[str] = []
+    for item in tool_results or []:
+        if not isinstance(item, dict):
+            continue
+        tool_name = str(item.get("tool_name", "") or "").strip() or "tool"
+        content = str(item.get("content", "") or "").strip()
+        if not content:
+            continue
+        evidence_lines.append(f"- {tool_name}: {content}")
+    if not evidence_lines:
+        evidence_lines.append("- tool: no usable tool output was captured")
+
+    attempted_lines: list[str] = []
+    for item in attempted_tools or []:
+        if isinstance(item, dict):
+            tool_name = str(item.get("name", "") or item.get("tool_name", "")).strip()
+            if not tool_name:
+                continue
+            args = item.get("args")
+            if isinstance(args, dict) and args:
+                attempted_lines.append(
+                    f"- {tool_name}: {json.dumps(args, ensure_ascii=False, sort_keys=True)}"
+                )
+            else:
+                attempted_lines.append(f"- {tool_name}")
+            continue
+        tool_name = str(item or "").strip()
+        if tool_name:
+            attempted_lines.append(f"- {tool_name}")
+    if not attempted_lines:
+        attempted_lines.append("- none recorded")
+
+    failure_lines = [
+        f"- {str(reason).strip()}"
+        for reason in (failure_reasons or [])
+        if str(reason).strip()
+    ]
+    if not failure_lines:
+        failure_lines.append("- Tool execution did not yield usable evidence.")
+
+    return {
+        "system_prompt": (
+            "You are AtlasClaw. The runtime attempted tools first, but they did not produce a usable final answer. "
+            "Produce a concise markdown answer.\n"
+            "If the request depends on private, enterprise, provider-backed, or otherwise unavailable data that the tools "
+            "did not return, do not invent it. Explain the limitation, missing parameter, or retry path instead.\n"
+            "If the request is a public recommendation or general knowledge question, you may provide a best-effort answer "
+            "from model knowledge, but clearly say it was not verified by tools.\n"
+            "Do not mention hidden reasoning. Do not call tools. Do not add wrapper headings like 'Answer' or 'Result' "
+            "unless the user explicitly asked for them."
+        ),
+        "user_prompt": (
+            f"User request:\n{str(user_message or '').strip()}\n\n"
+            f"Attempted tools:\n{chr(10).join(attempted_lines)}\n\n"
+            f"Tool failure summary:\n{chr(10).join(failure_lines)}\n\n"
+            f"Tool evidence snapshot:\n{chr(10).join(evidence_lines)}\n\n"
+            "Return concise markdown. Be transparent about missing verification when needed."
+        ),
+    }
+
+
+def build_direct_answer_recovery_payload(
+    *,
+    user_message: str,
+    invalid_output: str,
+) -> dict[str, str]:
+    """Build a recovery payload for direct-answer turns that emitted fake tool markup."""
+    invalid_preview = str(invalid_output or "").strip() or "(empty draft)"
+    return {
+        "system_prompt": (
+            "You are AtlasClaw. No tools are available in this turn.\n"
+            "Answer the user directly from model knowledge.\n"
+            "Do not emit tool-call markup, XML tags, or pseudo tool invocations such as "
+            "<tool_call>, <web_search>, or similar placeholders.\n"
+            "Do not mention hidden reasoning. Do not say you searched the web unless real tool "
+            "evidence exists in this run.\n"
+            "Return a concise markdown answer."
+        ),
+        "user_prompt": (
+            f"User request:\n{str(user_message or '').strip()}\n\n"
+            f"Discard this invalid draft:\n{invalid_preview}\n\n"
+            "Rewrite it as a normal user-facing answer with no tool markup."
         ),
     }
 
@@ -224,14 +320,45 @@ class RunnerExecutionPayloadMixin:
         deps: SkillDeps,
         *,
         system_prompt: Optional[str] = None,
+        agent: Optional[Any] = None,
+        allowed_tool_names: Optional[list[str]] = None,
     ) -> str:
         """Run a single non-streaming agent call."""
-        # Simplified helper that bypasses the streaming session pipeline.
+        runtime_agent = agent or getattr(self, "agent", None)
+        if runtime_agent is None:
+            return "[Error: no runtime agent available]"
+        override_factory = getattr(runtime_agent, "override", None)
+        override_cm = nullcontext()
+        override_tools = resolve_override_tools(
+            agent=runtime_agent,
+            allowed_tool_names=allowed_tool_names,
+        )
+        if callable(override_factory) and system_prompt:
+            override_candidates = []
+            if override_tools is not None:
+                override_candidates.append({"instructions": system_prompt, "tools": override_tools})
+                override_candidates.append({"system_prompt": system_prompt, "tools": override_tools})
+            else:
+                override_candidates.append({"instructions": system_prompt})
+                override_candidates.append({"system_prompt": system_prompt})
+            for override_kwargs in override_candidates:
+                try:
+                    override_cm = override_factory(**override_kwargs)
+                    break
+                except TypeError:
+                    continue
+        elif callable(override_factory) and override_tools is not None:
+            try:
+                override_cm = override_factory(tools=override_tools)
+            except TypeError:
+                override_cm = nullcontext()
         try:
-            result = await self.agent.run(
-                user_message,
-                deps=deps,
-            )
+            if hasattr(override_cm, "__aenter__"):
+                async with override_cm:
+                    result = await runtime_agent.run(user_message, deps=deps)
+            else:
+                with override_cm:
+                    result = await runtime_agent.run(user_message, deps=deps)
             return result.output if hasattr(result, "output") else str(result)
         except Exception as e:
             return f"[Error: {str(e)}]"

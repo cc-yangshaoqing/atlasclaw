@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import nullcontext
 from datetime import datetime, timezone
 import inspect
@@ -8,6 +9,7 @@ import logging
 import re
 from typing import Any, Optional
 
+from app.atlasclaw.agent.runner_tool.runner_agent_override import resolve_override_tools
 from app.atlasclaw.agent.runner_tool.runner_tool_projection import DEFAULT_COORDINATION_TOOL_NAMES
 from app.atlasclaw.agent.tool_gate_models import (
     ToolGateDecision,
@@ -79,6 +81,10 @@ class RunnerToolGateModelMixin:
         skill_hint_docs: list[dict[str, Any]],
         tool_hint_docs: list[dict[str, Any]],
     ) -> Optional[ToolIntentPlan]:
+        extra = deps.extra if isinstance(getattr(deps, "extra", None), dict) else None
+        if extra is not None:
+            extra.pop("_tool_intent_planner_status", None)
+            extra.pop("_tool_intent_planner_timeout_seconds", None)
         planner_prompt = self._build_tool_intent_plan_prompt(
             available_tools=available_tools,
             provider_hint_docs=provider_hint_docs,
@@ -95,17 +101,44 @@ class RunnerToolGateModelMixin:
                 user_message=planner_message,
                 deps=deps,
                 system_prompt=planner_prompt,
+                purpose="tool_intent_planner",
+                allowed_tool_names=[],
             )
-        except Exception:
+        except asyncio.TimeoutError:
+            timeout_seconds = self._resolve_tool_gate_model_timeout_seconds()
+            logger.warning(
+                "tool_intent_planner timed out: timeout_seconds=%s tool_count=%s user_message=%s",
+                round(timeout_seconds, 3),
+                len(available_tools),
+                user_message,
+            )
+            if extra is not None:
+                extra["_tool_intent_planner_status"] = "timeout"
+                extra["_tool_intent_planner_timeout_seconds"] = timeout_seconds
+            return None
+        except Exception as exc:
+            logger.warning(
+                "tool_intent_planner failed: error=%s tool_count=%s",
+                exc.__class__.__name__,
+                len(available_tools),
+            )
+            if extra is not None:
+                extra["_tool_intent_planner_status"] = f"error:{exc.__class__.__name__}"
             return None
         parsed = self._extract_json_object(raw_output)
         if not parsed:
+            if extra is not None:
+                extra["_tool_intent_planner_status"] = "invalid_json"
             return None
         try:
             payload = json.loads(parsed)
         except Exception:
+            if extra is not None:
+                extra["_tool_intent_planner_status"] = "parse_failed"
             return None
         if not isinstance(payload, dict):
+            if extra is not None:
+                extra["_tool_intent_planner_status"] = "non_object"
             return None
         normalized = self._coerce_tool_intent_plan_payload(
             payload=payload,
@@ -114,9 +147,14 @@ class RunnerToolGateModelMixin:
             skill_hint_docs=skill_hint_docs,
         )
         try:
-            return ToolIntentPlan.model_validate(normalized)
+            plan = ToolIntentPlan.model_validate(normalized)
         except Exception:
+            if extra is not None:
+                extra["_tool_intent_planner_status"] = "validation_failed"
             return None
+        if extra is not None:
+            extra["_tool_intent_planner_status"] = "ok"
+        return plan
     @staticmethod
     def _build_tool_gate_decision_from_intent_plan(
         plan: ToolIntentPlan,
@@ -157,7 +195,7 @@ class RunnerToolGateModelMixin:
             needs_tool=True,
             needs_live_data=needs_live_data,
             needs_external_system=needs_external_system,
-            needs_grounded_verification=bool(needs_live_data or needs_external_system),
+            needs_grounded_verification=bool(needs_external_system),
             suggested_tool_classes=suggested_classes,
             confidence=0.8,
             reason=plan.reason or "Planner selected tool execution.",
@@ -835,9 +873,10 @@ class RunnerToolGateModelMixin:
             item == "skill" or item.startswith("provider:")
             for item in normalized.suggested_tool_classes
         )
-        strict_web_grounding = bool(normalized.needs_live_data)
         strict_provider_or_skill = bool(normalized.needs_external_system) or has_provider_skill_hint
-        strict_tool_enforcement = strict_web_grounding or strict_provider_or_skill
+        strict_tool_enforcement = strict_provider_or_skill or bool(
+            normalized.needs_browser_interaction or normalized.needs_private_context
+        )
 
         if strict_provider_or_skill:
             normalized.needs_external_system = True
@@ -852,17 +891,6 @@ class RunnerToolGateModelMixin:
                 normalized.reason = (
                     f"{normalized.reason} External-system/provider-skill intent detected from tool metadata."
                 ).strip()
-
-        if strict_web_grounding and normalized.policy is ToolPolicyMode.ANSWER_DIRECT:
-            normalized.policy = ToolPolicyMode.PREFER_TOOL
-            normalized.needs_tool = True
-            normalized.confidence = max(
-                normalized.confidence,
-                self.TOOL_GATE_SHORT_CIRCUIT_MIN_CONFIDENCE,
-            )
-            normalized.reason = (
-                f"{normalized.reason} Live grounded requests require tool-backed verification."
-            ).strip()
 
         has_tool_hints = bool(normalized.suggested_tool_classes)
         strict_need = self._tool_gate_has_strict_need(normalized)
@@ -912,6 +940,7 @@ class RunnerToolGateModelMixin:
                 user_message=classifier_message,
                 deps=deps,
                 system_prompt=classifier_prompt,
+                allowed_tool_names=[],
             )
         except Exception:
             return None
@@ -1143,6 +1172,7 @@ class RunnerToolGateModelMixin:
                 user_message=ranker_message,
                 deps=deps,
                 system_prompt=ranker_prompt,
+                allowed_tool_names=[],
             )
         except Exception as exc:
             return None, f"hint_ranker_error:{exc.__class__.__name__}"
@@ -1435,11 +1465,10 @@ class RunnerToolGateModelMixin:
         needs_grounded_verification = _read_bool("needs_grounded_verification")
         needs_tool = _read_bool("needs_tool") or bool(
             suggested
-            or needs_live_data
             or needs_private_context
             or needs_external_system
             or needs_browser_interaction
-            or needs_grounded_verification
+            or (needs_grounded_verification and not needs_live_data)
         )
 
         reason = str(payload.get("reason", "") or "").strip()
@@ -1537,6 +1566,8 @@ class RunnerToolGateModelMixin:
             "Use `ask_clarification` when required inputs are missing.\n"
             "Use `use_tools` only when tools are actually needed, and then select the smallest relevant subset.\n"
             "Prefer provider/skill tools over web tools when a provider/skill clearly matches.\n"
+            "Generic fallback tools such as web_search or web_fetch do not count as a strong capability match by themselves.\n"
+            "For public recommendations, broad Q&A, and general knowledge requests, prefer `direct_answer` unless the user explicitly asks to search, browse, verify, or quote current sources.\n"
             "Do not select tools that are not in the allowed runtime list.\n\n"
             "Allowed runtime tools:\n"
             f"{chr(10).join(tool_lines) if tool_lines else '- none'}\n\n"
@@ -1617,13 +1648,14 @@ class RunnerToolGateModelMixin:
             "Your job is to decide whether the user request can be answered reliably without tools.\n"
             "Do not answer the user. Do not call tools. Return a single JSON object only.\n\n"
             "Policy rubric:\n"
-            "- Use must_use_tool when reliable response requires fresh external facts, enterprise system actions, or verifiable evidence.\n"
-            "- If the user asks to query/operate enterprise systems or provider-backed skills, set needs_external_system=true and prefer provider/skill classes over web classes.\n"
-            "- Use web_search/web_fetch for public web real-time verification (news, prices, schedules, etc.) when no dedicated domain tool is available.\n"
+            "- Decide based on clear capability fit, not freshness alone.\n"
+            "- Use must_use_tool only when the request truly requires private/provider/browser execution and cannot be satisfied safely without it.\n"
+            "- If the user asks to query or operate enterprise systems or provider-backed skills, set needs_external_system=true and prefer provider/skill classes over web classes.\n"
+            "- Use prefer_tool when the request clearly matches available tools and trying them first would materially help.\n"
+            "- Public questions about prices, schedules, recommendations, or opening status may still use answer_direct when no clear capability match is required.\n"
+            "- Use web_search/web_fetch only when those tools are themselves the best matching available capability.\n"
             "- Do not route provider/skill requests to web_search when provider/skill capabilities are available.\n"
-            "- Requests about current or near-future changing facts must prefer tool-backed verification over direct answers.\n"
-            "- Use prefer_tool when tools would improve confidence but a general direct answer is still acceptable.\n"
-            "- Use answer_direct only when the request can be answered reliably from stable knowledge.\n\n"
+            "- Use answer_direct when the request can be handled from model knowledge, even if certainty should be expressed cautiously.\n\n"
             "Available runtime capabilities:\n"
             f"{capability_text}\n\n"
             "Return JSON with exactly these fields:\n"
@@ -1709,32 +1741,66 @@ class RunnerToolGateModelMixin:
         user_message: str,
         deps: SkillDeps,
         system_prompt: Optional[str] = None,
+        purpose: str = "tool_gate_model_pass",
+        allowed_tool_names: Optional[list[str]] = None,
     ) -> str:
         override_factory = getattr(agent, "override", None)
+        override_tools = resolve_override_tools(
+            agent=agent,
+            allowed_tool_names=allowed_tool_names,
+        )
         if callable(override_factory) and system_prompt:
             override_cm = nullcontext()
-            override_candidates = (
-                {"instructions": system_prompt},
-                {"system_prompt": system_prompt},
-            )
+            override_candidates = []
+            if override_tools is not None:
+                override_candidates.append({"instructions": system_prompt, "tools": override_tools})
+                override_candidates.append({"system_prompt": system_prompt, "tools": override_tools})
+            else:
+                override_candidates.append({"instructions": system_prompt})
+                override_candidates.append({"system_prompt": system_prompt})
             for override_kwargs in override_candidates:
                 try:
                     override_cm = override_factory(**override_kwargs)
                     break
                 except TypeError:
                     continue
+        elif callable(override_factory) and override_tools is not None:
+            try:
+                override_cm = override_factory(tools=override_tools)
+            except TypeError:
+                override_cm = nullcontext()
         else:
             override_cm = nullcontext()
 
-        if hasattr(override_cm, "__aenter__"):
-            async with override_cm:
-                result = await agent.run(user_message, deps=deps)
-        else:
-            with override_cm:
-                result = await agent.run(user_message, deps=deps)
+        async def _execute() -> str:
+            if hasattr(override_cm, "__aenter__"):
+                async with override_cm:
+                    result = await agent.run(user_message, deps=deps)
+            else:
+                with override_cm:
+                    result = await agent.run(user_message, deps=deps)
 
-        output = result.output if hasattr(result, "output") else result
-        return str(output).strip()
+            output = result.output if hasattr(result, "output") else result
+            return str(output).strip()
+
+        timeout_seconds = self._resolve_tool_gate_model_timeout_seconds()
+        try:
+            return await asyncio.wait_for(_execute(), timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "%s timed out after %.3fs",
+                str(purpose or "tool_gate_model_pass"),
+                timeout_seconds,
+            )
+            raise
+
+    def _resolve_tool_gate_model_timeout_seconds(self) -> float:
+        raw_value = getattr(self, "TOOL_GATE_MODEL_TIMEOUT_SECONDS", 8.0)
+        try:
+            timeout_seconds = float(raw_value)
+        except Exception:
+            timeout_seconds = 8.0
+        return max(0.5, timeout_seconds)
     @staticmethod
     def _extract_json_object(raw_output: str) -> str:
         text = (raw_output or "").strip()

@@ -4,6 +4,10 @@ from contextlib import asynccontextmanager, nullcontext
 from typing import Any, AsyncIterator, Optional
 
 from app.atlasclaw.agent.context_window_guard import ContextWindowInfo, resolve_context_window_info
+from app.atlasclaw.agent.runner_tool.runner_agent_override import (
+    normalize_allowed_tool_names,
+    resolve_override_tools,
+)
 from app.atlasclaw.core.deps import SkillDeps
 from app.atlasclaw.core.trace import bind_trace_context, resolve_trace_context
 from app.atlasclaw.session.context import SessionKey
@@ -182,18 +186,33 @@ class RunnerExecutionRuntimeMixin:
             deps=deps,
         )
 
+        override_tool_names = normalize_allowed_tool_names(
+            extra.get("runtime_allowed_tool_names") if isinstance(extra, dict) else None
+        )
+        override_tools = resolve_override_tools(
+            agent=agent,
+            allowed_tool_names=override_tool_names,
+        )
         if callable(override_factory) and system_prompt:
             override_cm = nullcontext()
-            override_candidates = (
-                {"instructions": system_prompt},
-                {"system_prompt": system_prompt},
-            )
+            override_candidates = []
+            if override_tools is not None:
+                override_candidates.append({"instructions": system_prompt, "tools": override_tools})
+                override_candidates.append({"system_prompt": system_prompt, "tools": override_tools})
+            else:
+                override_candidates.append({"instructions": system_prompt})
+                override_candidates.append({"system_prompt": system_prompt})
             for override_kwargs in override_candidates:
                 try:
                     override_cm = override_factory(**override_kwargs)
                     break
                 except TypeError:
                     continue
+        elif callable(override_factory) and override_tools is not None:
+            try:
+                override_cm = override_factory(tools=override_tools)
+            except TypeError:
+                override_cm = nullcontext()
         else:
             override_cm = nullcontext()
 
