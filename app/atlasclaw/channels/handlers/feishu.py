@@ -89,11 +89,14 @@ def _run_feishu_sdk_process(
         nonlocal connection_signaled
         if not connection_signaled:
             connection_signaled = True
-            print("[Feishu SDK Process] Connection established, sending signal")
-            control_queue.put({"type": "connected"})
+            print("[Feishu SDK Process] Connection established, sending signal", flush=True)
+            try:
+                control_queue.put({"type": "connected"}, timeout=5)
+            except Exception as exc:
+                print(f"[Feishu SDK Process] Failed to put connected signal: {exc}", flush=True)
     
     try:
-        print(f"[Feishu SDK Process] Starting with app_id: {app_id}")
+        print(f"[Feishu SDK Process] Starting with app_id: {app_id}", flush=True)
         
         # Create event handler
         event_handler = lark.EventDispatcherHandler.builder(
@@ -112,18 +115,21 @@ def _run_feishu_sdk_process(
         
         # Use timer to send connected signal after delay
         # If client.start() throws exception before timer fires, the signal won't be sent
-        timer = threading.Timer(5.0, send_connected_signal)
+        timer = threading.Timer(3.0, send_connected_signal)
         timer.daemon = True
         timer.start()
         
         # Start the client (blocking)
-        print("[Feishu SDK Process] Connecting...")
+        print("[Feishu SDK Process] Connecting...", flush=True)
         client.start()
         
     except Exception as e:
-        print(f"[Feishu SDK Process] Error: {e}")
+        print(f"[Feishu SDK Process] Error: {e}", flush=True)
         if not connection_signaled:
-            control_queue.put({"type": "error", "error": str(e)})
+            try:
+                control_queue.put({"type": "error", "error": str(e)}, timeout=5)
+            except Exception:
+                pass
 
 
 class FeishuHandler(ChannelHandler):
@@ -280,8 +286,8 @@ class FeishuHandler(ChannelHandler):
             print("[Feishu] Message listener started")
             
             # Wait for connection result from subprocess via control_queue
-            # Timeout: 15 seconds (subprocess sends signal after 5 seconds if successful)
-            connection_timeout = 15.0
+            # Timeout: 20 seconds (subprocess sends signal after 3 seconds if successful)
+            connection_timeout = 20.0
             start_time = time.time()
             
             while time.time() - start_time < connection_timeout:
@@ -306,6 +312,13 @@ class FeishuHandler(ChannelHandler):
                         await self._cleanup_connect_failure()
                         return False
                 except queue.Empty:
+                    # Fallback: if process is still alive after 10 seconds,
+                    # consider it connected (Queue signal may not arrive on Windows)
+                    elapsed = time.time() - start_time
+                    if elapsed > 10.0 and self._process.is_alive():
+                        logger.info("Feishu process alive after 10s, assuming connected (Queue fallback)")
+                        self._status = ConnectionStatus.CONNECTED
+                        return True
                     await asyncio.sleep(0.5)
                     continue
             

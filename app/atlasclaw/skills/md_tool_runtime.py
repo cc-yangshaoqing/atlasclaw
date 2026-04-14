@@ -112,6 +112,15 @@ def create_script_wrapper(
         if ctx is not None and hasattr(ctx, "deps") and hasattr(ctx.deps, "extra"):
             extra = ctx.deps.extra
             provider_config = extra.get("provider_config", {}) if extra else {}
+            # Fallback: build provider_config from provider_instances (channel path)
+            if not provider_config and extra:
+                provider_instances = extra.get("provider_instances", {})
+                if provider_instances:
+                    provider_config = provider_instances
+                    print(
+                        "[DEBUG] Built provider_config from provider_instances: "
+                        f"{list(provider_instances.keys())}"
+                    )
             if provider_config:
                 try:
                     env["ATLASCLAW_PROVIDER_CONFIG"] = json.dumps(provider_config)

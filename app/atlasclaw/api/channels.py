@@ -352,6 +352,7 @@ async def create_connection(
     channel_type: str,
     data: ConnectionCreateRequest,
     request: Request,
+    manager: ChannelManager = Depends(get_channel_manager),
     session: AsyncSession = Depends(get_db_session),
     authz: AuthorizationContext = Depends(get_authorization_context),
 ) -> ConnectionResponse:
@@ -391,6 +392,13 @@ async def create_connection(
     # Decrypt config for response
     config = _expand_channel_config_for_response(_decrypt_config(channel.config))
     
+    # Auto-start connection if enabled
+    if channel.is_active:
+        logger.info(f"Auto-starting new connection: {user_id}/{channel_type}/{channel.id}")
+        asyncio.create_task(
+            manager._background_initialize(user_id, channel_type, channel.id)
+        )
+
     return ConnectionResponse(
         id=channel.id,
         name=channel.name,
