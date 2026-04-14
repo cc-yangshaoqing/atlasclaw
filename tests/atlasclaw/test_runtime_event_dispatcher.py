@@ -231,3 +231,81 @@ async def test_stream_emits_loop_status_for_tool_result_reentry() -> None:
             },
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_stream_buffers_preamble_when_model_response_contains_tool_call_even_without_required_flag() -> None:
+    runtime_hooks = _HookCollector()
+    assistant_hooks = _HookCollector()
+    runner = _StreamTestRunner(
+        nodes=[
+            _ModelRequestNode(
+                content="我来帮您查询SmartCMP当前的审批数据。",
+                tool_calls=[{"name": "smartcmp_list_pending", "args": {}}],
+            ),
+        ],
+        runtime_hooks=runtime_hooks,
+        assistant_hooks=assistant_hooks,
+    )
+    session_key = "agent:main:user:u1:web:dm:peer-1:topic:thread-3"
+    trace = resolve_trace_context(session_key, run_id="run-3")
+    agent_run = _SequencedAgentRun(
+        snapshots=[
+            [],
+            [
+                {
+                    "role": "assistant",
+                    "content": "我来帮您查询SmartCMP当前的审批数据。",
+                    "tool_calls": [{"id": "cmp-1", "name": "smartcmp_list_pending", "args": {}}],
+                },
+                {
+                    "role": "tool",
+                    "tool_name": "smartcmp_list_pending",
+                    "content": {"output": "##APPROVAL_META_START##[]##APPROVAL_META_END##"},
+                },
+            ],
+        ]
+    )
+    state = {
+        "deps": SimpleNamespace(extra={}, is_aborted=lambda: False),
+        "start_time": 0.0,
+        "session": None,
+        "session_key": session_key,
+        "session_manager": SimpleNamespace(mark_compacted=lambda *args, **kwargs: None),
+        "run_id": "run-3",
+        "user_message": "查下CMP现在的审批数据",
+        "system_prompt": "system prompt",
+        "max_tool_calls": 5,
+        "runtime_context_window": None,
+        "flushed_memory_signatures": set(),
+        "session_message_history": [],
+        "runtime_base_history_len": 0,
+        "persist_run_output_start_index": 0,
+        "synthetic_tool_messages": [],
+        "thinking_emitter": ThinkingStreamEmitter(chunk_delay_seconds=0, chunk_size=1024),
+        "tool_intent_plan": None,
+        "tool_execution_required": False,
+        "buffer_direct_answer_output": False,
+        "buffered_assistant_events": [],
+        "tool_call_summaries": [],
+        "executed_tool_names": [],
+        "available_tools": [{"name": "smartcmp_list_pending", "result_mode": "tool_only_ok"}],
+    }
+
+    with bind_trace_context(trace):
+        events = [
+            event
+            async for event in runner._run_agent_node_stream(
+                agent_run=agent_run,
+                state=state,
+                _log_step=lambda *args, **kwargs: None,
+            )
+        ]
+
+    assistant_events = [event for event in events if event.type == "assistant"]
+    tool_events = [event for event in events if event.type == "tool"]
+
+    assert assistant_events == []
+    assert [event.phase for event in tool_events] == ["start", "end"]
+    assert len(state["buffered_assistant_events"]) == 1
+    assert state["buffered_assistant_events"][0].content == "我来帮您查询SmartCMP当前的审批数据。"

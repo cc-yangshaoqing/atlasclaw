@@ -260,8 +260,11 @@ class RunnerExecutionFlowStreamMixin:
             tool_execution_required = bool(state.get("tool_execution_required")) or turn_action_requires_tool_execution(
                 tool_intent_plan
             )
+            tool_calls_in_node = self.runtime_events.collect_tool_calls(node)
             buffer_assistant_output = bool(
-                tool_execution_required or state.get("buffer_direct_answer_output")
+                tool_execution_required
+                or tool_calls_in_node
+                or state.get("buffer_direct_answer_output")
             )
             tool_call_summaries = state.get("tool_call_summaries") or []
             if hasattr(node, "model_response") and node.model_response:
@@ -294,7 +297,6 @@ class RunnerExecutionFlowStreamMixin:
                             state["assistant_output_streamed"] = True
                         yield event
 
-            tool_calls_in_node = self.runtime_events.collect_tool_calls(node)
             for tool_call in tool_calls_in_node:
                 if isinstance(tool_call, dict):
                     tool_name = tool_call.get("name", tool_call.get("tool_name", "unknown_tool"))
