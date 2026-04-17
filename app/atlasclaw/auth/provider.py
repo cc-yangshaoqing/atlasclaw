@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Auth provider abstract base class."""
 
 from __future__ import annotations

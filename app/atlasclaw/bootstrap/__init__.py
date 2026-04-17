@@ -1,3 +1,4 @@
 # -*- coding: utf-8 -*-
-"""Bootstrap helpers for app startup and wiring."""
+# Copyright 2021  Qianyun, Inc. All rights reserved.
 
+"""Bootstrap helpers for app startup and wiring."""

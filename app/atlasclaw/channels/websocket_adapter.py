@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """WebSocket adapter for outbound channel delivery."""
 
 from __future__ import annotations

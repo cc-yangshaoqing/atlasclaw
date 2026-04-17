@@ -1,4 +1,6 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 from __future__ import annotations
 
 import asyncio
@@ -726,4 +728,3 @@ def _model_name_likely_supports_web_grounding(model_name: str) -> bool:
     lowered = (model_name or "").lower()
     hints = ("perplexity", "sonar", "grok", "gemini", "kimi")
     return any(hint in lowered for hint in hints)
-

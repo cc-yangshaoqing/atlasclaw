@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Pydantic schemas for API request/response validation.
 
 These schemas are used for:

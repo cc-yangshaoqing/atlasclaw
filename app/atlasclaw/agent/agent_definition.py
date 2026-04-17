@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Agent definition loading and parsing from Markdown files.
 
 This module provides functionality to load and parse agent definitions

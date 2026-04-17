@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 /**
  * api-client.js module unit tests
  *

@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Agent execution layer for AtlasClaw.
 
 The `agent` package groups together the components responsible for prompt

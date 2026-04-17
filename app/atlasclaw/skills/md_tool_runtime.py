@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Runtime helpers for executable tools declared in markdown skills."""
 
 from __future__ import annotations

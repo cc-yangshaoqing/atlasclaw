@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Workspace initialization and management.
 
 This module provides workspace directory structure initialization

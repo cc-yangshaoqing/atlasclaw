@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 
 from __future__ import annotations
 
@@ -90,4 +92,3 @@ def register_agent_routes(router: APIRouter) -> None:
     ) -> dict[str, Any]:
         abort_run(ctx, run_id)
         return {"status": "aborted", "run_id": run_id}
-

@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Session key and session metadata primitives.
 
 This module defines hierarchical session-key formats, identity-link helpers,

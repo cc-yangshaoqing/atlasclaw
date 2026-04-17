@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Reusable startup helpers extracted from main.py."""
 
 from __future__ import annotations

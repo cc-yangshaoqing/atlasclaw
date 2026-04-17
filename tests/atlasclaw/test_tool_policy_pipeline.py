@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Unit tests for per-turn tool policy pipeline."""
 
 from __future__ import annotations

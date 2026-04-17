@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Filesystem read tool.
 
 This tool reads text files with optional line slicing and line numbers, and it

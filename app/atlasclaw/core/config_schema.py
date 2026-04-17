@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Pydantic configuration schema definitions."""
 
 from __future__ import annotations

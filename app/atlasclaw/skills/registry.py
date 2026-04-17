@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Skill registry and Markdown skill loading.
 
 This module manages executable Python skills and Markdown-based skill metadata.
@@ -936,5 +939,3 @@ register name
             seen.add(normalized)
             deduped.append(normalized)
         return deduped
-
-

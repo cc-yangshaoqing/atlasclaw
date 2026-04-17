@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 /**
  * AtlasClaw API Client
  * Encapsulate communication with backend API

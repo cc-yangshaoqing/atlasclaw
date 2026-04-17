@@ -1,4 +1,7 @@
-﻿import pytest
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
+import pytest
 
 from app.atlasclaw.tools.web.provider_adapters import (
     BingPageType,

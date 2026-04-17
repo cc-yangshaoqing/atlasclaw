@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import hashlib
@@ -114,4 +117,3 @@ class RunnerToolGateCacheMixin:
             cache.pop(key, None)
         while len(cache) > max_entries:
             cache.popitem(last=False)
-

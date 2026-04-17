@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Abstract base class for all AuthProviders."""
 
 from __future__ import annotations

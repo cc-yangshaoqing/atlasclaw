@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Filesystem edit tool.
 
 This tool performs exact string replacement within a file and optionally

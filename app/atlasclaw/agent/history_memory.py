@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """History normalization and long-term memory coordination for agent runs."""
 
 from __future__ import annotations

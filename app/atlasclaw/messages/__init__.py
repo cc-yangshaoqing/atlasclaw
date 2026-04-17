@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Message processing package.
 
 This package exposes inbound and outbound message models together with command

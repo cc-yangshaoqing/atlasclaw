@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Markdown-backed memory persistence for AtlasClaw.
 
 The memory manager stores daily memories and long-term memories in Markdown

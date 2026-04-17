@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """
 ShadowUserStore — persists the external-identity → internal-user mapping.
 

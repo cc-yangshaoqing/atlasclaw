@@ -1,4 +1,7 @@
-﻿from app.atlasclaw.tools.web.provider_models import (
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
+from app.atlasclaw.tools.web.provider_models import (
     GroundedSearchResponse,
     NormalizedSearchResult,
     SearchCitation,

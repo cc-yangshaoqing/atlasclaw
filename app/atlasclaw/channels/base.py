@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Base protocol and helpers for channel adapters."""
 
 from __future__ import annotations

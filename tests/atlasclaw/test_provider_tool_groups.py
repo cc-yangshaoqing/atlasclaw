@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Provider tool metadata and group snapshot tests."""
 
 from __future__ import annotations

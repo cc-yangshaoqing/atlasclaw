@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Workflow engine and multi-agent orchestration exports."""
 
 from .engine import WorkflowEngine, WorkflowStep, StepStatus

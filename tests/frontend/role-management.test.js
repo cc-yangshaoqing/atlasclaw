@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 const buildAdminPermissions = () => ({
   rbac: { manage_permissions: true },
   skills: { module_permissions: { view: true, enable_disable: true, manage_permissions: true }, skill_permissions: [] },

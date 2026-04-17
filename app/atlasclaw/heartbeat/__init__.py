@@ -1,3 +1,4 @@
 # -*- coding: utf-8 -*-
-from __future__ import annotations
+# Copyright 2021  Qianyun, Inc. All rights reserved.
 
+from __future__ import annotations

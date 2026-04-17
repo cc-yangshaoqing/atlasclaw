@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 /**
  * main.js - SPA Entry Point
  *

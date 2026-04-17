@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Feishu (Lark) channel handler with multiprocessing for SDK isolation."""
 
 from __future__ import annotations

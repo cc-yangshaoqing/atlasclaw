@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """OIDCLoginProvider — implements OAuth2 Authorization Code flow with PKCE."""
 
 from __future__ import annotations

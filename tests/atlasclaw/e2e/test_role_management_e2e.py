@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """E2E: role management lifecycle with local auth enabled."""
 
 from __future__ import annotations

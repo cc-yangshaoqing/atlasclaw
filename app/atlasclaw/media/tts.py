@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Text-to-speech support models and helpers."""
 
 from __future__ import annotations

@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """
 Auth configuration models loaded from the `auth` section of atlasclaw.json.
 Supports ${ENV_VAR} substitution in all string fields.
@@ -181,6 +184,3 @@ class AuthConfig(BaseModel):
                 raise ValueError(
                     "auth.dingtalk.app_secret is required when auth.provider='dingtalk'"
                 )
-
-
-

@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Browser automation tool powered by Playwright.
 
 This module provides a lightweight browser manager and a single tool entry

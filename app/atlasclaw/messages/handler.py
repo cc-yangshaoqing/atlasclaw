@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Inbound and outbound message handling utilities.
 
 This module normalizes inbound messages, applies command parsing, duplicate

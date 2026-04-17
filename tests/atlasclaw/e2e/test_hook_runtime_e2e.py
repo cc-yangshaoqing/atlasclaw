@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """E2E: hook runtime API with local auth and full app startup."""
 
 from __future__ import annotations

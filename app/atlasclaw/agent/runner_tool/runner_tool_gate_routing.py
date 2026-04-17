@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import re
@@ -1591,4 +1594,3 @@ class RunnerToolGateRoutingMixin:
             seen.add(normalized)
             ordered.append(normalized)
         return ordered
-

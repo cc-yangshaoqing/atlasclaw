@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Remove persisted user is_admin flag
 
 Revision ID: 007

@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import asyncio
@@ -222,4 +225,3 @@ class RunnerExecutionLoopMixin(RunnerExecutionPreparePhaseMixin, RunnerExecution
                     self.token_interceptor.on_response(selected_token_id, headers)
             if release_slot is not None:
                 release_slot()
-

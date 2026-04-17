@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Auth providers — unified authentication interface."""
 
 from __future__ import annotations

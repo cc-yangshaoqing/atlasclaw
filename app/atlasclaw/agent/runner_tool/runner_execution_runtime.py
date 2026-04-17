@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 from contextlib import asynccontextmanager, nullcontext
@@ -271,4 +274,3 @@ class RunnerExecutionRuntimeMixin:
         """Return whether a node represents the tool-dispatch boundary."""
         node_type = type(node).__name__.lower()
         return "calltools" in node_type
-

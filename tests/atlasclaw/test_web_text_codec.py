@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 from __future__ import annotations
 
 from app.atlasclaw.tools.web.text_codec import decode_http_text

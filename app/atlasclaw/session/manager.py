@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Session persistence and transcript storage.
 
 This module stores session metadata in JSON and transcripts in JSONL files.

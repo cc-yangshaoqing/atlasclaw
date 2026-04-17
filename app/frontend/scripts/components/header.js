@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 /**
  * header.js - Header Component
  *

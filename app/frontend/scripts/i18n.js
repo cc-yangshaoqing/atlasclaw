@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 /**
  * Internationalization (i18n) Module
  * Provides multi-language support

@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 from app.atlasclaw.agent.runner_tool.runner_execution_loop import RunnerExecutionLoopMixin
@@ -17,4 +20,3 @@ class RunnerExecutionMixin(
     """Composite mixin for agent runtime execution orchestration."""
 
     pass
-

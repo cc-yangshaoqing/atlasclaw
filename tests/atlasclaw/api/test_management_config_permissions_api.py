@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Permission enforcement tests for workspace management configuration APIs."""
 
 from __future__ import annotations

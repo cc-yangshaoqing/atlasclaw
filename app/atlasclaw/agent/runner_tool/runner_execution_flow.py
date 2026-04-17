@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import time
@@ -97,4 +100,3 @@ class RunnerExecutionFlowPhaseMixin(
                     pass
             async for event in self._handle_loop_phase_exception(error=error, state=state):
                 yield event
-

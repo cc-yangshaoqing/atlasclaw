@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Agent instance pool keyed by `(agent_id, token_id)`."""
 
 from __future__ import annotations

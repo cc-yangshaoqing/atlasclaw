@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -949,4 +952,3 @@ class RunnerToolEvidenceMixin:
                 continue
             return updated[:index] + updated[index + 1 :]
         return updated
-

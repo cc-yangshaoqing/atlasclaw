@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Tool policy pipeline for per-turn minimal executable toolset selection."""
 
 from __future__ import annotations

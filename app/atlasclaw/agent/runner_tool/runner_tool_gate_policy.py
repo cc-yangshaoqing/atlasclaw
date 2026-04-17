@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import json
@@ -586,4 +589,3 @@ class RunnerToolGatePolicyMixin:
             "A grounded tool-backed answer is required for this request, but no usable tool "
             "evidence was produced in this run."
         )
-

@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import hashlib
@@ -194,4 +197,3 @@ class RunnerExecutionToolsetMixin:
             if kept:
                 filtered[normalized_group] = kept
         return filtered
-

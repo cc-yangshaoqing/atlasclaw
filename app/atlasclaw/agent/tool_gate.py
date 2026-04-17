@@ -1,4 +1,6 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -128,4 +130,3 @@ class CapabilityMatcher:
             seen.add(key)
             deduped.append(candidate)
         return deduped
-

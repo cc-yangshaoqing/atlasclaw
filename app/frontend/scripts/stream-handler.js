@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 /**
  * SSE Stream Response Handler
  * Handle streaming events from Agent runs

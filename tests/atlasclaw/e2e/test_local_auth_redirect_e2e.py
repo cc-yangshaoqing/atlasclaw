@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """E2E: local auth redirect and login flow."""
 
 from __future__ import annotations

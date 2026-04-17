@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """LocalAuthProvider — username/password authentication backed by UserModel."""
 
 from __future__ import annotations

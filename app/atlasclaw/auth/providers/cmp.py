@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """CMPAuthProvider — authenticate users via CMP cookies.
 
 When AtlasClaw is deployed behind the same Nginx as CMP, the browser

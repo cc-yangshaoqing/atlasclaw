@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Context-window resolution and guard checks for runtime safety."""
 
 from __future__ import annotations

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Session-aware prompt context resolver with budget controls."""
 
 from __future__ import annotations

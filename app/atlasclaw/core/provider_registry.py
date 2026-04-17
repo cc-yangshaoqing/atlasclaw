@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Service provider registry for provider templates, instances, and skill wrappers."""
 
 from __future__ import annotations

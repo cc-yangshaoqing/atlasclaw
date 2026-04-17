@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """ORM Service operations for database entities."""
 
 from app.atlasclaw.db.orm.agent_config import AgentConfigService

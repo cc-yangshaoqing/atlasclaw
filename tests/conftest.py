@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """
 Pytest 閰嶇疆鏂囦欢
 
@@ -117,4 +119,3 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "llm: marks tests that require LLM API calls (needs ANTHROPIC_API_KEY)"
     )
-

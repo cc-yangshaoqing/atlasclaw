@@ -1,4 +1,7 @@
-﻿from app.atlasclaw.core.config_schema import SearchRuntimeConfig
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
+from app.atlasclaw.core.config_schema import SearchRuntimeConfig
 from app.atlasclaw.tools.web.provider_models import (
     GroundedSearchResponse,
     SearchProviderCapabilities,

@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 from contextlib import nullcontext
@@ -362,4 +365,3 @@ class RunnerExecutionPayloadMixin:
             return result.output if hasattr(result, "output") else str(result)
         except Exception as e:
             return f"[Error: {str(e)}]"
-

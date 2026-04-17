@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """OIDCJWTProvider — validates JWT tokens via JWKS endpoint."""
 
 from __future__ import annotations

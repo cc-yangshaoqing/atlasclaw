@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """E2E: provider config should merge JSON + DB with DB override on same instance."""
 
 from __future__ import annotations

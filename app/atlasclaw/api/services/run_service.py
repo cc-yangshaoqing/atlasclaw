@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 
 from __future__ import annotations
 
@@ -172,4 +174,3 @@ async def execute_agent_run(
 
     finally:
         ctx.sse_manager.close_stream(run_id)
-

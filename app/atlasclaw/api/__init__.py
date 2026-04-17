@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """API package for AtlasClaw transport integrations.
 
 This package exposes the REST router plus the WebSocket and SSE managers used

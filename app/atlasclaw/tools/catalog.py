@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Built-in tool groups and profile definitions."""
 
 from __future__ import annotations

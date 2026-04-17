@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """MD Skills 单元测试
 
 覆盖 Frontmatter 解析、MdSkillEntry、SkillRegistry MD 发现、

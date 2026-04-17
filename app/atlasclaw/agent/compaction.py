@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Automatic transcript compaction pipeline.
 
 The pipeline monitors estimated context usage and compacts older transcript

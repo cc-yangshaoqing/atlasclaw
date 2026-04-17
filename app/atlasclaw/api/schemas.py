@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 
 from __future__ import annotations
 
@@ -179,4 +181,3 @@ class HookDecisionResponse(BaseModel):
     module_name: str
     decision: str
     status: str
-

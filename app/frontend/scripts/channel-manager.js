@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 /**
  * Channel Manager Module
  * Handles channel connection management UI with URL-based routing

@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import asyncio
@@ -238,4 +241,3 @@ class RunnerExecutionRetryMixin:
             "pydantic validation error",
         )
         return any(marker in lowered for marker in hard_markers)
-

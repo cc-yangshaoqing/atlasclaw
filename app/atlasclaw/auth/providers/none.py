@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """NoneProvider — no-auth / development mode."""
 
 from __future__ import annotations

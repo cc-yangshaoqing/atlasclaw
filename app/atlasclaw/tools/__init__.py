@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Built-in tool package for AtlasClaw.
 
 Tools are exposed through `RunContext[SkillDeps]` and share a common result

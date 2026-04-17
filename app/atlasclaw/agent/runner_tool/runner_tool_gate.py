@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 from app.atlasclaw.agent.runner_tool.runner_tool_gate_cache import RunnerToolGateCacheMixin
@@ -15,4 +18,3 @@ class RunnerToolGateMixin(
     """Composite mixin for tool-gate routing, policy, model and cache behaviors."""
 
     pass
-

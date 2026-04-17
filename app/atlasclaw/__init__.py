@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """
 AtlasClaw enterprise assistant framework.
 

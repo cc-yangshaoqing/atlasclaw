@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Streaming agent runner built on top of `PydanticAI.iter()`.
 
 The runner adds checkpoint-style controls around agent execution:

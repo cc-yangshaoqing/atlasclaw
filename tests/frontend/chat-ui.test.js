@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 /**
  * chat-ui.js regression tests
  * Tests for DeepChat handler mode implementation

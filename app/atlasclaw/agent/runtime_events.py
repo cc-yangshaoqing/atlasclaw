@@ -1,4 +1,7 @@
-﻿"""Runtime event and hook dispatch helpers for AgentRunner."""
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
+"""Runtime event and hook dispatch helpers for AgentRunner."""
 
 from __future__ import annotations
 
@@ -720,4 +723,3 @@ class RuntimeEventDispatcher:
         enriched = dict(payload)
         enriched.update(self._trace_log_fields(session_key=session_key, run_id=run_id))
         return enriched
-

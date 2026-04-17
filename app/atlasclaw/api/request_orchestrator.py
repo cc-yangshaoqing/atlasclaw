@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Request orchestration pipeline for gateway-driven agent execution.
 
 The orchestrator coordinates the main runtime path:

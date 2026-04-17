@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Thinking-stream emission helpers for model response parts."""
 
 from __future__ import annotations

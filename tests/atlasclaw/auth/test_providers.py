@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """
 AuthProvider 单元测试
 
@@ -37,10 +39,3 @@ class TestNoneProvider:
         provider = NoneProvider(default_user_id="dev")
         result = await provider.authenticate("any-token")
         assert result.subject == "dev"
-
-
-
-
-
-
-

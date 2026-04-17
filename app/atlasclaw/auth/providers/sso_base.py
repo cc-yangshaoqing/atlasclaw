@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """BaseSSOProvider — Abstract base class for SSO/OIDC with reusable PKCE/state/callback flow."""
 
 from __future__ import annotations

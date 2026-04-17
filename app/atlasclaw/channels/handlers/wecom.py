@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """WeCom channel handler with WebSocket long connection support."""
 
 from __future__ import annotations

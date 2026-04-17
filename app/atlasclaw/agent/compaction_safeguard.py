@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Safeguard helpers for compaction summary quality."""
 
 from __future__ import annotations

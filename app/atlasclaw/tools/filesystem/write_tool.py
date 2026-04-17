@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Filesystem write tool.
 
 This tool writes text content to disk and creates parent directories when

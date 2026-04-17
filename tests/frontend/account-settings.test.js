@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 jest.mock('../../app/frontend/scripts/auth.js', () => ({
   checkAuth: jest.fn(() => Promise.resolve({ username: 'atlas-admin', is_admin: true })),
   installAuthFetchInterceptor: jest.fn(),

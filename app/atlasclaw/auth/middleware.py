@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """
 AuthMiddleware — FastAPI/Starlette middleware for request authentication.
 """

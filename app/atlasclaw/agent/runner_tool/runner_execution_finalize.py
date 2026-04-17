@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import logging
@@ -151,4 +154,3 @@ class RunnerExecutionFinalizePhaseMixin:
             "metadata_candidates": metadata_candidates,
             "ranking_trace": ranking_trace,
         })
-

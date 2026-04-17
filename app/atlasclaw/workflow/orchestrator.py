@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Multi-agent task orchestration primitives."""
 
 from __future__ import annotations

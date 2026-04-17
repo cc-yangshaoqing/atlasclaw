@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import asyncio
@@ -993,4 +996,3 @@ class RunnerExecutionFlowPostMixin:
         state["tool_call_summaries"] = tool_call_summaries
         state["buffered_assistant_events"] = buffered_assistant_events
         state["message_history"] = persist_messages
-

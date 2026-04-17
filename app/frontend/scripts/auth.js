@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 import { buildApiUrl, buildAppUrl, rewriteManagedAppUrl } from './config.js'
 
 const AUTH_STORAGE_KEY = 'atlasclaw_auth_token'

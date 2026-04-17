@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Register built-in tools into the skill registry."""
 
 from __future__ import annotations

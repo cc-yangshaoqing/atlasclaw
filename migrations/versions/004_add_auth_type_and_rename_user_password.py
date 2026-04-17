@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Add auth_type to users and rename password_hash to password
 
 Revision ID: 004

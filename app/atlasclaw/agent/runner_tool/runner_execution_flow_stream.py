@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import asyncio
@@ -1023,4 +1026,3 @@ class RunnerExecutionFlowStreamMixin:
         if tool_call_summaries:
             return "Re-entering model loop with tool evidence.", "tool_result_continuation"
         return "Re-entering model loop to continue reasoning.", "reasoning_retry"
-

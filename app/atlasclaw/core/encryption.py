@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """AES-256-GCM encryption service for sensitive data.
 
 This module provides encryption/decryption services using AES-256-GCM algorithm.

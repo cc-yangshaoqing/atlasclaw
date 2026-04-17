@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """E2E: config-driven script hook handlers with aggregated context events."""
 
 from __future__ import annotations

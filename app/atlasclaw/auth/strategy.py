@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """
 AuthStrategy — orchestrates Provider → ShadowUserStore → UserInfo.
 Includes a simple in-memory TTL cache keyed by credential.

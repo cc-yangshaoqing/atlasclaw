@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Backend-managed service provider form schema definitions."""
 
 from __future__ import annotations

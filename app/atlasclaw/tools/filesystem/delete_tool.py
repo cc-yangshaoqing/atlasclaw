@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Filesystem delete tool.
 
 This tool deletes a single file path. Approval is typically enforced by the

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
 """Service operations for User configuration."""
 
 from __future__ import annotations
@@ -437,4 +439,3 @@ class UserService:
             "is_admin": user.is_admin,
             "auth_type": user.auth_type,
         }
-

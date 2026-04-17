@@ -1,3 +1,7 @@
+/*
+ *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ */
+
 import { t, translateIfExists, updateContainerTranslations } from '../i18n.js'
 import { showToast } from '../components/toast.js'
 import { checkAuth, redirectToLogin } from '../auth.js'

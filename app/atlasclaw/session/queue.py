@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Serialized execution queue for session-scoped runs.
 
 This queue ensures that each session key is processed serially while still

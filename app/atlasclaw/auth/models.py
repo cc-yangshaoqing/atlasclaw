@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """
 Auth data models: UserInfo, AuthResult, ShadowUser, AuthenticationError.
 """
@@ -172,4 +175,3 @@ class ShadowUser:
             extra=extra or {},
             auth_type=self.auth_type,
         )
-

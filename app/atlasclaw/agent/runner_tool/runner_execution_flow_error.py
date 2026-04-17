@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 from __future__ import annotations
 
 import logging
@@ -231,4 +234,3 @@ class RunnerExecutionFlowErrorMixin:
             metadata={"phase": "exception", "elapsed": round(time.monotonic() - float(state.get('start_time') or 0.0), 1)},
         )
         yield StreamEvent.error_event(f"agent_error: {error_text}")
-

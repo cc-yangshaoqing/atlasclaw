@@ -1,3 +1,6 @@
+# Copyright 2021  Qianyun, Inc. All rights reserved.
+
+
 """Shared data structures for built-in tools.
 
 `ToolResult` is the normalized return format for tool execution. It can contain
