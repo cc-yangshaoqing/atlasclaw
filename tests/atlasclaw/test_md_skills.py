@@ -5,6 +5,8 @@
 PromptBuilder MD Skills 索引注入、AgentRunner 快照收集、SkillsConfig 配置。
 """
 
+import asyncio
+import json
 import os
 import pytest
 import tempfile
@@ -141,6 +143,25 @@ avoid_when:
         assert result.metadata["triggers"] == ["create", "update"]
         assert result.metadata["version"] == "1.0.0"
         assert result.metadata["avoid_when"] == ["User wants to search"]
+
+    def test_nested_mapping_parsing(self):
+        """Nested YAML mappings should be preserved as dict values."""
+        content = """---
+name: nested-skill
+description: Uses nested metadata
+tool_submit_cli_flag_overrides:
+  json_body: "--json"
+  payload_file: "--file"
+---
+Body content
+"""
+        result = parse_frontmatter(content)
+
+        assert result.metadata["tool_submit_cli_flag_overrides"] == {
+            "json_body": "--json",
+            "payload_file": "--file",
+        }
+        assert "json_body" not in result.metadata
 
 
 # ======================================================================
@@ -327,6 +348,56 @@ class TestSkillRegistryMdLoading:
 
         snap = reg.md_snapshot()
         assert snap[0]["metadata"] == {"os": "linux", "requires": "gh"}
+
+    def test_nested_cli_flag_overrides_flow_into_registered_script_tool(self, tmp_path):
+        """Nested frontmatter mappings should affect registered script argv."""
+        skill_dir = tmp_path / "request-demo"
+        _write_skill_md(
+            skill_dir / "SKILL.md",
+            [
+                "name: request-demo",
+                "description: Demo request skill",
+                "tool_submit_name: demo_submit_request",
+                "tool_submit_description: Submit demo request",
+                "tool_submit_entrypoint: scripts/submit.py",
+                "tool_submit_cli_flag_overrides:",
+                '  json_body: "--json"',
+                "tool_submit_parameters: |",
+                "  {",
+                '    "type": "object",',
+                '    "properties": {',
+                '      "json_body": {',
+                '        "type": "string",',
+                '        "description": "Complete request body"',
+                "      }",
+                "    },",
+                '    "required": ["json_body"]',
+                "  }",
+            ],
+        )
+        script_path = skill_dir / "scripts" / "submit.py"
+        script_path.parent.mkdir(parents=True, exist_ok=True)
+        script_path.write_text(
+            "\n".join(
+                [
+                    "import json, sys",
+                    "print(json.dumps({'argv': sys.argv[1:]}))",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        reg = SkillRegistry()
+        reg.load_from_directory(str(tmp_path))
+
+        entry = reg.get("demo_submit_request")
+        assert entry is not None
+        _, handler = entry
+        result = asyncio.run(handler(json_body={"catalogId": "catalog-1"}))
+
+        assert result["success"] is True
+        payload = json.loads(result["output"].strip())
+        assert payload["argv"][0] == "--json"
 
     def test_qualified_name_uses_explicit_provider(self, tmp_path):
         """显式 provider_type 生成 provider:skill 标识"""
