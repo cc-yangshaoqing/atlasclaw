@@ -1,5 +1,7 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from types import SimpleNamespace
 
 import pytest
 
@@ -7,6 +9,7 @@ from app.atlasclaw.agent.runner_tool.runner_tool_gate_model import RunnerToolGat
 from app.atlasclaw.agent.runner_tool.runner_execution_prepare import RunnerExecutionPreparePhaseMixin
 from app.atlasclaw.agent.runner_tool.runner_execution_prepare import (
     build_recent_follow_up_tool_intent_plan,
+    prune_auto_selected_provider_instance_tools,
 )
 from app.atlasclaw.agent.runner_tool.runner_llm_routing import build_llm_first_guidance_plan
 from app.atlasclaw.agent.runner_tool.runner_tool_gate_routing import RunnerToolGateRoutingMixin
@@ -28,6 +31,89 @@ class _GateRunner(RunnerToolGateModelMixin, RunnerToolGateRoutingMixin):
 
 class _PrepareRunner(RunnerExecutionPreparePhaseMixin):
     pass
+
+
+def test_prune_auto_selected_provider_instance_tools_removes_single_instance_selector() -> None:
+    filtered_tools, trace = prune_auto_selected_provider_instance_tools(
+        available_tools=[
+            {
+                "name": "smartcmp_list_components",
+                "description": "Get SmartCMP component metadata",
+                "provider_type": "smartcmp",
+                "capability_class": "provider:smartcmp",
+            },
+            {
+                "name": "select_provider_instance",
+                "description": "Select provider instance",
+                "capability_class": "session",
+                "coordination_only": True,
+            },
+        ],
+        deps=SimpleNamespace(
+            extra={
+                "provider_instances": {
+                    "smartcmp": {
+                        "default": {
+                            "provider_type": "smartcmp",
+                        }
+                    }
+                }
+            }
+        ),
+        intent_plan=ToolIntentPlan(
+            action=ToolIntentAction.USE_TOOLS,
+            target_tool_names=["smartcmp_list_components"],
+            target_provider_types=["smartcmp"],
+        ),
+    )
+
+    assert {tool["name"] for tool in filtered_tools} == {"smartcmp_list_components"}
+    assert trace["enabled"] is True
+    assert trace["removed_tools"] == ["select_provider_instance"]
+    assert trace["auto_selected_provider_types"] == ["smartcmp"]
+
+
+def test_prune_auto_selected_provider_instance_tools_removes_selector_for_submit_preview_turn() -> None:
+    filtered_tools, trace = prune_auto_selected_provider_instance_tools(
+        available_tools=[
+            {
+                "name": "smartcmp_submit_request",
+                "description": "Submit SmartCMP request",
+                "provider_type": "smartcmp",
+                "capability_class": "provider:smartcmp",
+            },
+            {
+                "name": "select_provider_instance",
+                "description": "Select provider instance",
+                "capability_class": "session",
+                "coordination_only": True,
+            },
+        ],
+        deps=SimpleNamespace(
+            extra={
+                "provider_instances": {
+                    "smartcmp": {
+                        "default": {
+                            "provider_type": "smartcmp",
+                        }
+                    }
+                }
+            }
+        ),
+        intent_plan=ToolIntentPlan(
+            action=ToolIntentAction.DIRECT_ANSWER,
+            target_tool_names=["smartcmp_submit_request"],
+            target_provider_types=["smartcmp"],
+            target_skill_names=["smartcmp:request"],
+        ),
+    )
+
+    assert {tool["name"] for tool in filtered_tools} == {"smartcmp_submit_request"}
+    assert trace["enabled"] is True
+    assert trace["removed_tools"] == ["select_provider_instance"]
+    assert trace["auto_selected_provider_types"] == ["smartcmp"]
+
+
 def test_normalize_external_intent_does_not_force_must_use_tool() -> None:
     runner = _GateRunner()
     decision = ToolGateDecision(
@@ -455,6 +541,51 @@ def test_resolve_contextual_tool_request_reuses_previous_user_message_for_low_in
     assert used_follow_up_context is True
 
 
+def test_resolve_contextual_tool_request_reuses_previous_request_for_structured_follow_up_reply() -> None:
+    runner = _GateRunner()
+
+    resolved, used_follow_up_context = runner._resolve_contextual_tool_request(
+        user_message="linuxVM23, root, Passw0rd",
+        recent_history=[
+            {"role": "user", "content": "申请2c4g云资源"},
+            {
+                "role": "assistant",
+                "content": (
+                    "请提供以下信息：\n"
+                    "1. 资源名称：\n"
+                    "2. 用户名：\n"
+                    "3. 密码："
+                ),
+            },
+        ],
+    )
+
+    assert resolved == "申请2c4g云资源\nlinuxVM23, root, Passw0rd"
+    assert used_follow_up_context is True
+
+
+def test_resolve_contextual_tool_request_recognizes_enumerated_field_prompt_without_markers() -> None:
+    runner = _GateRunner()
+
+    resolved, used_follow_up_context = runner._resolve_contextual_tool_request(
+        user_message="linuxVM23, root, Passw0rd",
+        recent_history=[
+            {"role": "user", "content": "申请2c4g云资源"},
+            {
+                "role": "assistant",
+                "content": (
+                    "1. Resource Name:\n"
+                    "2. Username:\n"
+                    "3. Password:"
+                ),
+            },
+        ],
+    )
+
+    assert resolved == "申请2c4g云资源\nlinuxVM23, root, Passw0rd"
+    assert used_follow_up_context is True
+
+
 def test_build_recent_follow_up_tool_intent_plan_reuses_single_recent_tool() -> None:
     plan = build_recent_follow_up_tool_intent_plan(
         recent_history=[
@@ -476,6 +607,61 @@ def test_build_recent_follow_up_tool_intent_plan_reuses_single_recent_tool() -> 
     assert plan.action is ToolIntentAction.USE_TOOLS
     assert plan.target_tool_names == ["openmeteo_weather"]
     assert plan.target_capability_classes == ["weather"]
+
+
+def test_build_recent_follow_up_tool_intent_plan_recovers_recent_md_skill_scope() -> None:
+    plan = build_recent_follow_up_tool_intent_plan(
+        recent_history=[
+            {
+                "role": "assistant",
+                "content": "我先列出服务目录。",
+                "tool_calls": [{"name": "smartcmp_list_services"}],
+            },
+            {"role": "tool", "tool_name": "smartcmp_list_services", "content": {"ok": True}},
+            {
+                "role": "assistant",
+                "content": "我再获取业务组。",
+                "tool_calls": [{"name": "smartcmp_list_business_groups"}],
+            },
+            {"role": "tool", "tool_name": "smartcmp_list_business_groups", "content": {"ok": True}},
+        ],
+        available_tools=[
+            {
+                "name": "smartcmp_list_services",
+                "description": "List SmartCMP service catalogs",
+                "provider_type": "smartcmp",
+                "capability_class": "provider:smartcmp",
+                "group_ids": ["group:cmp", "group:request"],
+                "qualified_skill_name": "smartcmp:request",
+            },
+            {
+                "name": "smartcmp_list_business_groups",
+                "description": "List SmartCMP business groups",
+                "provider_type": "smartcmp",
+                "capability_class": "provider:smartcmp",
+                "group_ids": ["group:cmp", "group:request"],
+                "qualified_skill_name": "smartcmp:request",
+            },
+            {
+                "name": "smartcmp_submit_request",
+                "description": "Submit SmartCMP request",
+                "provider_type": "smartcmp",
+                "capability_class": "provider:smartcmp",
+                "group_ids": ["group:cmp", "group:request"],
+                "qualified_skill_name": "smartcmp:request",
+            },
+        ],
+    )
+
+    assert plan is not None
+    assert plan.action is ToolIntentAction.USE_TOOLS
+    assert plan.target_skill_names == ["smartcmp:request"]
+    assert plan.target_provider_types == ["smartcmp"]
+    assert plan.target_group_ids == ["group:cmp", "group:request"]
+    assert plan.target_tool_names == [
+        "smartcmp_list_business_groups",
+        "smartcmp_list_services",
+    ]
 
 
 def test_metadata_recall_ignores_history_when_not_follow_up() -> None:

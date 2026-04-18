@@ -7,7 +7,15 @@ from app.atlasclaw.agent.tool_gate_models import ToolIntentAction, ToolIntentPla
 
 def tool_is_coordination_support(tool: dict[str, Any]) -> bool:
     """Return whether the tool is declared as a coordination helper."""
-    return bool(tool.get("coordination_only"))
+    if bool(tool.get("coordination_only")):
+        return True
+    tool_name = str(tool.get("name", "") or "").strip().lower()
+    capability_class = str(tool.get("capability_class", "") or "").strip().lower()
+    if tool_name == "select_provider_instance":
+        return True
+    if capability_class == "session" and tool_name.startswith("select_"):
+        return True
+    return False
 
 
 def tool_is_generic_filesystem_helper(tool: dict[str, Any]) -> bool:

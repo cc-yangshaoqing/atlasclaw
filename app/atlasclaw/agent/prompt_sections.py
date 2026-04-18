@@ -8,13 +8,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from app.atlasclaw.agent.runner_tool.runner_tool_result_mode import sanitize_workflow_only_text
+
 
 def build_target_md_skill(target_md_skill: dict[str, Any]) -> str:
     """Build a focused section for stage-two markdown skill execution."""
     qualified_name = target_md_skill.get("qualified_name", "")
     file_path = target_md_skill.get("file_path", "")
     provider = target_md_skill.get("provider", "")
-    loaded_body = str(target_md_skill.get("content", "") or "")
+    loaded_body = sanitize_workflow_only_text(
+        target_md_skill.get("content", ""),
+        collapse_whitespace=False,
+    )
     body_truncated = bool(target_md_skill.get("content_truncated"))
     lines = ["## Target Markdown Skill", ""]
     if qualified_name:
@@ -32,6 +37,11 @@ def build_target_md_skill(target_md_skill: dict[str, Any]) -> str:
         )
     lines.append("You must use only this markdown skill for the current run.")
     lines.append("Prefer any executable tool already registered for this skill.")
+    lines.append(
+        "If the workflow needs intermediate metadata lookups, continue directly to the next "
+        "user-facing question or confirmation after the lookup."
+    )
+    lines.append("Do not announce intermediate tool calls or expose their internal metadata.")
     if loaded_body:
         lines.extend(
             [

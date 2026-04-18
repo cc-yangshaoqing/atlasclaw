@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 from datetime import datetime
@@ -21,6 +21,7 @@ from app.atlasclaw.agent.runner_tool.runner_llm_routing import (
     resolve_artifact_goal_from_intent_plan,
     selected_capability_ids_from_intent_plan,
 )
+from app.atlasclaw.agent.runner_tool.runner_tool_result_mode import normalize_tool_result_mode
 from app.atlasclaw.agent.runner_tool.runner_tool_projection import (
     compress_candidate_toolset,
     project_minimal_toolset,
@@ -74,6 +75,17 @@ def select_execution_prompt_mode(
     return PromptMode.FULL
 
 
+def should_resolve_target_md_skill(intent_plan: ToolIntentPlan | None) -> bool:
+    """Load the target markdown skill whenever the turn has an explicit md-skill target."""
+    if intent_plan is None:
+        return False
+    if any(str(item).strip() for item in (intent_plan.target_skill_names or [])):
+        return True
+    if any(str(item).strip() for item in (intent_plan.target_tool_names or [])):
+        return True
+    return turn_action_requires_tool_execution(intent_plan)
+
+
 def select_explicit_tool_execution_target(
     *,
     intent_plan: ToolIntentPlan | None,
@@ -87,10 +99,6 @@ def select_explicit_tool_execution_target(
         and intent_plan.action in {ToolIntentAction.USE_TOOLS, ToolIntentAction.CREATE_ARTIFACT}
     )
     if not actionable_turn:
-        return None
-    if is_follow_up:
-        return None
-    if has_target_md_skill:
         return None
 
     candidate_tools: list[dict[str, Any]] = []
@@ -106,7 +114,17 @@ def select_explicit_tool_execution_target(
         return None
 
     target_tool = candidate_tools[0]
-    if str(target_tool.get("result_mode", "") or "").strip().lower() != "tool_only_ok":
+    normalized_result_mode = normalize_tool_result_mode(target_tool)
+    if normalized_result_mode == "silent_ok":
+        # When the runtime has already narrowed execution to exactly one silent tool,
+        # prefer the compact single-tool prompt so the model performs the tool call
+        # instead of drifting into extra narration.
+        return dict(target_tool)
+    if is_follow_up:
+        return None
+    if has_target_md_skill:
+        return None
+    if normalized_result_mode != "tool_only_ok":
         return None
     return dict(target_tool)
 
@@ -121,7 +139,7 @@ def build_explicit_tool_execution_prompt(
     description = str(tool.get("description", "") or "").strip() or "No description provided."
     capability_class = str(tool.get("capability_class", "") or "").strip()
     provider_type = str(tool.get("provider_type", "") or "").strip()
-    result_mode = str(tool.get("result_mode", "") or "").strip() or "llm"
+    result_mode = normalize_tool_result_mode(tool) or "llm"
     parameters_schema = tool.get("parameters_schema", {})
     required_fields: list[str] = []
     properties: dict[str, Any] = {}
@@ -154,12 +172,13 @@ def build_explicit_tool_execution_prompt(
     if provider_type:
         capability_line = f"{capability_line}; provider={provider_type}"
 
-    return (
+    prompt = (
         "You are AtlasClaw.\n"
         "This turn has already been narrowed to exactly one allowed runtime tool.\n"
-        "Your only valid actions are:\n"
-        "1) Call the allowed tool exactly once with concrete arguments.\n"
-        "2) Ask one concise clarification question if required inputs are missing.\n"
+        "Your valid actions are:\n"
+        "1) If the tool has not been called yet this turn, call the allowed tool exactly once with concrete arguments.\n"
+        "2) If the tool result is already available in the conversation, use that evidence to continue the workflow.\n"
+        "3) Ask one concise clarification question only if required inputs are still missing.\n"
         "Do not answer from memory.\n"
         "Do not mention hidden reasoning.\n"
         "Do not mention any other tool.\n\n"
@@ -172,10 +191,47 @@ def build_explicit_tool_execution_prompt(
         "Arguments:\n"
         f"{chr(10).join(argument_lines)}\n"
     )
+    if result_mode == "silent_ok":
+        prompt += (
+            "If you call this tool, continue directly to the next user-facing step afterward.\n"
+            "Do not call the same tool again with the same arguments after its result is available.\n"
+            "Do not mention the tool call to the user and do not surface its raw output.\n"
+        )
+    return prompt
 
 
 def _normalize_text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _dedupe_non_empty_text(values: list[Any]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
+
+
+def recent_history_has_tool_activity(
+    *,
+    recent_history: list[dict[str, Any]],
+    window: int = 6,
+) -> bool:
+    """Return whether the most recent transcript window shows active tool workflow state."""
+    safe_window = max(1, int(window or 0))
+    for message in (recent_history or [])[-safe_window:]:
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role", "") or "").strip().lower()
+        if role in {"tool", "toolresult", "tool_result"}:
+            return True
+        if message.get("tool_calls") or message.get("tool_results"):
+            return True
+    return False
 
 
 def _artifact_classes_for_entry(entry: dict[str, Any]) -> set[str]:
@@ -212,6 +268,34 @@ def _match_selected_md_skill_entry(
     if artifact_classes and artifact_classes.intersection(target_capability_classes):
         return True
     return False
+
+
+def _rank_selected_md_skill_entry(
+    *,
+    entry: dict[str, Any],
+    original_index: int,
+    selected_capability_ids: set[str],
+    target_skill_order: dict[str, int],
+    target_tool_order: dict[str, int],
+    target_capability_classes: set[str],
+) -> tuple[int, int, int, int, int]:
+    capability_id = _normalize_text(entry.get("capability_id", "")).lower()
+    name = _normalize_text(entry.get("name", "")).lower()
+    declared_tool_names = [
+        _normalize_text(item).lower()
+        for item in (entry.get("declared_tool_names", []) or [])
+        if _normalize_text(item)
+    ]
+    artifact_classes = _artifact_classes_for_entry(entry)
+
+    capability_rank = 0 if capability_id and capability_id in selected_capability_ids else 1
+    skill_rank = target_skill_order.get(name, len(target_skill_order) + 1)
+    tool_rank = min(
+        (target_tool_order.get(item, len(target_tool_order) + 1) for item in declared_tool_names),
+        default=len(target_tool_order) + 1,
+    )
+    artifact_rank = 0 if artifact_classes and artifact_classes.intersection(target_capability_classes) else 1
+    return (capability_rank, skill_rank, tool_rank, artifact_rank, original_index)
 
 
 def _load_target_md_skill_content(
@@ -254,23 +338,34 @@ def resolve_selected_md_skill_target(
         for item in selected_capability_ids_from_intent_plan(intent_plan)
         if _normalize_text(item)
     }
-    target_skill_names = {
+    target_skill_names_ordered = [
         _normalize_text(item).lower()
         for item in (intent_plan.target_skill_names or [])
         if _normalize_text(item)
-    }
-    target_tool_names = {
+    ]
+    target_skill_names = set(target_skill_names_ordered)
+    target_tool_names_ordered = [
         _normalize_text(item).lower()
         for item in (intent_plan.target_tool_names or [])
         if _normalize_text(item)
-    }
+    ]
+    target_tool_names = set(target_tool_names_ordered)
     target_capability_classes = {
         _normalize_text(item).lower()
         for item in (intent_plan.target_capability_classes or [])
         if _normalize_text(item)
     }
+    target_skill_order = {
+        name: index
+        for index, name in enumerate(target_skill_names_ordered)
+    }
+    target_tool_order = {
+        name: index
+        for index, name in enumerate(target_tool_names_ordered)
+    }
 
-    for entry in capability_index:
+    matching_entries: list[tuple[tuple[int, int, int, int, int], dict[str, Any]]] = []
+    for original_index, entry in enumerate(capability_index):
         if not isinstance(entry, dict):
             continue
         if _normalize_text(entry.get("kind", "")).lower() != "md_skill":
@@ -286,18 +381,48 @@ def resolve_selected_md_skill_target(
             target_capability_classes=target_capability_classes,
         ):
             continue
-        content, truncated = _load_target_md_skill_content(
-            file_path=file_path,
-            max_file_bytes=max_file_bytes,
+        matching_entries.append(
+            (
+                _rank_selected_md_skill_entry(
+                    entry=entry,
+                    original_index=original_index,
+                    selected_capability_ids=selected_capability_ids,
+                    target_skill_order=target_skill_order,
+                    target_tool_order=target_tool_order,
+                    target_capability_classes=target_capability_classes,
+                ),
+                entry,
+            )
         )
-        return {
-            "provider": _normalize_text(entry.get("provider_type", "")),
-            "qualified_name": _normalize_text(entry.get("name", "")),
-            "file_path": file_path,
-            "content": content,
-            "content_truncated": truncated,
-        }
-    return None
+
+    if not matching_entries:
+        return None
+
+    _, selected_entry = min(matching_entries, key=lambda item: item[0])
+    file_path = _normalize_text(selected_entry.get("locator", ""))
+    content, truncated = _load_target_md_skill_content(
+        file_path=file_path,
+        max_file_bytes=max_file_bytes,
+    )
+    return {
+        "provider": _normalize_text(selected_entry.get("provider_type", "")),
+        "qualified_name": _normalize_text(selected_entry.get("name", "")),
+        "file_path": file_path,
+        "content": content,
+        "content_truncated": truncated,
+    }
+
+
+def enrich_target_md_skill_with_workflow_context(
+    *,
+    target_md_skill: Optional[dict[str, Any]],
+    workflow_trace: Optional[dict[str, Any]],
+) -> Optional[dict[str, Any]]:
+    """Backward-compatible no-op wrapper; runtime workflow context is not injected here."""
+    del workflow_trace
+    if not isinstance(target_md_skill, dict):
+        return target_md_skill
+    return dict(target_md_skill)
 
 
 def build_retry_tool_intent_plan(
@@ -346,7 +471,7 @@ def build_recent_follow_up_tool_intent_plan(
     recent_history: list[dict[str, Any]],
     available_tools: list[dict[str, Any]],
 ) -> ToolIntentPlan | None:
-    """Reuse the single recent tool context for low-information follow-up turns."""
+    """Reuse the recent workflow scope for low-information or structured follow-up turns."""
     available_by_name = {
         str(tool.get("name", "") or "").strip(): dict(tool)
         for tool in (available_tools or [])
@@ -355,7 +480,7 @@ def build_recent_follow_up_tool_intent_plan(
     if not available_by_name:
         return None
 
-    distinct_tool_names: list[str] = []
+    recent_tool_names: list[str] = []
     seen: set[str] = set()
 
     for message in reversed(recent_history or []):
@@ -363,6 +488,15 @@ def build_recent_follow_up_tool_intent_plan(
             continue
         role = str(message.get("role", "") or "").strip().lower()
         candidate_names: list[str] = []
+        if role == "assistant":
+            for tool_call in reversed(message.get("tool_calls", []) or []):
+                if not isinstance(tool_call, dict):
+                    continue
+                tool_name = str(
+                    tool_call.get("name", tool_call.get("tool_name", "")) or ""
+                ).strip()
+                if tool_name:
+                    candidate_names.append(tool_name)
         if role in {"tool", "toolresult", "tool_result"}:
             tool_name = str(message.get("tool_name", "") or message.get("name", "")).strip()
             if tool_name:
@@ -379,37 +513,155 @@ def build_recent_follow_up_tool_intent_plan(
             if tool_name not in available_by_name or tool_name in seen:
                 continue
             seen.add(tool_name)
-            distinct_tool_names.append(tool_name)
-            if len(distinct_tool_names) >= 2:
+            recent_tool_names.append(tool_name)
+            if len(recent_tool_names) >= 6:
                 break
-        if len(distinct_tool_names) >= 2:
+        if len(recent_tool_names) >= 6:
             break
 
-    if len(distinct_tool_names) != 1:
+    if not recent_tool_names:
         return None
 
-    matched_name = distinct_tool_names[0]
-    tool = available_by_name[matched_name]
-    capability_class = str(tool.get("capability_class", "") or "").strip()
-    provider_type = str(tool.get("provider_type", "") or "").strip()
+    matched_tools = [available_by_name[name] for name in recent_tool_names]
+    target_skill_names = _dedupe_non_empty_text(
+        [
+            tool.get("qualified_skill_name", "") or tool.get("skill_name", "")
+            for tool in matched_tools
+        ]
+    )
+    target_provider_types = _dedupe_non_empty_text(
+        [tool.get("provider_type", "") for tool in matched_tools]
+    )
+    target_group_ids = _dedupe_non_empty_text(
+        [
+            group_id
+            for tool in matched_tools
+            for group_id in (tool.get("group_ids", []) or [])
+        ]
+    )
+    target_capability_classes = _dedupe_non_empty_text(
+        [tool.get("capability_class", "") for tool in matched_tools]
+    )
+    target_tool_names = _dedupe_non_empty_text(recent_tool_names)
 
-    target_capability_classes: list[str] = []
-    target_provider_types: list[str] = []
-    if capability_class:
-        target_capability_classes.append(capability_class)
-    if provider_type:
-        target_provider_types.append(provider_type)
+    if len(target_skill_names) > 1:
+        return None
+    if not target_skill_names and len(target_provider_types) > 1:
+        return None
+    if (
+        not target_skill_names
+        and not target_provider_types
+        and len(target_capability_classes) > 1
+    ):
+        return None
 
     return ToolIntentPlan(
         action=ToolIntentAction.USE_TOOLS,
-        target_tool_names=[matched_name],
-        target_capability_classes=target_capability_classes,
         target_provider_types=target_provider_types,
+        target_skill_names=target_skill_names,
+        target_group_ids=target_group_ids,
+        target_capability_classes=target_capability_classes,
+        target_tool_names=target_tool_names,
         reason=(
-            "Low-information follow-up reused the single recent tool context from the current "
-            "thread so the main model can continue the same evidence-driven workflow."
+            "Follow-up context reused the recent workflow scope from the current thread so the "
+            "main model can continue the same evidence-driven workflow."
         ),
     )
+
+
+def prune_auto_selected_provider_instance_tools(
+    *,
+    available_tools: list[dict[str, Any]],
+    deps: Optional[SkillDeps],
+    intent_plan: ToolIntentPlan | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Remove redundant provider-selector tools when the target provider has one instance."""
+    trace: dict[str, Any] = {
+        "enabled": False,
+        "removed_tools": [],
+        "target_provider_types": [],
+        "auto_selected_provider_types": [],
+    }
+    if not available_tools:
+        return list(available_tools or []), trace
+    if deps is None or not isinstance(getattr(deps, "extra", None), dict):
+        return list(available_tools), trace
+
+    extra = deps.extra
+    provider_instances = extra.get("provider_instances")
+    if not isinstance(provider_instances, dict) or not provider_instances:
+        return list(available_tools), trace
+
+    target_provider_types: list[str] = []
+    if intent_plan is not None:
+        for item in (intent_plan.target_provider_types or []):
+            provider_type = str(item or "").strip().lower()
+            if provider_type and provider_type not in target_provider_types:
+                target_provider_types.append(provider_type)
+
+    if not target_provider_types:
+        selected_provider_type = ""
+        provider_instance = extra.get("provider_instance")
+        if isinstance(provider_instance, dict):
+            selected_provider_type = str(
+                provider_instance.get("provider_type", "") or ""
+            ).strip().lower()
+        if not selected_provider_type:
+            selected_provider_type = str(extra.get("provider_type", "") or "").strip().lower()
+        if selected_provider_type:
+            target_provider_types.append(selected_provider_type)
+
+    if not target_provider_types:
+        visible_provider_types: list[str] = []
+        for tool in available_tools:
+            if not isinstance(tool, dict):
+                continue
+            if tool_is_coordination_support(tool):
+                continue
+            provider_type = str(tool.get("provider_type", "") or "").strip().lower()
+            if provider_type and provider_type not in visible_provider_types:
+                visible_provider_types.append(provider_type)
+        if len(visible_provider_types) == 1:
+            target_provider_types = list(visible_provider_types)
+
+    if not target_provider_types:
+        return list(available_tools), trace
+
+    auto_selected_provider_types = [
+        provider_type
+        for provider_type in target_provider_types
+        if (
+            isinstance(provider_instances.get(provider_type), dict)
+            and len(provider_instances.get(provider_type) or {}) == 1
+        )
+    ]
+    if not auto_selected_provider_types:
+        return list(available_tools), trace
+
+    filtered_tools: list[dict[str, Any]] = []
+    removed_tools: list[str] = []
+    for tool in available_tools:
+        if not isinstance(tool, dict):
+            continue
+        tool_name = str(tool.get("name", "") or "").strip()
+        if tool_name in {"select_provider_instance", "list_provider_instances"}:
+            removed_tools.append(tool_name)
+            continue
+        filtered_tools.append(dict(tool))
+
+    trace.update(
+        {
+            "enabled": bool(removed_tools),
+            "removed_tools": removed_tools,
+            "target_provider_types": list(target_provider_types),
+            "auto_selected_provider_types": auto_selected_provider_types,
+        }
+    )
+    if not removed_tools:
+        return list(available_tools), trace
+    return filtered_tools, trace
+
+
 
 
 class RunnerExecutionPreparePhaseMixin:
@@ -727,11 +979,34 @@ class RunnerExecutionPreparePhaseMixin:
                     target_capability_classes=list(metadata_tool_intent_plan.target_capability_classes),
                     target_tool_names=list(metadata_tool_intent_plan.target_tool_names),
                 )
+            pre_compression_tools = list(available_tools)
             available_tools, candidate_compression_trace = compress_candidate_toolset(
                 allowed_tools=available_tools,
                 metadata_candidates=metadata_candidates,
                 used_follow_up_context=used_follow_up_context,
             )
+            # 鈹€鈹€ Group co-retention after compression (same logic as projection)
+            if available_tools and len(available_tools) < len(pre_compression_tools):
+                _cg_ids: set[str] = set()
+                for _ct in available_tools:
+                    for _g in (_ct.get("group_ids", []) or []):
+                        _gs = str(_g).strip()
+                        if _gs:
+                            _cg_ids.add(_gs)
+                if _cg_ids:
+                    _cex = {str(_t.get("name", "")).strip() for _t in available_tools}
+                    for _ct2 in pre_compression_tools:
+                        _cn = str(_ct2.get("name", "")).strip()
+                        if _cn in _cex:
+                            continue
+                        _ctg = {
+                            str(_g).strip()
+                            for _g in (_ct2.get("group_ids", []) or [])
+                            if str(_g).strip()
+                        }
+                        if _ctg.intersection(_cg_ids):
+                            available_tools.append(_ct2)
+                            _cex.add(_cn)
             candidate_visible_tools = list(available_tools)
             candidate_tool_compression_trace = dict(candidate_compression_trace)
             if isinstance(deps.extra, dict):
@@ -743,6 +1018,9 @@ class RunnerExecutionPreparePhaseMixin:
                 reason=str(candidate_compression_trace.get("reason", "") or ""),
                 coordination_tools=list(candidate_compression_trace.get("coordination_tools", []) or []),
             )
+            has_recent_tool_activity = recent_history_has_tool_activity(
+                recent_history=message_history,
+            )
             explicit_capability_match = self._metadata_plan_represents_explicit_capability_match(
                 metadata_candidates=metadata_candidates,
                 metadata_plan=metadata_tool_intent_plan,
@@ -753,7 +1031,7 @@ class RunnerExecutionPreparePhaseMixin:
                 metadata_plan=metadata_tool_intent_plan,
                 explicit_capability_match=explicit_capability_match,
             )
-            if tool_intent_plan is None and used_follow_up_context:
+            if tool_intent_plan is None and (used_follow_up_context or has_recent_tool_activity):
                 follow_up_tool_intent_plan = build_recent_follow_up_tool_intent_plan(
                     recent_history=message_history,
                     available_tools=available_tools,
@@ -767,12 +1045,14 @@ class RunnerExecutionPreparePhaseMixin:
                     _log_step(
                         "follow_up_tool_context_reused",
                         action=follow_up_tool_intent_plan.action.value,
-                        target_provider_types=list(follow_up_tool_intent_plan.target_provider_types),
-                        target_capability_classes=list(
-                            follow_up_tool_intent_plan.target_capability_classes
+                        target_provider_types=list(
+                            follow_up_tool_intent_plan.target_provider_types
                         ),
-                        target_tool_names=list(follow_up_tool_intent_plan.target_tool_names),
-                    )
+                        target_capability_classes=list(
+                                follow_up_tool_intent_plan.target_capability_classes
+                            ),
+                            target_tool_names=list(follow_up_tool_intent_plan.target_tool_names),
+                        )
             artifact_goal = resolve_artifact_goal_from_intent_plan(metadata_tool_intent_plan)
             if isinstance(deps.extra, dict):
                 if artifact_goal is not None:
@@ -817,11 +1097,28 @@ class RunnerExecutionPreparePhaseMixin:
                 if tool_intent_plan is not None
                 else [],
             )
-            if tool_intent_plan is None and not explicit_capability_match:
+            # Detect active multi-step workflows from recent history.
+            # If the conversation has recent tool activity, keep tools
+            # available so the model can continue the same workflow.
+            if (
+                tool_intent_plan is None
+                and not explicit_capability_match
+                and not used_follow_up_context
+                and not has_recent_tool_activity
+            ):
                 available_tools = []
                 _log_step(
                     "direct_answer_tools_hidden",
                     reason="no_strong_capability_match",
+                )
+            elif (
+                tool_intent_plan is None
+                and not explicit_capability_match
+                and (has_recent_tool_activity or used_follow_up_context)
+            ):
+                _log_step(
+                    "workflow_tools_retained",
+                    reason="recent_tool_activity_or_follow_up_detected",
                 )
 
             if tool_intent_plan is not None:
@@ -842,11 +1139,60 @@ class RunnerExecutionPreparePhaseMixin:
                         policy=ToolPolicyMode.ANSWER_DIRECT,
                     )
                 )
+            pre_projection_tools = list(available_tools)
             available_tools, tool_projection_trace = project_minimal_toolset(
                 allowed_tools=available_tools,
                 intent_plan=tool_intent_plan,
             )
+            # Group co-retention: if any tool from a group was projected,
+            # include all tools from that group so multi-step skill
+            # workflows keep the rest of the sequence available.
+            if available_tools and pre_projection_tools:
+                projected_group_ids: set[str] = set()
+                for _pt in available_tools:
+                    for _gid in (_pt.get("group_ids", []) or []):
+                        _gid_s = str(_gid).strip()
+                        if _gid_s:
+                            projected_group_ids.add(_gid_s)
+                if projected_group_ids:
+                    _existing = {str(_t.get("name", "")).strip() for _t in available_tools}
+                    for _pt2 in pre_projection_tools:
+                        _tname = str(_pt2.get("name", "")).strip()
+                        if _tname in _existing:
+                            continue
+                        _tgroups = {
+                            str(_g).strip()
+                            for _g in (_pt2.get("group_ids", []) or [])
+                            if str(_g).strip()
+                        }
+                        if _tgroups.intersection(projected_group_ids):
+                            available_tools.append(_pt2)
+                            _existing.add(_tname)
             runtime_visible_tools = list(available_tools)
+            provider_instance_pruning_trace: dict[str, Any] = {}
+            runtime_visible_tools, provider_instance_pruning_trace = (
+                prune_auto_selected_provider_instance_tools(
+                    available_tools=runtime_visible_tools,
+                    deps=deps,
+                    intent_plan=tool_intent_plan,
+                )
+            )
+            if provider_instance_pruning_trace.get("enabled"):
+                _log_step(
+                    "provider_instance_tools_pruned",
+                    removed_tools=list(
+                        provider_instance_pruning_trace.get("removed_tools", []) or []
+                    ),
+                    target_provider_types=list(
+                        provider_instance_pruning_trace.get("target_provider_types", []) or []
+                    ),
+                    auto_selected_provider_types=list(
+                        provider_instance_pruning_trace.get(
+                            "auto_selected_provider_types", []
+                        )
+                        or []
+                    ),
+                )
             runtime_allowed_tool_names = [
                 str(tool.get("name", "") or "").strip()
                 for tool in runtime_visible_tools
@@ -858,6 +1204,9 @@ class RunnerExecutionPreparePhaseMixin:
                 deps.extra["tools_snapshot"] = list(available_tools)
                 deps.extra["tools_snapshot_authoritative"] = True
                 deps.extra["runtime_allowed_tool_names"] = list(runtime_allowed_tool_names)
+                deps.extra["provider_instance_pruning_trace"] = dict(
+                    provider_instance_pruning_trace
+                )
                 deps.extra["tool_groups_snapshot"] = self._build_filtered_group_map(
                     tool_groups_snapshot,
                     available_tools,
@@ -871,7 +1220,7 @@ class RunnerExecutionPreparePhaseMixin:
                 coordination_tools=list(tool_projection_trace.get("coordination_tools", []) or []),
             )
             target_md_skill = None
-            if turn_action_requires_tool_execution(tool_intent_plan):
+            if should_resolve_target_md_skill(tool_intent_plan):
                 target_md_skill = resolve_selected_md_skill_target(
                     agent=runtime_agent or self.agent,
                     deps=deps,
@@ -953,6 +1302,8 @@ class RunnerExecutionPreparePhaseMixin:
                 projected_tools=available_tools,
                 has_target_md_skill=bool(target_md_skill),
             )
+            if isinstance(explicit_tool_execution_target, dict):
+                explicit_tool_execution_target = dict(explicit_tool_execution_target)
             _log_step(
                 "execution_prompt_mode_selected",
                 mode="explicit_tool_execution" if explicit_tool_execution_target else prompt_mode.value,

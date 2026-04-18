@@ -46,6 +46,30 @@ class RunnerToolGateRoutingMixin:
             appended += 1
         return selected
 
+    @staticmethod
+    def _is_low_information_follow_up_text(text: str) -> bool:
+        normalized = " ".join((text or "").split()).strip()
+        if not normalized:
+            return True
+        compact_len = len(re.sub(r"\s+", "", normalized))
+        token_count = len(RunnerToolGateRoutingMixin._tokenize_classifier_fallback_text(normalized))
+        return compact_len <= 8 or token_count <= 1
+
+    @staticmethod
+    def _combine_follow_up_request(previous_user_message: str, current_user_message: str) -> str:
+        previous = " ".join((previous_user_message or "").split()).strip()
+        current = " ".join((current_user_message or "").split()).strip()
+        if not previous:
+            return current
+        if not current:
+            return previous
+        inline_selection_pattern = re.compile(
+            r"^(?:\d+|[yn]|yes|no|true|false|是|否)$",
+            re.IGNORECASE,
+        )
+        separator = " " if inline_selection_pattern.fullmatch(current) else "\n"
+        return f"{previous}{separator}{current}".strip()
+
     def _align_external_system_intent(
         self,
         *,
@@ -270,12 +294,18 @@ class RunnerToolGateRoutingMixin:
         if not normalized_user_message:
             return user_message, False
         identifier_follow_up = self._contains_structured_identifier(normalized_user_message)
-        if identifier_follow_up and self._identifier_request_is_self_contained(normalized_user_message):
+        structured_field_response = self._looks_like_structured_field_response(
+            normalized_user_message
+        )
+        if (
+            identifier_follow_up
+            and self._identifier_request_is_self_contained(normalized_user_message)
+            and not structured_field_response
+        ):
             return normalized_user_message, False
-        if len(re.sub(r"\s+", "", normalized_user_message)) > 32 and not identifier_follow_up:
-            return normalized_user_message, False
-        current_tokens = self._tokenize_classifier_fallback_text(normalized_user_message)
         compact_current_len = len(re.sub(r"\s+", "", normalized_user_message))
+        current_tokens = self._tokenize_classifier_fallback_text(normalized_user_message)
+        long_structured_follow_up = compact_current_len > 32 and not identifier_follow_up
         low_information_follow_up = compact_current_len <= 8 or len(current_tokens) <= 1
 
         last_assistant_index: Optional[int] = None
@@ -295,6 +325,7 @@ class RunnerToolGateRoutingMixin:
             return normalized_user_message, False
 
         previous_user_message = ""
+        fallback_previous_user_message = ""
         for index in range(last_assistant_index - 1, -1, -1):
             item = recent_history[index]
             if str(item.get("role", "")).strip() != "user":
@@ -302,24 +333,38 @@ class RunnerToolGateRoutingMixin:
             content = " ".join(str(item.get("content", "") or "").split()).strip()
             if not content:
                 continue
+            if not fallback_previous_user_message:
+                fallback_previous_user_message = content
+            if self._is_low_information_follow_up_text(content):
+                continue
             previous_user_message = content
             break
+
+        if not previous_user_message:
+            previous_user_message = fallback_previous_user_message
 
         if not previous_user_message:
             return normalized_user_message, False
 
         if low_information_follow_up:
-            combined = "\n".join(
-                item for item in [previous_user_message, normalized_user_message] if item
-            ).strip()
+            combined = self._combine_follow_up_request(
+                previous_user_message,
+                normalized_user_message,
+            )
             return combined, combined != normalized_user_message
 
-        if not identifier_follow_up and not self._looks_like_follow_up_request(last_assistant_message):
+        assistant_requests_follow_up = self._looks_like_follow_up_request(last_assistant_message)
+
+        if long_structured_follow_up and not assistant_requests_follow_up:
             return normalized_user_message, False
 
-        combined = "\n".join(
-            item for item in [previous_user_message, normalized_user_message] if item
-        ).strip()
+        if not identifier_follow_up and not assistant_requests_follow_up:
+            return normalized_user_message, False
+
+        combined = self._combine_follow_up_request(
+            previous_user_message,
+            normalized_user_message,
+        )
         return combined, combined != normalized_user_message
 
     @classmethod
@@ -361,6 +406,23 @@ class RunnerToolGateRoutingMixin:
         )
         lowered = normalized.lower()
         return any(re.search(pattern, lowered, flags=re.IGNORECASE) for pattern in patterns)
+
+    @staticmethod
+    def _looks_like_structured_field_response(text: str) -> bool:
+        normalized = " ".join((text or "").split()).strip()
+        if not normalized:
+            return False
+        parts = [
+            item.strip()
+            for item in re.split(r"\s*[,，;；|]\s*", normalized)
+            if item.strip()
+        ]
+        if len(parts) < 2:
+            return False
+        informative_parts = [
+            item for item in parts if len(re.sub(r"\s+", "", item)) >= 2
+        ]
+        return len(informative_parts) >= 2
     @staticmethod
     def _build_classifier_history(
         *,
@@ -606,6 +668,9 @@ class RunnerToolGateRoutingMixin:
         lowered = text.lower()
         question_count = text.count("?") + text.count("？")
         numbered_choices = len(re.findall(r"(?:^|[\s\n])(?:1[\)\.]|2[\)\.]|3[\)\.])", text))
+        enumerated_field_lines = len(
+            re.findall(r"(?m)^\s*\d+[\.\)]\s+.+?(?:[:：]\s*)$", text)
+        )
         interaction_markers = (
             "please reply",
             "reply with",
@@ -627,8 +692,19 @@ class RunnerToolGateRoutingMixin:
             "\u9009\u9879",
             "\u4efb\u9009",
         )
+        selection_prompt_markers = (
+            "enter number",
+            "input number",
+            "\u8f93\u5165\u7f16\u53f7",
+            "\u8bf7\u8f93\u5165\u7f16\u53f7",
+            "\u7f16\u53f7",
+        )
         marker_hits = sum(1 for marker in interaction_markers if marker in lowered or marker in text)
+        if numbered_choices >= 2 and enumerated_field_lines >= 2:
+            return True
         if numbered_choices >= 2 and marker_hits >= 1:
+            return True
+        if marker_hits >= 1 and any(marker in lowered or marker in text for marker in selection_prompt_markers):
             return True
         if question_count >= 2 and marker_hits >= 1:
             return True

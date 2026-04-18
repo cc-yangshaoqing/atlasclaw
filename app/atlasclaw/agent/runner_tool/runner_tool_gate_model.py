@@ -14,6 +14,7 @@ from app.atlasclaw.agent.runner_tool.runner_tool_projection import (
     tool_is_coordination_support,
     tool_is_generic_filesystem_helper,
 )
+from app.atlasclaw.agent.runner_tool.runner_tool_result_mode import normalize_tool_result_mode
 from app.atlasclaw.agent.tool_gate_models import (
     ToolGateDecision,
     ToolIntentAction,
@@ -620,7 +621,7 @@ class RunnerToolGateModelMixin:
             return None
 
         tool = candidate_tools[0]
-        result_mode = str(tool.get("result_mode", "") or "").strip().lower()
+        result_mode = normalize_tool_result_mode(tool)
         if result_mode != "tool_only_ok":
             return None
 

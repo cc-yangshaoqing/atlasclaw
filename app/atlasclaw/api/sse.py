@@ -310,6 +310,10 @@ create SSE
                     await asyncio.sleep(0.015)
 
             if was_closed_on_subscribe:
+                yield SSEEvent(
+                    event_type=SSEEventType.LIFECYCLE,
+                    data={"phase": "end"}
+                ).to_sse_format()
                 return
 
             # 
@@ -422,6 +426,9 @@ create SSE
             number of notified subscribers
         
 """
+        # Safety: strip any <tool_meta> content that may leak from LLM output
+        import re as _re
+        text = _re.sub(r'</?tool_meta>', '', text)
         return self.push_event(run_id, SSEEvent(
             event_type=SSEEventType.ASSISTANT,
             data={"text": text, "is_delta": is_delta}

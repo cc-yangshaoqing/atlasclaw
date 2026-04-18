@@ -67,6 +67,33 @@ def test_history_memory_to_model_message_history_preserves_tool_call_and_return_
     assert model_history[1].parts[0].content == {"items": [{"id": "REQ-1"}]}
 
 
+def test_history_memory_to_model_message_history_inserts_synthetic_tool_call_for_orphan_return():
+    coordinator = HistoryMemoryCoordinator(
+        session_manager=object(),
+        compaction=CompactionPipeline(CompactionConfig()),
+    )
+
+    model_history = coordinator.to_model_message_history(
+        [
+            {
+                "role": "tool",
+                "tool_name": "smartcmp_list_images",
+                "tool_call_id": "call-orphan-1",
+                "content": {"items": [{"id": "vm-1"}]},
+            }
+        ]
+    )
+
+    assert len(model_history) == 2
+    assert isinstance(model_history[0], ModelResponse)
+    assert isinstance(model_history[0].parts[0], ToolCallPart)
+    assert model_history[0].parts[0].tool_name == "smartcmp_list_images"
+    assert model_history[0].parts[0].tool_call_id == "call-orphan-1"
+    assert isinstance(model_history[1], ModelRequest)
+    assert isinstance(model_history[1].parts[0], ToolReturnPart)
+    assert model_history[1].parts[0].tool_call_id == "call-orphan-1"
+
+
 def test_history_memory_build_message_history_repairs_legacy_tool_rows_without_identity_fields():
     coordinator = HistoryMemoryCoordinator(
         session_manager=object(),
@@ -135,3 +162,31 @@ def test_history_memory_build_message_history_drops_unmatched_assistant_tool_cal
         not any(isinstance(part, ToolCallPart) for part in getattr(message, "parts", []))
         for message in model_history
     )
+
+
+def test_history_memory_sanitizes_hidden_lookup_wrapper_text():
+    payload = HistoryMemoryCoordinator._normalize_tool_content_for_model(
+        tool_name="smartcmp_list_components",
+        content={
+            "output": "[INFO] Component metadata loaded.",
+            "_internal": {"typeName": "cloudchef.nodes.Compute"},
+        },
+    )
+
+    assert isinstance(payload, str)
+    assert "backend" not in payload.lower()
+    assert "workflow continuation" in payload
+
+
+def test_history_memory_selection_wrapper_reinforces_default_value_rule():
+    payload = HistoryMemoryCoordinator._normalize_tool_content_for_model(
+        tool_name="smartcmp_list_services",
+        content={
+            "output": "Found 1 published catalog(s):\n\n  [1] Linux VM\n",
+            "_internal": '[{"index":1,"name":"Linux VM"}]',
+        },
+    )
+
+    assert isinstance(payload, str)
+    assert "workflow continuation" in payload
+    assert "WORKFLOW_METADATA_FOR_TOOL_USE_ONLY" in payload

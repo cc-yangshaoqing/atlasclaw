@@ -582,6 +582,70 @@ class TestPromptBuilderMdSkills:
         assert "# PPTX Skill" in output
         assert "## Skills" not in output
 
+    def test_target_md_skill_body_sanitizes_backend_narration(self):
+        """瀹氬悜 markdown skill 鍐呭浼氬幓鎺夆€渂ackend/鍚庡彴姝ラ鈥濊姘?"""
+        b = self._builder(mode=PromptMode.MINIMAL)
+        output = b.build(
+            target_md_skill={
+                "provider": "smartcmp",
+                "qualified_name": "smartcmp:request",
+                "file_path": "/skills/request/SKILL.md",
+                "content": (
+                    "This is a hidden backend step for cloud-resource requests:\n"
+                    "- Do NOT tell the user you are checking component info, node types, or backend metadata.\n"
+                ),
+            },
+        )
+
+        assert "backend step" not in output.lower()
+        assert "intermediate metadata" in output
+        assert "Do not announce intermediate tool calls" in output
+        assert "actual parameter metadata overrides all static examples" not in output
+        assert "Do not show multiple selection lists in the same assistant turn" not in output
+
+    def test_target_md_skill_body_preserves_json_preview_instruction(self):
+        """SmartCMP request skill 注入 prompt 时保留 JSON 预览确认要求"""
+        b = self._builder(mode=PromptMode.MINIMAL)
+        output = b.build(
+            target_md_skill={
+                "provider": "smartcmp",
+                "qualified_name": "smartcmp:request",
+                "file_path": "/skills/request/SKILL.md",
+                "content": (
+                    "Before submit, show JSON 预览.\n"
+                    "Render the constructed request body in a fenced json block.\n"
+                    "Mask credentialPassword as \"******\" in the preview.\n"
+                ),
+            },
+        )
+
+        assert "JSON 预览" in output
+        assert "fenced json block" in output.lower()
+        assert "credentialPassword" in output
+        assert "******" in output
+
+    def test_target_md_skill_body_does_not_inject_workflow_context(self):
+        b = self._builder(mode=PromptMode.MINIMAL)
+        output = b.build(
+            target_md_skill={
+                "provider": "smartcmp",
+                "qualified_name": "smartcmp:request",
+                "file_path": "/skills/request/SKILL.md",
+                "content": "Use request workflow metadata.",
+                "workflow_context": {
+                    "catalog_name": "Linux VM",
+                    "selected_catalog_node": "Compute",
+                    "selected_catalog_type": "cloudchef.nodes.Compute",
+                    "selected_catalog_os_type": "Linux",
+                },
+            },
+        )
+
+        assert "workflow_context" not in output
+        assert "Use request node exactly as:" not in output
+        assert "Use request type exactly as:" not in output
+        assert "cloudchef.nodes.Compute` -> `Compute" not in output
+
     def test_description_truncation(self):
         """描述超过 desc_max_chars 时截断"""
         b = self._builder(md_skills_desc_max_chars=200)

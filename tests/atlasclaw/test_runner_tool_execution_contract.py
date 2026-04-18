@@ -16,6 +16,7 @@ from app.atlasclaw.agent.runner_tool.runner_execution_flow_stream import RunnerE
 from app.atlasclaw.agent.runner_tool.runner_execution_payload import (
     RunnerExecutionPayloadMixin,
     build_finalize_payload,
+    build_tool_failure_fallback_payload,
 )
 from app.atlasclaw.agent.runner_tool.runner_execution_retry import RunnerExecutionRetryMixin
 from app.atlasclaw.agent.runner_tool.runner_tool_messages import (
@@ -58,6 +59,20 @@ class _SessionManager:
     async def persist_transcript(self, session_key, messages):
         self.persisted_messages = list(messages)
         return None
+
+
+def test_build_tool_failure_fallback_payload_forbids_fake_submit_claims() -> None:
+    payload = build_tool_failure_fallback_payload(
+        user_message="申请 Linux VM",
+        tool_results=[],
+        attempted_tools=[
+            {"name": "smartcmp_list_components", "args": {"source_key": "resource.iaas.machine.instance.abstract"}},
+        ],
+        failure_reasons=["Repeated tool execution for smartcmp_list_components did not add new evidence."],
+    )
+
+    assert "If smartcmp_submit_request is not listed under Attempted tools" in payload["system_prompt"]
+    assert "The workflow stopped during component lookup before request submission." in payload["user_prompt"]
 
 
 class _PostRunner(
@@ -1450,6 +1465,50 @@ def test_should_finalize_from_embedded_tool_results_when_tool_is_tool_only_ok() 
     )
 
     assert should_finalize is True
+
+
+def test_should_not_finalize_from_tool_results_for_silent_backend_lookup() -> None:
+    runner = _StreamRunnerWithEvidence()
+
+    should_finalize = runner._should_finalize_from_tool_results(
+        messages=[
+            {"role": "user", "content": "申请 2c4g Linux 虚拟机"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "tc-1",
+                        "name": "smartcmp_list_components",
+                        "args": {"source_key": "resource.iaas.machine.instance.abstract"},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_name": "smartcmp_list_components",
+                "content": {
+                    "output": "[INFO] Component metadata loaded.",
+                    "_internal": {"typeName": "cloudchef.nodes.Compute", "osType": "Linux"},
+                },
+            },
+        ],
+        start_index=1,
+        planned_tool_names=["smartcmp_list_components"],
+        available_tools=[
+            {
+                "name": "smartcmp_list_components",
+                "capability_class": "provider:smartcmp",
+                "description": (
+                    "Silent backend lookup for request workflow. "
+                    "Never narrate this lookup or display its output or metadata to the user."
+                ),
+                "result_mode": "tool_only_ok",
+            }
+        ],
+    )
+
+    assert should_finalize is False
 
 
 def test_should_not_finalize_from_single_terminal_no_results_tool_payload() -> None:

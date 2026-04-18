@@ -194,6 +194,7 @@ class HistoryMemoryCoordinator:
     def to_model_message_history(self, messages: list[dict]) -> list[Any]:
         """Convert normalized transcript messages into PydanticAI model messages."""
         model_messages: list[Any] = []
+        pending_tool_calls: list[dict[str, Any]] = []
         for message in messages:
             role = str(message.get("role", "")).strip().lower()
             content = message.get("content", "")
@@ -228,11 +229,18 @@ class HistoryMemoryCoordinator:
                         )
                     else:
                         response_parts.append(ToolCallPart(tool_name, tool_args))
+                    pending_tool_calls.append(normalized)
                 if response_parts:
                     model_messages.append(ModelResponse(parts=response_parts))
                 continue
 
             if role == "tool":
+                synthetic_parts = self._build_synthetic_tool_call_parts_for_orphan_returns(
+                    message=message,
+                    pending_tool_calls=pending_tool_calls,
+                )
+                if synthetic_parts:
+                    model_messages.append(ModelResponse(parts=synthetic_parts))
                 request_parts = self._build_tool_return_parts(message)
                 if request_parts:
                     model_messages.append(ModelRequest(parts=request_parts))
@@ -277,7 +285,10 @@ class HistoryMemoryCoordinator:
         """Convert persisted tool transcript messages into structured ToolReturnPart values."""
         tool_name = str(message.get("tool_name", "") or message.get("name", "")).strip()
         tool_call_id = str(message.get("tool_call_id", "") or message.get("id", "")).strip()
-        content = message.get("content", "")
+        content = self._normalize_tool_content_for_model(
+            tool_name=tool_name,
+            content=message.get("content", ""),
+        )
 
         parts: list[ToolReturnPart] = []
         if tool_name:
@@ -295,12 +306,107 @@ class HistoryMemoryCoordinator:
             result_call_id = str(
                 result.get("tool_call_id", result.get("toolCallId", result.get("id", ""))) or ""
             ).strip()
-            result_content = result.get("content", "")
+            result_content = self._normalize_tool_content_for_model(
+                tool_name=result_tool_name,
+                content=result.get("content", ""),
+            )
             if result_call_id:
                 parts.append(ToolReturnPart(result_tool_name, result_content, tool_call_id=result_call_id))
             else:
                 parts.append(ToolReturnPart(result_tool_name, result_content))
         return parts
+
+    def _build_synthetic_tool_call_parts_for_orphan_returns(
+        self,
+        *,
+        message: dict[str, Any],
+        pending_tool_calls: list[dict[str, Any]],
+    ) -> list[ToolCallPart]:
+        """Insert synthetic tool-call parts when persisted history lost the assistant call row."""
+        parts: list[ToolCallPart] = []
+        for tool_name, tool_call_id in self._extract_tool_return_identities(message):
+            if self._consume_pending_model_tool_call(
+                pending_tool_calls=pending_tool_calls,
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+            ):
+                continue
+            if not tool_name:
+                continue
+            if tool_call_id:
+                parts.append(ToolCallPart(tool_name, {}, tool_call_id=tool_call_id))
+            else:
+                parts.append(ToolCallPart(tool_name, {}))
+        return parts
+
+    @staticmethod
+    def _extract_tool_return_identities(message: dict[str, Any]) -> list[tuple[str, str]]:
+        """Collect tool return identities from one persisted transcript message."""
+        identities: list[tuple[str, str]] = []
+        tool_name = str(message.get("tool_name", "") or message.get("name", "")).strip()
+        tool_call_id = str(message.get("tool_call_id", "") or message.get("id", "")).strip()
+        if tool_name or tool_call_id:
+            identities.append((tool_name, tool_call_id))
+
+        for result in message.get("tool_results", []) or []:
+            if not isinstance(result, dict):
+                continue
+            result_tool_name = str(result.get("tool_name", "") or result.get("name", "")).strip()
+            result_call_id = str(
+                result.get("tool_call_id", result.get("toolCallId", result.get("id", ""))) or ""
+            ).strip()
+            if result_tool_name or result_call_id:
+                identities.append((result_tool_name, result_call_id))
+        return identities
+
+    @staticmethod
+    def _consume_pending_model_tool_call(
+        *,
+        pending_tool_calls: list[dict[str, Any]],
+        tool_name: str,
+        tool_call_id: str,
+    ) -> bool:
+        """Consume a previously seen assistant tool call when a matching tool return arrives."""
+        if not pending_tool_calls:
+            return False
+        if tool_call_id:
+            for index, pending in enumerate(pending_tool_calls):
+                pending_id = str(pending.get("id", "") or "").strip()
+                if pending_id and pending_id == tool_call_id:
+                    pending_tool_calls.pop(index)
+                    return True
+        if tool_name:
+            for index, pending in enumerate(pending_tool_calls):
+                pending_name = str(pending.get("name", "") or "").strip()
+                if pending_name == tool_name:
+                    pending_tool_calls.pop(index)
+                    return True
+        return False
+
+    @staticmethod
+    def _normalize_tool_content_for_model(*, tool_name: str, content: Any) -> Any:
+        """Wrap provider tool payloads so the model treats internal metadata as hidden state."""
+        del tool_name
+        if not isinstance(content, dict):
+            return content
+
+        output_text = str(content.get("output", "") or "").strip()
+        internal_text = str(content.get("_internal", "") or "").strip()
+
+        if not internal_text:
+            return content
+
+        lines: list[str] = []
+        if output_text:
+            lines.append(output_text)
+        lines.extend(
+            [
+                "The metadata below is reserved for workflow continuation only.",
+                "Do not expose raw internal metadata to the user.",
+                f"WORKFLOW_METADATA_FOR_TOOL_USE_ONLY: {internal_text}",
+            ]
+        )
+        return "\n".join(lines)
 
     def _infer_tool_message_identity(
         self,

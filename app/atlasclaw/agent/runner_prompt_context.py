@@ -7,6 +7,12 @@ import inspect
 import json
 from typing import Any, Optional
 
+from app.atlasclaw.agent.runner_tool.runner_tool_result_mode import (
+    is_silent_backend_tool,
+    normalize_tool_description,
+    normalize_tool_result_mode,
+)
+
 
 def build_system_prompt(
     prompt_builder,
@@ -360,8 +366,22 @@ def collect_tools_snapshot(*, agent: Any, deps=None) -> list[dict]:
         normalized_name = str(name or "").strip()
         if not normalized_name or normalized_name in seen_names:
             return
-        normalized_description = str(description or "").strip()
         indexed_meta = skill_meta_index.get(normalized_name, {})
+        silent_backend = is_silent_backend_tool(
+            {
+                "description": description,
+                "result_mode": result_mode if result_mode is not None else indexed_meta.get("result_mode", ""),
+                "routing_visibility": (
+                    routing_visibility
+                    if routing_visibility is not None
+                    else indexed_meta.get("routing_visibility", indexed_meta.get("planner_visibility", ""))
+                ),
+            }
+        )
+        normalized_description = normalize_tool_description(
+            description=description,
+            silent_backend=silent_backend,
+        )
         normalized_provider_type = _normalize_optional_text(
             provider_type,
             indexed_meta.get("provider_type", ""),
@@ -442,6 +462,14 @@ def collect_tools_snapshot(*, agent: Any, deps=None) -> list[dict]:
         normalized_result_mode = _normalize_optional_text(
             result_mode if result_mode is not None else indexed_meta.get("result_mode", ""),
         )
+        if silent_backend:
+            normalized_result_mode = normalize_tool_result_mode(
+                {
+                    "description": normalized_description,
+                    "result_mode": normalized_result_mode,
+                    "routing_visibility": normalized_routing_visibility,
+                }
+            )
         if normalized_result_mode:
             tool_record["result_mode"] = normalized_result_mode
         if bool(live_data if live_data is not None else indexed_meta.get("live_data", False)):
@@ -810,13 +838,22 @@ def _infer_capability_class(
     provider_type: str,
     category: str,
 ) -> str:
+    lowered_name = (name or "").strip().lower()
     lowered_description = (description or "").strip().lower()
     lowered_category = (category or "").strip().lower()
     lowered_provider = (provider_type or "").strip().lower()
 
     if lowered_provider and lowered_provider != "none":
         return f"provider:{lowered_provider}"
-    if "jira" in lowered_description:
+    if lowered_name == "web_search":
+        return "web_search"
+    if lowered_name == "web_fetch":
+        return "web_fetch"
+    if "weather" in lowered_name or "openmeteo" in lowered_name:
+        return "weather"
+    if "weather" in lowered_description or "forecast" in lowered_description:
+        return "weather"
+    if "jira" in lowered_name or "jira" in lowered_description:
         return "provider:jira"
     if "provider:" in lowered_description or lowered_category.startswith("provider"):
         return "provider:generic"
@@ -851,7 +888,13 @@ def _normalize_snapshot_tool(item: dict[str, Any]) -> dict[str, Any]:
     keywords = _normalize_string_list(item.get("keywords", []))
     use_when = _normalize_string_list(item.get("use_when", []))
     avoid_when = _normalize_string_list(item.get("avoid_when", []))
-    result_mode = _normalize_optional_text(item.get("result_mode", ""))
+    silent_backend = is_silent_backend_tool(item)
+    if silent_backend:
+        normalized["description"] = normalize_tool_description(
+            description=normalized["description"],
+            silent_backend=True,
+        )
+    result_mode = normalize_tool_result_mode(item) if silent_backend else _normalize_optional_text(item.get("result_mode", ""))
     live_data = bool(item.get("live_data", False))
     browser_interaction = bool(item.get("browser_interaction", False))
     public_web = bool(item.get("public_web", False))
@@ -862,6 +905,13 @@ def _normalize_snapshot_tool(item: dict[str, Any]) -> dict[str, Any]:
         normalized["category"] = category
     if source:
         normalized["source"] = source
+    if not capability_class:
+        capability_class = _infer_capability_class(
+            name=normalized["name"],
+            description=normalized["description"],
+            provider_type=provider_type,
+            category=category,
+        )
     if capability_class:
         normalized["capability_class"] = capability_class
     if skill_name:

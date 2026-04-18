@@ -94,6 +94,12 @@ def create_script_wrapper(
     async def script_handler(ctx=None, **kwargs) -> dict:
         import os
 
+        runtime_kwargs = _normalize_runtime_kwargs(
+            py_file=py_file,
+            provider_type=provider_type,
+            ctx=ctx,
+            kwargs=kwargs,
+        )
         env = os.environ.copy()
         env.setdefault("PYTHONIOENCODING", "utf-8")
         env.setdefault("PYTHONUTF8", "1")
@@ -169,7 +175,7 @@ def create_script_wrapper(
                                     env[key.upper()] = str(value)
                             break
 
-        for key, value in kwargs.items():
+        for key, value in runtime_kwargs.items():
             if value is not None:
                 env[key.upper()] = str(value)
 
@@ -182,7 +188,7 @@ def create_script_wrapper(
         else:
             cmd = [str(py_file)]
 
-        cmd.extend(_build_script_command_arguments(kwargs=kwargs, config=config))
+        cmd.extend(_build_script_command_arguments(kwargs=runtime_kwargs, config=config))
 
         try:
             result = subprocess.run(
@@ -196,19 +202,137 @@ def create_script_wrapper(
                 cwd=str(py_file.parent),
             )
             output = result.stdout
+            _internal_meta = ""
             if result.stderr:
-                output += f"\n[STDERR] {result.stderr}"
-            return {
+                # Separate META blocks from error messages in stderr.
+                # META blocks (##xxx_META_START## ... ##xxx_META_END##) are
+                # placed in a separate "_internal" field so the LLM can
+                # read them for subsequent tool calls without displaying
+                # raw data to users (avoids <tool_meta> tag echoing).
+                import re as _re
+                _meta_blocks: list[str] = []
+                _other_stderr: list[str] = []
+                _in_meta = False
+                _meta_buf: list[str] = []
+                for _line in result.stderr.splitlines():
+                    if _re.match(r"^##\w+_META_START##$", _line.strip()):
+                        _in_meta = True
+                        _meta_buf = []
+                        continue
+                    if _re.match(r"^##\w+_META_END##$", _line.strip()):
+                        _in_meta = False
+                        if _meta_buf:
+                            _meta_blocks.append("\n".join(_meta_buf))
+                        continue
+                    if _in_meta:
+                        _meta_buf.append(_line)
+                    else:
+                        _other_stderr.append(_line)
+
+                if _meta_blocks:
+                    _internal_meta = "\n".join(_meta_blocks)
+                if _other_stderr:
+                    output += f"\n[STDERR] {''.join(_other_stderr)}"
+            result_dict = {
                 "success": result.returncode == 0,
                 "returncode": result.returncode,
                 "output": output,
             }
+            if _internal_meta:
+                result_dict["_internal"] = _internal_meta
+            result_dict = _normalize_script_result(
+                py_file=py_file,
+                provider_type=provider_type,
+                result=result_dict,
+            )
+            return result_dict
         except subprocess.TimeoutExpired:
             return {"success": False, "error": "Script execution timed out"}
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
     return script_handler
+
+
+def _normalize_runtime_kwargs(
+    *,
+    py_file: Path,
+    provider_type: Optional[str],
+    ctx: Any,
+    kwargs: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply per-provider runtime argument normalization before script execution."""
+    normalized = dict(kwargs)
+    if provider_type != "smartcmp" or py_file.stem != "submit":
+        return normalized
+
+    json_body = normalized.get("json_body")
+    if not isinstance(json_body, dict):
+        return normalized
+    if json_body.get("userId") or json_body.get("userLoginId"):
+        return normalized
+
+    enriched_body = dict(json_body)
+    deps = getattr(ctx, "deps", None)
+    cookies = getattr(deps, "cookies", None)
+    if isinstance(cookies, dict):
+        cookie_user_id = str(cookies.get("userId", "") or "").strip()
+        if cookie_user_id and not enriched_body.get("userId"):
+            enriched_body["userId"] = cookie_user_id
+
+        cookie_login_id = str(cookies.get("userLoginId", "") or "").strip()
+        if cookie_login_id and not enriched_body.get("userLoginId"):
+            enriched_body["userLoginId"] = cookie_login_id
+
+    user_info = getattr(deps, "user_info", None)
+    fallback_login_id = str(getattr(user_info, "user_id", "") or "").strip()
+    if fallback_login_id and not enriched_body.get("userLoginId"):
+        enriched_body["userLoginId"] = fallback_login_id
+
+    normalized["json_body"] = enriched_body
+    return normalized
+
+
+def _normalize_script_result(
+    *,
+    py_file: Path,
+    provider_type: Optional[str],
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Clean provider script output so the model sees concise workflow-relevant text."""
+    normalized = dict(result)
+    output = normalized.get("output")
+    if provider_type != "smartcmp" or not isinstance(output, str):
+        return normalized
+
+    tool_name = py_file.stem.lower()
+    text = output.replace("\r\n", "\n")
+
+    if tool_name == "list_components":
+        normalized["output"] = ""
+        return normalized
+
+    if tool_name == "list_os_templates":
+        lines = text.splitlines()
+        cleaned: list[str] = []
+        skipping_separator = False
+        for line in lines:
+            stripped = line.strip()
+            lowered = stripped.lower()
+            if lowered.startswith("os templates") and "resourcebundleid=" in lowered:
+                skipping_separator = True
+                continue
+            if skipping_separator and stripped and set(stripped) == {"="}:
+                skipping_separator = False
+                continue
+            skipping_separator = False
+            cleaned.append(line)
+        text = "\n".join(cleaned).strip()
+        normalized["output"] = f"{text}\n" if text else ""
+        return normalized
+
+    normalized["output"] = text
+    return normalized
 
 
 def register_executable_tools_from_md(
@@ -562,12 +686,18 @@ def _resolve_cli_flag_name(name: str, config: ScriptInvocationConfig) -> str:
     override = str(config.flag_name_overrides.get(name, "") or "").strip()
     if override:
         return override
+    if name == "json_body":
+        # Some provider skills historically instructed the model to emit
+        # `json_body`, while their scripts only accept `--json`.
+        return "--json"
     return f"--{name.replace('_', '-')}"
 
 
 def _serialize_cli_value(*, value: Any, split: bool) -> list[str]:
     if value is None:
         return []
+    if isinstance(value, dict):
+        return [json.dumps(value, ensure_ascii=False)]
     if isinstance(value, (list, tuple, set)):
         serialized: list[str] = []
         for item in value:
