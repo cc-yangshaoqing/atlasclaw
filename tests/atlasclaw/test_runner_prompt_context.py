@@ -734,7 +734,7 @@ def test_resolve_selected_md_skill_target_loads_only_matching_skill_body(tmp_pat
     assert "# PPTX Skill" in target["content"]
 
 
-def test_enrich_target_md_skill_with_workflow_context_is_noop() -> None:
+def test_enrich_target_md_skill_with_workflow_context_attaches_structured_context() -> None:
     enriched = enrich_target_md_skill_with_workflow_context(
         target_md_skill={
             "provider": "smartcmp",
@@ -743,21 +743,61 @@ def test_enrich_target_md_skill_with_workflow_context_is_noop() -> None:
             "content": "# request",
         },
         workflow_trace={
-            "selected_catalog_name": "Linux VM",
-            "selected_catalog_id": "BUILD-IN-CATALOG-LINUX-VM",
-            "selected_catalog_type": "cloudchef.nodes.Compute",
-            "selected_catalog_node": "Compute",
-            "selected_catalog_os_type": "Linux",
+            "recent_tool_metadata": [
+                {
+                    "tool_name": "smartcmp_list_services",
+                    "metadata": [
+                        {
+                            "index": 1,
+                            "id": "BUILD-IN-CATALOG-LINUX-VM",
+                            "name": "Linux VM",
+                        }
+                    ],
+                }
+            ]
         },
     )
 
     assert isinstance(enriched, dict)
-    assert enriched == {
-        "provider": "smartcmp",
-        "qualified_name": "smartcmp:request",
-        "file_path": "/skills/request/SKILL.md",
-        "content": "# request",
+    assert enriched["provider"] == "smartcmp"
+    assert enriched["qualified_name"] == "smartcmp:request"
+    assert enriched["workflow_context"] == {
+        "recent_tool_metadata": [
+            {
+                "tool_name": "smartcmp_list_services",
+                "metadata": [
+                    {
+                        "index": 1,
+                        "id": "BUILD-IN-CATALOG-LINUX-VM",
+                        "name": "Linux VM",
+                    }
+                ],
+            }
+        ]
     }
+
+
+def test_build_target_md_skill_renders_current_workflow_context_block() -> None:
+    rendered = prompt_sections.build_target_md_skill(
+        {
+            "provider": "smartcmp",
+            "qualified_name": "smartcmp:request",
+            "file_path": "/skills/request/SKILL.md",
+            "content": "# request",
+            "workflow_context": {
+                "recent_tool_metadata": [
+                    {
+                        "tool_name": "smartcmp_list_services",
+                        "metadata": [{"index": 1, "name": "Linux VM"}],
+                    }
+                ]
+            },
+        }
+    )
+
+    assert "### Current Workflow Context" in rendered
+    assert '"tool_name": "smartcmp_list_services"' in rendered
+    assert '"name": "Linux VM"' in rendered
 
 
 def test_should_resolve_target_md_skill_for_llm_first_skill_hint_plan() -> None:

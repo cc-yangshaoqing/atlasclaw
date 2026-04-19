@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 import logging
 from pathlib import Path
@@ -391,11 +392,79 @@ def enrich_target_md_skill_with_workflow_context(
     target_md_skill: Optional[dict[str, Any]],
     workflow_trace: Optional[dict[str, Any]],
 ) -> Optional[dict[str, Any]]:
-    """Backward-compatible no-op wrapper; runtime workflow context is not injected here."""
-    del workflow_trace
+    """Attach current-turn workflow context to the selected markdown skill prompt."""
     if not isinstance(target_md_skill, dict):
         return target_md_skill
-    return dict(target_md_skill)
+    enriched = dict(target_md_skill)
+    if isinstance(workflow_trace, dict) and workflow_trace:
+        enriched["workflow_context"] = dict(workflow_trace)
+    return enriched
+
+
+def _parse_target_md_skill_workflow_metadata(value: Any) -> Any:
+    """Normalize runtime-only metadata into a compact prompt-safe structure."""
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return text
+    return str(value)
+
+
+def build_target_md_skill_workflow_context(
+    *,
+    recent_history: list[dict[str, Any]],
+    max_entries: int = 6,
+    max_chars: int = 12000,
+) -> Optional[dict[str, Any]]:
+    """Collect recent tool metadata for the current selected markdown skill only."""
+    if not isinstance(recent_history, list) or not recent_history:
+        return None
+
+    safe_max_entries = max(1, int(max_entries or 0))
+    safe_max_chars = max(512, int(max_chars or 0))
+    recent_tool_metadata: list[dict[str, Any]] = []
+    current_size = 0
+
+    for message in reversed(recent_history):
+        if not isinstance(message, dict):
+            continue
+        if str(message.get("role", "") or "").strip().lower() != "tool":
+            continue
+        content = message.get("content")
+        if not isinstance(content, dict):
+            continue
+        if "_internal" not in content:
+            continue
+
+        metadata = _parse_target_md_skill_workflow_metadata(content.get("_internal"))
+        if metadata is None:
+            continue
+
+        entry = {
+            "tool_name": str(message.get("tool_name", "") or message.get("name", "")).strip(),
+            "metadata": metadata,
+        }
+        serialized_entry = json.dumps(entry, ensure_ascii=False, separators=(",", ":"))
+        if recent_tool_metadata and current_size + len(serialized_entry) > safe_max_chars:
+            break
+        recent_tool_metadata.append(entry)
+        current_size += len(serialized_entry)
+        if len(recent_tool_metadata) >= safe_max_entries:
+            break
+
+    if not recent_tool_metadata:
+        return None
+
+    recent_tool_metadata.reverse()
+    return {"recent_tool_metadata": recent_tool_metadata}
 
 
 def build_retry_tool_intent_plan(
@@ -1076,6 +1145,13 @@ class RunnerExecutionPreparePhaseMixin:
                         or 262144
                     ),
                 )
+            target_md_skill_workflow_context = build_target_md_skill_workflow_context(
+                recent_history=recent_history,
+            )
+            target_md_skill = enrich_target_md_skill_with_workflow_context(
+                target_md_skill=target_md_skill,
+                workflow_trace=target_md_skill_workflow_context,
+            )
             if isinstance(deps.extra, dict):
                 if isinstance(target_md_skill, dict):
                     deps.extra["target_md_skill"] = dict(target_md_skill)
@@ -1092,6 +1168,15 @@ class RunnerExecutionPreparePhaseMixin:
                 loaded_content=bool(
                     isinstance(target_md_skill, dict)
                     and str(target_md_skill.get("content", "") or "").strip()
+                ),
+                workflow_context_entries=len(
+                    (
+                        target_md_skill.get("workflow_context", {}).get(
+                            "recent_tool_metadata", []
+                        )
+                        if isinstance(target_md_skill, dict)
+                        else []
+                    )
                 ),
             )
             tool_match_result = CapabilityMatcher(available_tools=available_tools).match(

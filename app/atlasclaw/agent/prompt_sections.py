@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import platform
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ def build_target_md_skill(target_md_skill: dict[str, Any]) -> str:
     qualified_name = target_md_skill.get("qualified_name", "")
     file_path = target_md_skill.get("file_path", "")
     provider = target_md_skill.get("provider", "")
+    workflow_context = target_md_skill.get("workflow_context")
     loaded_body = sanitize_workflow_only_text(
         target_md_skill.get("content", ""),
         collapse_whitespace=False,
@@ -44,6 +46,26 @@ def build_target_md_skill(target_md_skill: dict[str, Any]) -> str:
         "user-facing question or confirmation after the lookup."
     )
     lines.append("Do not announce intermediate tool calls or expose their internal metadata.")
+    if workflow_context:
+        try:
+            serialized_context = json.dumps(workflow_context, ensure_ascii=False, indent=2)
+        except (TypeError, ValueError):
+            serialized_context = str(workflow_context)
+        lines.extend(
+            [
+                "",
+                "### Current Workflow Context",
+                "",
+                "Use the structured metadata below only for the currently selected skill in "
+                "this turn.",
+                "Interpret earlier numbered user selections against this context.",
+                "Do not quote or dump this raw metadata to the user.",
+                "",
+                "```json",
+                serialized_context,
+                "```",
+            ]
+        )
     if loaded_body:
         lines.extend(
             [
