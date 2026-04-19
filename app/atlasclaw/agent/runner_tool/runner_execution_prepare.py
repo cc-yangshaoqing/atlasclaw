@@ -682,6 +682,7 @@ class RunnerExecutionPreparePhaseMixin:
         session_message_history = state.get("session_message_history")
         runtime_base_history_len = state.get("runtime_base_history_len")
         persist_run_output_start_index = state.get("persist_run_output_start_index")
+        prompt_mode = state.get("prompt_mode") or ""
         try:
             if _emit_lifecycle_bounds:
                 yield StreamEvent.lifecycle_start()
@@ -1146,7 +1147,7 @@ class RunnerExecutionPreparePhaseMixin:
                     ),
                 )
             target_md_skill_workflow_context = build_target_md_skill_workflow_context(
-                recent_history=recent_history,
+                recent_history=message_history,
             )
             target_md_skill = enrich_target_md_skill_with_workflow_context(
                 target_md_skill=target_md_skill,

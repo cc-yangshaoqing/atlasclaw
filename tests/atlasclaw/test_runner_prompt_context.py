@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # Copyright 2021  Qianyun, Inc. All rights reserved.
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ from app.atlasclaw.agent.runner_prompt_context import (
     collect_tools_snapshot,
 )
 from app.atlasclaw.agent.runner_tool.runner_execution_prepare import (
+    build_target_md_skill_workflow_context,
     build_explicit_tool_execution_prompt,
     enrich_target_md_skill_with_workflow_context,
     resolve_selected_md_skill_target,
@@ -295,7 +296,7 @@ def test_collect_tools_snapshot_preserves_runtime_tool_metadata_fields() -> None
                 "capability_class": "weather",
                 "routing_visibility": "contextual",
                 "aliases": ["weather", "forecast"],
-                "keywords": ["天气", "预报", "temperature"],
+                "keywords": ["澶╂皵", "棰勬姤", "temperature"],
                 "use_when": ["User asks for a forecast by place and date"],
                 "avoid_when": ["User asks for enterprise approvals"],
                 "result_mode": "tool_only_ok",
@@ -315,7 +316,7 @@ def test_collect_tools_snapshot_preserves_runtime_tool_metadata_fields() -> None
             "capability_class": "weather",
             "routing_visibility": "contextual",
             "aliases": ["weather", "forecast"],
-            "keywords": ["天气", "预报", "temperature"],
+            "keywords": ["澶╂皵", "棰勬姤", "temperature"],
             "use_when": ["User asks for a forecast by place and date"],
             "avoid_when": ["User asks for enterprise approvals"],
             "result_mode": "tool_only_ok",
@@ -762,6 +763,37 @@ def test_enrich_target_md_skill_with_workflow_context_attaches_structured_contex
     assert enriched["provider"] == "smartcmp"
     assert enriched["qualified_name"] == "smartcmp:request"
     assert enriched["workflow_context"] == {
+        "recent_tool_metadata": [
+            {
+                "tool_name": "smartcmp_list_services",
+                "metadata": [
+                    {
+                        "index": 1,
+                        "id": "BUILD-IN-CATALOG-LINUX-VM",
+                        "name": "Linux VM",
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def test_build_target_md_skill_workflow_context_collects_recent_tool_internal_metadata() -> None:
+    context = build_target_md_skill_workflow_context(
+        recent_history=[
+            {"role": "user", "content": "request cloud resource"},
+            {
+                "role": "tool",
+                "tool_name": "smartcmp_list_services",
+                "content": {
+                    "output": "Found 1 published catalog(s)",
+                    "_internal": '[{"index":1,"id":"BUILD-IN-CATALOG-LINUX-VM","name":"Linux VM"}]',
+                },
+            },
+        ]
+    )
+
+    assert context == {
         "recent_tool_metadata": [
             {
                 "tool_name": "smartcmp_list_services",
