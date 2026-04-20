@@ -877,8 +877,9 @@ class TestSmartCMPAgentInteraction:
                 )
 
             # Response should list services or indicate catalog data
-            service_keywords = ["服务", "service", "目录", "catalog", "申请", "VM", "虚拟机"]
-            has_service_content = any(kw in full_text for kw in service_keywords)
+            normalized_text = full_text.lower()
+            service_keywords = ["服务", "service", "目录", "catalog", "申请", "vm", "虚拟机"]
+            has_service_content = any(kw in normalized_text for kw in service_keywords)
             assert has_service_content, (
                 f"Response doesn't mention services: {full_text[:300]}"
             )

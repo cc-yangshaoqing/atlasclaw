@@ -96,9 +96,28 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.state.user_info = ANONYMOUS_USER
             return await call_next(request)
 
-        # CMP mode: extract user identity from CMP cookies (no API call)
-        # Must run BEFORE _SSO_PATHS skip so /api/auth/me gets CMP user info
+        # CMP mode: support both local AtlasClaw admin JWT sessions and CMP cookie auth.
+        # AtlasClaw JWT is checked first so backend management login remains available.
         if provider_name == "cmp":
+            atlas_token = self._extract_atlas_token(request)
+            if atlas_token:
+                try:
+                    payload = verify_atlas_token(
+                        token=atlas_token,
+                        secret_key=self._atlas_secret,
+                        issuer=self._atlas_issuer,
+                    )
+                except AuthenticationError as exc:
+                    logger.debug("Atlas token verification failed in cmp mode: %s", exc)
+                    return self._auth_failed_response(request)
+
+                request.state.user_info = self._build_user_info_from_payload(payload, atlas_token)
+                return await call_next(request)
+
+            if request.url.path in _SSO_PATHS:
+                request.state.user_info = ANONYMOUS_USER
+                return await call_next(request)
+
             from app.atlasclaw.auth.providers.cmp import CMPAuthProvider
             cookies = dict(request.cookies)
             logger.warning("CMP DEBUG: path=%s cookies=%s", request.url.path, list(cookies.keys()))
@@ -120,10 +139,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return await call_next(request)
             except AuthenticationError as exc:
                 logger.warning("CMP cookie auth FAILED (AuthenticationError): %s", exc)
-                return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+                return self._auth_failed_response(request)
             except Exception as exc:
                 logger.warning("CMP cookie auth FAILED (unexpected): %s %s", type(exc).__name__, exc)
-                return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+                return self._auth_failed_response(request)
 
         # SSO paths: skip auth for non-CMP providers (login, callback, etc.)
         if request.url.path in _SSO_PATHS:

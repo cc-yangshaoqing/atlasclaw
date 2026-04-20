@@ -64,6 +64,15 @@ def get_auth_config_or_400(request: Request, providers: tuple[str, ...]):
     return auth_config
 
 
+def _local_login_enabled_for_auth_config(auth_config) -> bool:
+    provider_name = str(getattr(auth_config, "provider", "") or "").strip().lower()
+    if provider_name == "local":
+        return bool(getattr(auth_config.local, "enabled", False))
+    if provider_name == "cmp":
+        return bool(getattr(auth_config.local, "enabled", False))
+    return False
+
+
 def build_sso_provider(auth_config):
     import logging
     _logger = logging.getLogger(__name__)
@@ -110,7 +119,12 @@ async def perform_local_login(request: Request, body: LocalLoginRequest) -> Resp
     from ...auth.providers.local import LocalAuthProvider
     from ...core.workspace import UserWorkspaceInitializer
 
-    auth_config = get_auth_config_or_400(request, ("local",))
+    auth_config = get_auth_config_or_400(request, ("local", "cmp"))
+    if not _local_login_enabled_for_auth_config(auth_config):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Local authentication is not enabled",
+        )
     jwt_cfg = auth_config.jwt.expanded()
 
     provider = LocalAuthProvider()
@@ -478,8 +492,15 @@ async def get_current_user_payload(request: Request) -> dict[str, Any]:
             "provider": "none",
         }
 
-    # CMP mode: user identity already resolved by middleware from cookies
-    if auth_config.provider == "cmp":
+    jwt_cfg = auth_config.jwt.expanded()
+    token = extract_atlas_token_from_request(
+        request,
+        jwt_cfg.header_name,
+        jwt_cfg.cookie_name,
+    )
+
+    # CMP mode without AtlasClaw local JWT: user identity already resolved by middleware from cookies
+    if auth_config.provider == "cmp" and not token:
         user_info = getattr(request.state, "user_info", None)
         if user_info and user_info.user_id != "anonymous":
             return {
@@ -493,13 +514,6 @@ async def get_current_user_payload(request: Request) -> dict[str, Any]:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
         )
-
-    jwt_cfg = auth_config.jwt.expanded()
-    token = extract_atlas_token_from_request(
-        request,
-        jwt_cfg.header_name,
-        jwt_cfg.cookie_name,
-    )
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

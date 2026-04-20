@@ -70,6 +70,11 @@ from app.atlasclaw.auth.guards import (
 )
 from app.atlasclaw.auth.models import UserInfo
 from app.atlasclaw.api.service_provider_schemas import normalize_provider_config
+from app.atlasclaw.bootstrap.startup_helpers import (
+    build_provider_instances_from_db,
+    merge_provider_instances,
+)
+from .deps_context import get_api_context
 from .services.auth_service import load_profile_snapshot
 from .model_config_routes import router as model_config_router
 from .provider_info_routes import router as provider_info_router
@@ -303,6 +308,37 @@ def _default_user_setting_document() -> dict[str, object]:
         "providers": {},
         "preferences": {},
     }
+
+
+async def _refresh_provider_instances_in_api_context(session: AsyncSession) -> None:
+    """Refresh in-memory provider instances after config CRUD operations."""
+    ctx = get_api_context()
+    config_provider_instances: dict[str, dict[str, dict[str, object]]] = {
+        provider_type: {
+            instance_name: dict(instance_config)
+            for instance_name, instance_config in instances.items()
+            if isinstance(instance_config, dict)
+        }
+        for provider_type, instances in (get_config().service_providers or {}).items()
+        if isinstance(instances, dict)
+    }
+    db_provider_instances = await build_provider_instances_from_db(session)
+    merged_provider_instances = merge_provider_instances(
+        db_provider_instances,
+        config_provider_instances,
+    ) if db_provider_instances else config_provider_instances
+
+    if ctx.service_provider_registry is not None:
+        ctx.service_provider_registry.load_instances_from_config(merged_provider_instances)
+        ctx.provider_instances = ctx.service_provider_registry.get_all_instance_configs()
+        ctx.available_providers = ctx.service_provider_registry.get_available_providers_summary()
+    else:
+        ctx.provider_instances = merged_provider_instances
+        ctx.available_providers = {
+            provider_type: sorted(instances.keys())
+            for provider_type, instances in merged_provider_instances.items()
+            if isinstance(instances, dict)
+        }
 
 
 def _get_user_setting_path(workspace_path: str, user_id: str) -> Path:
@@ -599,6 +635,7 @@ async def create_provider_config(
 
     provider_data = provider_data.model_copy(update={"config": normalized_config})
     item = await ServiceProviderConfigService.create(session, provider_data)
+    await _refresh_provider_instances_in_api_context(session)
     return _provider_config_to_response(item)
 
 
@@ -702,6 +739,7 @@ async def update_provider_config(
     item = await ServiceProviderConfigService.update(session, config_id, provider_data)
     if item is None:
         raise HTTPException(status_code=404, detail="Provider config not found")
+    await _refresh_provider_instances_in_api_context(session)
     return _provider_config_to_response(item)
 
 
@@ -720,6 +758,7 @@ async def delete_provider_config(
     deleted = await ServiceProviderConfigService.delete(session, config_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Provider config not found")
+    await _refresh_provider_instances_in_api_context(session)
 
 
 # ============== User Routes ==============

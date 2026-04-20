@@ -497,7 +497,12 @@ Constructor: `strategy: AuthStrategy`, `anonymous_fallback: bool = False`, `oidc
 2. `AtlasClaw-Authenticate` header
 3. Cookie-based tokens (configurable via `jwt.cookie_name`)
 
-**Skip Paths** (no auth required): `/health`, `/ping`, `/favicon.ico`, `/docs`, `/openapi.json`, `/static/`, `/styles/`, `/scripts/`, `/locales/`, `/config.json`, `/index.html`, `/login.html`, `/api/auth/login`, `/api/auth/local/login`, `/api/auth/callback`, `/api/auth/logout`, `/api/auth/me`
+**Skip Paths** (no auth required): `/health`, `/ping`, `/favicon.ico`, `/docs`, `/openapi.json`, `/static/`, `/styles/`, `/scripts/`, `/locales/`, `/config.json`, `/index.html`, `/login.html`
+
+**Auth Route Notes**:
+- `/api/auth/login`, `/api/auth/local/login`, `/api/auth/callback`, `/api/auth/logout`, and `/api/auth/me` are handled specially by the middleware rather than being unconditional skip paths.
+- In `cmp` mode, the middleware accepts either a valid AtlasClaw JWT session (for local workspace admin access) or CMP cookies (for CMP end-user access).
+- When `auth.provider="cmp"` and `auth.local.enabled=true`, local admin login remains available for backend management surfaces.
 
 
 **Function**: `setup_auth_middleware(app, auth_config, shadow_store) -> None`
@@ -537,6 +542,7 @@ Constructor: `provider: AuthProvider`, `shadow_store: ShadowUserStore`, `cache_t
 *Primary Providers* (configured via `auth.provider` for user login):
 - `none` -No authentication
 - `local` -Username/password against local database
+- `cmp` -CMP cookie authentication for end-user access; may coexist with local admin login when `auth.local.enabled` is enabled
 
 *Secondary Providers* (always available for specific use cases):
 - `oidc_jwt` -JWT token validation for API bearer authentication
