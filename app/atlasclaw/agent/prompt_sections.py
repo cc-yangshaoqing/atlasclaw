@@ -51,13 +51,20 @@ def build_target_md_skill(target_md_skill: dict[str, Any]) -> str:
             serialized_context = json.dumps(workflow_context, ensure_ascii=False, indent=2)
         except (TypeError, ValueError):
             serialized_context = str(workflow_context)
+        # Determine if this context is scoped to a specific request flow instance
+        trace_id = workflow_context.get("internal_request_trace_id") if isinstance(workflow_context, dict) else None
+        scope_note = (
+            "All metadata below belongs to a single request flow instance "
+            f"(trace: {trace_id}). Do not mix with data from other flow instances."
+            if trace_id
+            else "Use the structured metadata below only for the currently selected skill in this turn."
+        )
         lines.extend(
             [
                 "",
                 "### Current Workflow Context",
                 "",
-                "Use the structured metadata below only for the currently selected skill in "
-                "this turn.",
+                scope_note,
                 "Interpret earlier numbered user selections against this context.",
                 "Do not quote or dump this raw metadata to the user.",
                 "",

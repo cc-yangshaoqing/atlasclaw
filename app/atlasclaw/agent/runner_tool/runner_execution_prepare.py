@@ -495,15 +495,89 @@ def _parse_target_md_skill_workflow_metadata(value: Any) -> Any:
     return str(value)
 
 
+def _infer_active_request_trace_id(
+    recent_history: list[dict[str, Any]],
+) -> Optional[str]:
+    """Infer the active internal_request_trace_id from recent tool metadata.
+
+    Scans message history in reverse to find the most recent tool result
+    that carries an internal_request_trace_id in its _internal metadata.
+    Returns the trace ID string or None if not found.
+    """
+    if not isinstance(recent_history, list):
+        return None
+    for message in reversed(recent_history):
+        if not isinstance(message, dict):
+            continue
+        if str(message.get("role", "") or "").strip().lower() != "tool":
+            continue
+        content = message.get("content")
+        if not isinstance(content, dict):
+            continue
+        internal = content.get("_internal")
+        if internal is None:
+            continue
+        # _internal may be a JSON string or a dict/list
+        if isinstance(internal, str):
+            try:
+                internal = json.loads(internal)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+        # Could be a list of entries or a single dict
+        if isinstance(internal, list):
+            for item in reversed(internal):
+                if isinstance(item, dict):
+                    trace_id = item.get("internal_request_trace_id")
+                    if isinstance(trace_id, str) and trace_id.strip():
+                        return trace_id.strip()
+        elif isinstance(internal, dict):
+            trace_id = internal.get("internal_request_trace_id")
+            if isinstance(trace_id, str) and trace_id.strip():
+                return trace_id.strip()
+    return None
+
+
+def _extract_trace_id_from_metadata(metadata: Any) -> Optional[str]:
+    """Extract internal_request_trace_id from a parsed metadata value."""
+    if isinstance(metadata, dict):
+        trace_id = metadata.get("internal_request_trace_id")
+        if isinstance(trace_id, str) and trace_id.strip():
+            return trace_id.strip()
+    elif isinstance(metadata, list):
+        for item in metadata:
+            if isinstance(item, dict):
+                trace_id = item.get("internal_request_trace_id")
+                if isinstance(trace_id, str) and trace_id.strip():
+                    return trace_id.strip()
+    return None
+
+
 def build_target_md_skill_workflow_context(
     *,
     recent_history: list[dict[str, Any]],
+    active_trace_id: Optional[str] = None,
     max_entries: int = 6,
     max_chars: int = 12000,
 ) -> Optional[dict[str, Any]]:
-    """Collect recent tool metadata for the current selected markdown skill only."""
+    """Collect recent tool metadata for the current selected markdown skill only.
+
+    When an active_trace_id is provided (or inferred from recent history),
+    only metadata entries belonging to the same trace are collected.  This
+    ensures that multiple request flow instances within the same session do
+    not cross-contaminate each other's workflow context.
+
+    If no trace ID is available (legacy providers), falls back to collecting
+    all recent _internal metadata (backward compatible).
+    """
     if not isinstance(recent_history, list) or not recent_history:
         return None
+
+    # Determine the active trace ID
+    resolved_trace_id: Optional[str] = None
+    if isinstance(active_trace_id, str) and active_trace_id.strip():
+        resolved_trace_id = active_trace_id.strip()
+    else:
+        resolved_trace_id = _infer_active_request_trace_id(recent_history)
 
     safe_max_entries = max(1, int(max_entries or 0))
     safe_max_chars = max(512, int(max_chars or 0))
@@ -525,6 +599,13 @@ def build_target_md_skill_workflow_context(
         if metadata is None:
             continue
 
+        # Filter by trace ID if one is active
+        if resolved_trace_id:
+            entry_trace_id = _extract_trace_id_from_metadata(metadata)
+            if entry_trace_id and entry_trace_id != resolved_trace_id:
+                # Belongs to a different request flow instance — skip
+                continue
+
         entry = {
             "tool_name": str(message.get("tool_name", "") or message.get("name", "")).strip(),
             "metadata": metadata,
@@ -541,7 +622,10 @@ def build_target_md_skill_workflow_context(
         return None
 
     recent_tool_metadata.reverse()
-    return {"recent_tool_metadata": recent_tool_metadata}
+    result: dict[str, Any] = {"recent_tool_metadata": recent_tool_metadata}
+    if resolved_trace_id:
+        result["internal_request_trace_id"] = resolved_trace_id
+    return result
 
 
 def build_retry_tool_intent_plan(
@@ -1314,6 +1398,17 @@ class RunnerExecutionPreparePhaseMixin:
                     deps.extra["target_md_skill"] = dict(target_md_skill)
                 else:
                     deps.extra.pop("target_md_skill", None)
+                # Store active trace ID so tool execution can inject it as env var
+                if isinstance(target_md_skill_workflow_context, dict):
+                    _active_trace = target_md_skill_workflow_context.get(
+                        "internal_request_trace_id"
+                    )
+                    if _active_trace:
+                        deps.extra["active_internal_request_trace_id"] = _active_trace
+                    else:
+                        deps.extra.pop("active_internal_request_trace_id", None)
+                else:
+                    deps.extra.pop("active_internal_request_trace_id", None)
             _log_step(
                 "target_md_skill_resolved",
                 enabled=bool(target_md_skill),

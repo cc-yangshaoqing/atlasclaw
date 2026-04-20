@@ -182,6 +182,15 @@ def create_script_wrapper(
             if value is not None:
                 env[key.upper()] = str(value)
 
+        # Auto-inject active internal_request_trace_id so downstream scripts
+        # can associate their metadata with the current request flow instance.
+        if deps is not None and hasattr(deps, "extra"):
+            extra = deps.extra
+            if isinstance(extra, dict):
+                _trace_id = extra.get("active_internal_request_trace_id")
+                if isinstance(_trace_id, str) and _trace_id.strip():
+                    env.setdefault("INTERNAL_REQUEST_TRACE_ID", _trace_id.strip())
+
         if py_file.suffix == ".py":
             cmd = [sys.executable, str(py_file)]
         elif py_file.suffix in [".sh", ".bash"]:
