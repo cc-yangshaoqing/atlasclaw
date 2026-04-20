@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 # Copyright 2021  Qianyun, Inc. All rights reserved.
 
 from __future__ import annotations
@@ -17,10 +17,13 @@ from app.atlasclaw.agent.runner_prompt_context import (
     collect_tools_snapshot,
 )
 from app.atlasclaw.agent.runner_tool.runner_execution_prepare import (
+    build_target_md_skill_workflow_context,
     build_explicit_tool_execution_prompt,
+    enrich_target_md_skill_with_workflow_context,
     resolve_selected_md_skill_target,
     select_execution_prompt_mode,
     select_explicit_tool_execution_target,
+    should_resolve_target_md_skill,
 )
 from app.atlasclaw.agent.tool_gate_models import ToolIntentAction, ToolIntentPlan
 
@@ -67,6 +70,26 @@ def test_collect_tools_snapshot_keeps_authoritative_empty_snapshot_without_remer
     )
     snapshot = collect_tools_snapshot(agent=agent, deps=deps)
     assert snapshot == []
+
+
+def test_collect_tools_snapshot_normalizes_silent_backend_tool_result_mode() -> None:
+    agent = SimpleNamespace(
+        tools=[
+            {
+                "name": "smartcmp_list_components",
+                "description": "Internal lookup",
+                "result_mode": "tool_only_ok",
+                "routing_visibility": "hidden",
+            }
+        ]
+    )
+    deps = SimpleNamespace(extra={})
+
+    snapshot = collect_tools_snapshot(agent=agent, deps=deps)
+
+    assert len(snapshot) == 1
+    assert snapshot[0]["result_mode"] == "silent_ok"
+    assert snapshot[0]["description"] == "Internal lookup"
 
 
 def test_collect_tools_snapshot_merges_agent_tools_when_snapshot_not_authoritative() -> None:
@@ -273,7 +296,7 @@ def test_collect_tools_snapshot_preserves_runtime_tool_metadata_fields() -> None
                 "capability_class": "weather",
                 "routing_visibility": "contextual",
                 "aliases": ["weather", "forecast"],
-                "keywords": ["天气", "预报", "temperature"],
+                "keywords": ["澶╂皵", "棰勬姤", "temperature"],
                 "use_when": ["User asks for a forecast by place and date"],
                 "avoid_when": ["User asks for enterprise approvals"],
                 "result_mode": "tool_only_ok",
@@ -293,7 +316,7 @@ def test_collect_tools_snapshot_preserves_runtime_tool_metadata_fields() -> None
             "capability_class": "weather",
             "routing_visibility": "contextual",
             "aliases": ["weather", "forecast"],
-            "keywords": ["天气", "预报", "temperature"],
+            "keywords": ["澶╂皵", "棰勬姤", "temperature"],
             "use_when": ["User asks for a forecast by place and date"],
             "avoid_when": ["User asks for enterprise approvals"],
             "result_mode": "tool_only_ok",
@@ -616,6 +639,7 @@ def test_select_explicit_tool_execution_target_returns_single_tool_only_candidat
                 "name": "select_provider_instance",
                 "description": "Select provider instance",
                 "capability_class": "session",
+                "coordination_only": True,
             },
         ],
     )
@@ -711,6 +735,123 @@ def test_resolve_selected_md_skill_target_loads_only_matching_skill_body(tmp_pat
     assert "# PPTX Skill" in target["content"]
 
 
+def test_enrich_target_md_skill_with_workflow_context_attaches_structured_context() -> None:
+    enriched = enrich_target_md_skill_with_workflow_context(
+        target_md_skill={
+            "provider": "smartcmp",
+            "qualified_name": "smartcmp:request",
+            "file_path": "/skills/request/SKILL.md",
+            "content": "# request",
+        },
+        workflow_trace={
+            "recent_tool_metadata": [
+                {
+                    "tool_name": "smartcmp_list_services",
+                    "metadata": [
+                        {
+                            "index": 1,
+                            "id": "BUILD-IN-CATALOG-LINUX-VM",
+                            "name": "Linux VM",
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    assert isinstance(enriched, dict)
+    assert enriched["provider"] == "smartcmp"
+    assert enriched["qualified_name"] == "smartcmp:request"
+    assert enriched["workflow_context"] == {
+        "recent_tool_metadata": [
+            {
+                "tool_name": "smartcmp_list_services",
+                "metadata": [
+                    {
+                        "index": 1,
+                        "id": "BUILD-IN-CATALOG-LINUX-VM",
+                        "name": "Linux VM",
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def test_build_target_md_skill_workflow_context_collects_recent_tool_internal_metadata() -> None:
+    context = build_target_md_skill_workflow_context(
+        recent_history=[
+            {"role": "user", "content": "request cloud resource"},
+            {
+                "role": "tool",
+                "tool_name": "smartcmp_list_services",
+                "content": {
+                    "output": "Found 1 published catalog(s)",
+                    "_internal": '[{"index":1,"id":"BUILD-IN-CATALOG-LINUX-VM","name":"Linux VM"}]',
+                },
+            },
+        ]
+    )
+
+    assert context == {
+        "recent_tool_metadata": [
+            {
+                "tool_name": "smartcmp_list_services",
+                "metadata": [
+                    {
+                        "index": 1,
+                        "id": "BUILD-IN-CATALOG-LINUX-VM",
+                        "name": "Linux VM",
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def test_build_target_md_skill_renders_current_workflow_context_block() -> None:
+    rendered = prompt_sections.build_target_md_skill(
+        {
+            "provider": "smartcmp",
+            "qualified_name": "smartcmp:request",
+            "file_path": "/skills/request/SKILL.md",
+            "content": "# request",
+            "workflow_context": {
+                "recent_tool_metadata": [
+                    {
+                        "tool_name": "smartcmp_list_services",
+                        "metadata": [{"index": 1, "name": "Linux VM"}],
+                    }
+                ]
+            },
+        }
+    )
+
+    assert "### Current Workflow Context" in rendered
+    assert '"tool_name": "smartcmp_list_services"' in rendered
+    assert '"name": "Linux VM"' in rendered
+
+
+def test_should_resolve_target_md_skill_for_llm_first_skill_hint_plan() -> None:
+    assert should_resolve_target_md_skill(
+        ToolIntentPlan(
+            action=ToolIntentAction.DIRECT_ANSWER,
+            target_skill_names=["smartcmp:request"],
+            target_provider_types=["smartcmp"],
+        )
+    )
+
+
+def test_should_resolve_target_md_skill_for_llm_first_tool_hint_plan() -> None:
+    assert should_resolve_target_md_skill(
+        ToolIntentPlan(
+            action=ToolIntentAction.DIRECT_ANSWER,
+            target_provider_types=["smartcmp"],
+            target_tool_names=["smartcmp_submit_request"],
+        )
+    )
+
+
 def test_select_explicit_tool_execution_target_skips_follow_up_and_non_terminal_tools() -> None:
     follow_up_target = select_explicit_tool_execution_target(
         intent_plan=ToolIntentPlan(action=ToolIntentAction.USE_TOOLS, target_tool_names=["openmeteo_weather"]),
@@ -739,6 +880,29 @@ def test_select_explicit_tool_execution_target_skips_follow_up_and_non_terminal_
     assert llm_target is None
 
 
+def test_select_explicit_tool_execution_target_allows_silent_backend_tools_on_forced_follow_up_turns() -> None:
+    target = select_explicit_tool_execution_target(
+        intent_plan=ToolIntentPlan(
+            action=ToolIntentAction.USE_TOOLS,
+            target_tool_names=["smartcmp_list_components"],
+            target_skill_names=["smartcmp:request"],
+        ),
+        is_follow_up=True,
+        projected_tools=[
+            {
+                "name": "smartcmp_list_components",
+                "description": "Internal lookup",
+                "result_mode": "tool_only_ok",
+                "routing_visibility": "hidden",
+            }
+        ],
+        has_target_md_skill=True,
+    )
+
+    assert target is not None
+    assert target["name"] == "smartcmp_list_components"
+
+
 def test_build_explicit_tool_execution_prompt_is_compact_and_includes_tool_schema() -> None:
     prompt = build_explicit_tool_execution_prompt(
         tool={
@@ -763,3 +927,50 @@ def test_build_explicit_tool_execution_prompt_is_compact_and_includes_tool_schem
     assert "- location (string, required): City or place name" in prompt
     assert "- target_date (string, optional): Target date in YYYY-MM-DD" in prompt
     assert "Do not answer from memory." in prompt
+
+
+def test_build_explicit_tool_execution_prompt_hides_intermediate_tool_calls() -> None:
+    prompt = build_explicit_tool_execution_prompt(
+        tool={
+            "name": "smartcmp_list_components",
+            "description": "Get component type info for a service.",
+            "capability_class": "provider:smartcmp",
+            "result_mode": "silent_ok",
+            "parameters_schema": {
+                "type": "object",
+                "properties": {
+                    "source_key": {"type": "string", "description": "Service source key"},
+                },
+                "required": ["source_key"],
+            },
+        },
+        now_local=datetime(2026, 4, 11, 9, 30, 0),
+    )
+
+    assert "Do not mention the tool call to the user" in prompt
+    assert "Do not call the same tool again with the same arguments" in prompt
+    assert "backend" not in prompt.lower()
+
+
+def test_build_explicit_tool_execution_prompt_ignores_resolved_workflow_arguments() -> None:
+    prompt = build_explicit_tool_execution_prompt(
+        tool={
+            "name": "smartcmp_list_components",
+            "description": "Get component type info for a service.",
+            "capability_class": "provider:smartcmp",
+            "result_mode": "silent_ok",
+            "parameters_schema": {
+                "type": "object",
+                "properties": {
+                    "source_key": {"type": "string", "description": "Service source key"},
+                },
+                "required": ["source_key"],
+            },
+            "resolved_arguments": {"source_key": "resource.iaas.machine.instance.abstract"},
+        },
+        now_local=datetime(2026, 4, 11, 9, 30, 0),
+    )
+
+    assert "Resolved workflow arguments:" not in prompt
+    assert '"source_key": "resource.iaas.machine.instance.abstract"' not in prompt
+    assert "using those exact values" not in prompt

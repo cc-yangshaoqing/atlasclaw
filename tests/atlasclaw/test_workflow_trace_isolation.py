@@ -1,0 +1,244 @@
+# -*- coding: utf-8 -*-
+"""Tests for internal_request_trace_id workflow context isolation.
+
+Verifies that:
+- A. Same skill, two request flows do not cross-contaminate
+- B. No trace_id degrades gracefully (backward compatible)
+- C. Trace-filtered results still obey max_entries / max_chars limits
+- D. Mixed metadata (some with trace, some without) are handled correctly
+"""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pytest
+
+from app.atlasclaw.agent.runner_tool.runner_execution_prepare import (
+    _infer_active_request_trace_id,
+    _extract_trace_id_from_metadata,
+    build_target_md_skill_workflow_context,
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _tool_msg(tool_name: str, internal: Any) -> dict:
+    """Create a minimal tool message dict with _internal metadata."""
+    return {
+        "role": "tool",
+        "tool_name": tool_name,
+        "content": {
+            "success": True,
+            "output": "ok",
+            "_internal": json.dumps(internal) if isinstance(internal, (dict, list)) else internal,
+        },
+    }
+
+
+def _user_msg(text: str = "1") -> dict:
+    return {"role": "user", "content": text}
+
+
+def _assistant_msg(text: str = "已为您查询") -> dict:
+    return {"role": "assistant", "content": text}
+
+
+# ---------------------------------------------------------------------------
+# Test: _infer_active_request_trace_id
+# ---------------------------------------------------------------------------
+class TestInferActiveRequestTraceId:
+    def test_returns_most_recent_trace_id(self):
+        history = [
+            _tool_msg("smartcmp_list_services", {"internal_request_trace_id": "trace-aaa", "catalogs": []}),
+            _user_msg("1"),
+            _tool_msg("smartcmp_list_business_groups", {"internal_request_trace_id": "trace-aaa", "business_groups": []}),
+            _user_msg("1"),
+            _tool_msg("smartcmp_list_resource_pools", {"internal_request_trace_id": "trace-bbb", "resource_pools": []}),
+        ]
+        assert _infer_active_request_trace_id(history) == "trace-bbb"
+
+    def test_returns_none_when_no_trace_id(self):
+        history = [
+            _tool_msg("smartcmp_list_services", {"catalogs": [{"id": "abc"}]}),
+        ]
+        assert _infer_active_request_trace_id(history) is None
+
+    def test_handles_list_metadata(self):
+        history = [
+            _tool_msg("tool_a", [{"internal_request_trace_id": "trace-xyz", "data": "x"}]),
+        ]
+        assert _infer_active_request_trace_id(history) == "trace-xyz"
+
+    def test_handles_empty_history(self):
+        assert _infer_active_request_trace_id([]) is None
+        assert _infer_active_request_trace_id(None) is None
+
+    def test_skips_non_tool_messages(self):
+        history = [
+            _user_msg("hello"),
+            _assistant_msg("hi"),
+        ]
+        assert _infer_active_request_trace_id(history) is None
+
+
+# ---------------------------------------------------------------------------
+# Test: _extract_trace_id_from_metadata
+# ---------------------------------------------------------------------------
+class TestExtractTraceIdFromMetadata:
+    def test_from_dict(self):
+        assert _extract_trace_id_from_metadata({"internal_request_trace_id": "trace-123"}) == "trace-123"
+
+    def test_from_list(self):
+        meta = [{"internal_request_trace_id": "trace-456", "id": "x"}]
+        assert _extract_trace_id_from_metadata(meta) == "trace-456"
+
+    def test_returns_none_for_missing(self):
+        assert _extract_trace_id_from_metadata({"catalogs": []}) is None
+        assert _extract_trace_id_from_metadata([{"id": "x"}]) is None
+        assert _extract_trace_id_from_metadata("string") is None
+        assert _extract_trace_id_from_metadata(None) is None
+
+
+# ---------------------------------------------------------------------------
+# Test A: Same skill, two request flows do not cross-contaminate
+# ---------------------------------------------------------------------------
+class TestTraceIsolation:
+    def test_only_collects_current_trace(self):
+        """Metadata from trace-aaa should not appear when trace-bbb is active."""
+        history = [
+            # First request flow (trace-aaa)
+            _tool_msg("smartcmp_list_services", {"internal_request_trace_id": "trace-aaa", "catalogs": [{"id": "cat1"}]}),
+            _user_msg("1"),
+            _tool_msg("smartcmp_list_business_groups", {"internal_request_trace_id": "trace-aaa", "business_groups": [{"id": "bg1"}]}),
+            _user_msg("done with first"),
+            _assistant_msg("ok"),
+            # Second request flow (trace-bbb)
+            _tool_msg("smartcmp_list_services", {"internal_request_trace_id": "trace-bbb", "catalogs": [{"id": "cat2"}]}),
+            _user_msg("1"),
+            _tool_msg("smartcmp_list_business_groups", {"internal_request_trace_id": "trace-bbb", "business_groups": [{"id": "bg2"}]}),
+        ]
+        result = build_target_md_skill_workflow_context(recent_history=history)
+        assert result is not None
+        assert result["internal_request_trace_id"] == "trace-bbb"
+        # Should only contain trace-bbb entries
+        entries = result["recent_tool_metadata"]
+        for entry in entries:
+            meta = entry["metadata"]
+            assert meta.get("internal_request_trace_id") == "trace-bbb"
+        # Verify trace-aaa data is excluded
+        all_ids = [e["metadata"].get("catalogs", [{}])[0].get("id", "") for e in entries if "catalogs" in e.get("metadata", {})]
+        assert "cat1" not in all_ids
+
+    def test_explicit_trace_id_overrides_inferred(self):
+        """When active_trace_id is explicitly passed, use it instead of inferring."""
+        history = [
+            _tool_msg("tool_a", {"internal_request_trace_id": "trace-aaa", "data": "a"}),
+            _tool_msg("tool_b", {"internal_request_trace_id": "trace-bbb", "data": "b"}),
+        ]
+        result = build_target_md_skill_workflow_context(
+            recent_history=history,
+            active_trace_id="trace-aaa",
+        )
+        assert result is not None
+        assert result["internal_request_trace_id"] == "trace-aaa"
+        assert len(result["recent_tool_metadata"]) == 1
+        assert result["recent_tool_metadata"][0]["metadata"]["data"] == "a"
+
+
+# ---------------------------------------------------------------------------
+# Test B: No trace_id degrades gracefully (backward compatible)
+# ---------------------------------------------------------------------------
+class TestBackwardCompatibility:
+    def test_collects_all_when_no_trace_id(self):
+        """Legacy providers without trace_id — all _internal entries collected."""
+        history = [
+            _tool_msg("legacy_tool_1", {"key1": "val1"}),
+            _user_msg("next"),
+            _tool_msg("legacy_tool_2", {"key2": "val2"}),
+        ]
+        result = build_target_md_skill_workflow_context(recent_history=history)
+        assert result is not None
+        assert "internal_request_trace_id" not in result
+        assert len(result["recent_tool_metadata"]) == 2
+
+    def test_empty_history_returns_none(self):
+        assert build_target_md_skill_workflow_context(recent_history=[]) is None
+        assert build_target_md_skill_workflow_context(recent_history=None) is None
+
+
+# ---------------------------------------------------------------------------
+# Test C: Trace-filtered results still obey max_entries / max_chars limits
+# ---------------------------------------------------------------------------
+class TestLimits:
+    def test_max_entries_respected_with_trace(self):
+        history = [
+            _tool_msg(f"tool_{i}", {"internal_request_trace_id": "trace-x", "idx": i})
+            for i in range(10)
+        ]
+        result = build_target_md_skill_workflow_context(
+            recent_history=history,
+            max_entries=3,
+        )
+        assert result is not None
+        assert len(result["recent_tool_metadata"]) == 3
+
+    def test_max_chars_respected_with_trace(self):
+        # Create entries with large metadata
+        history = [
+            _tool_msg(f"tool_{i}", {"internal_request_trace_id": "trace-y", "big_data": "x" * 5000})
+            for i in range(5)
+        ]
+        result = build_target_md_skill_workflow_context(
+            recent_history=history,
+            max_chars=6000,
+        )
+        assert result is not None
+        # Should be limited by character count
+        assert len(result["recent_tool_metadata"]) < 5
+
+
+# ---------------------------------------------------------------------------
+# Test D: Mixed metadata (some with trace, some without)
+# ---------------------------------------------------------------------------
+class TestMixedMetadata:
+    def test_entries_without_trace_included_when_trace_active(self):
+        """Entries without a trace_id are included (they don't conflict)."""
+        history = [
+            _tool_msg("tool_no_trace", {"some_data": "abc"}),
+            _tool_msg("tool_with_trace", {"internal_request_trace_id": "trace-mix", "data": "xyz"}),
+        ]
+        result = build_target_md_skill_workflow_context(recent_history=history)
+        assert result is not None
+        assert result["internal_request_trace_id"] == "trace-mix"
+        # Both entries should be present (entry without trace has no conflicting trace_id)
+        assert len(result["recent_tool_metadata"]) == 2
+
+    def test_entries_with_different_trace_excluded(self):
+        """Only entries with matching trace_id or no trace_id are included."""
+        history = [
+            _tool_msg("tool_old", {"internal_request_trace_id": "trace-old", "data": "old"}),
+            _tool_msg("tool_no_trace", {"data": "neutral"}),
+            _tool_msg("tool_new", {"internal_request_trace_id": "trace-new", "data": "new"}),
+        ]
+        result = build_target_md_skill_workflow_context(recent_history=history)
+        assert result is not None
+        assert result["internal_request_trace_id"] == "trace-new"
+        # trace-old should be excluded, but no-trace and trace-new should be included
+        names = [e["tool_name"] for e in result["recent_tool_metadata"]]
+        assert "tool_old" not in names
+        assert "tool_no_trace" in names
+        assert "tool_new" in names
+
+
+# ---------------------------------------------------------------------------
+# Test E: No trace — degrade, don't mix recent metadata
+# ---------------------------------------------------------------------------
+class TestDegradeWithoutTrace:
+    def test_no_metadata_returns_none(self):
+        history = [
+            _user_msg("hello"),
+            _assistant_msg("hi there"),
+        ]
+        assert build_target_md_skill_workflow_context(recent_history=history) is None

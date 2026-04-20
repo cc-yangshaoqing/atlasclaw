@@ -102,6 +102,9 @@ def build_tool_failure_fallback_payload(
             "did not return, do not invent it. Explain the limitation, missing parameter, or retry path instead.\n"
             "If the request is a public recommendation or general knowledge question, you may provide a best-effort answer "
             "from model knowledge, but clearly say it was not verified by tools.\n"
+            "Never claim a tool ran unless it appears under Attempted tools.\n"
+            "Never infer that a side-effecting action such as submission, creation, update, deletion, or provisioning "
+            "was attempted or succeeded unless the Attempted tools list or tool evidence explicitly shows it.\n"
             "Do not mention hidden reasoning. Do not call tools. Do not add wrapper headings like 'Answer' or 'Result' "
             "unless the user explicitly asked for them."
         ),
@@ -310,13 +313,70 @@ class RunnerExecutionPayloadMixin:
         extraction we reconstruct the full turn-visible transcript by keeping the
         session prefix and appending only the new suffix produced in the runtime
         loop.
+
+        NOTE: pydantic-ai's internal ``_clean_message_history`` may merge
+        consecutive ModelRequest/ModelResponse objects, reducing the model-message
+        count below the original dict count.  After normalization back to dicts the
+        "history portion" of ``runtime_messages`` may therefore contain *fewer*
+        items than ``runtime_base_history_len``.  To avoid accidentally discarding
+        the current turn's user message we locate the actual boundary by scanning
+        backwards for the first user-role message that does NOT appear in the
+        session prefix tail.
         """
         session_prefix = list(session_message_history or [])
         normalized_runtime = list(runtime_messages or [])
-        safe_runtime_base = max(0, min(int(runtime_base_history_len or 0), len(normalized_runtime)))
-        if safe_runtime_base <= 0:
+
+        if not normalized_runtime:
+            return session_prefix
+
+        # --- Determine safe cut index ------------------------------------------------
+        # The naive cut at ``runtime_base_history_len`` works when the roundtrip
+        # dict→model→dict is count-stable.  When it isn't (pydantic-ai merges),
+        # the user message from this turn may end up *before* that index.  We
+        # detect this by checking if normalized_runtime[runtime_base_history_len-1:]
+        # contains a user message that should be part of the new suffix.
+        nominal_cut = max(0, min(int(runtime_base_history_len or 0), len(normalized_runtime)))
+
+        if nominal_cut <= 0:
             return session_prefix + normalized_runtime
-        return session_prefix + normalized_runtime[safe_runtime_base:]
+
+        # Heuristic: if the nominal cut already places a user message as the first
+        # item in the suffix, that's the expected normal case — use it directly.
+        if nominal_cut < len(normalized_runtime):
+            first_suffix = normalized_runtime[nominal_cut]
+            if isinstance(first_suffix, dict) and first_suffix.get("role") == "user":
+                return session_prefix + normalized_runtime[nominal_cut:]
+
+        # Otherwise, scan backwards from nominal_cut to find where the new content
+        # actually starts.  The new content starts at the first user-role message
+        # (scanning from the end of the history zone) whose content does not match
+        # the last user message in session_prefix.
+        last_session_user_content: str | None = None
+        for msg in reversed(session_prefix):
+            if isinstance(msg, dict) and msg.get("role") == "user":
+                last_session_user_content = str(msg.get("content", "")).strip()
+                break
+
+        # Scan normalized_runtime from nominal_cut backwards looking for the
+        # turn's new user message that got shifted into the history zone.
+        adjusted_cut = nominal_cut
+        search_start = max(0, nominal_cut - 3)  # don't search too far back
+        for idx in range(nominal_cut - 1, search_start - 1, -1):
+            candidate = normalized_runtime[idx]
+            if not isinstance(candidate, dict):
+                continue
+            if candidate.get("role") != "user":
+                continue
+            candidate_content = str(candidate.get("content", "")).strip()
+            # Skip if it matches the last user message already in session prefix
+            if candidate_content and candidate_content == last_session_user_content:
+                continue
+            # Found a user message that is NOT in session prefix — this is
+            # the start of the new turn content.
+            adjusted_cut = idx
+            break
+
+        return session_prefix + normalized_runtime[adjusted_cut:]
     async def run_single(
         self,
         user_message: str,

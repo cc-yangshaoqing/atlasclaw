@@ -13,6 +13,7 @@ from app.atlasclaw.agent.runner_tool.runner_llm_routing import (
     messages_satisfy_artifact_goal,
     selected_capability_ids_from_intent_plan,
 )
+from app.atlasclaw.agent.runner_tool.runner_tool_result_mode import normalize_tool_result_mode
 from app.atlasclaw.agent.runner_tool.runner_tool_messages import (
     extract_synthetic_tool_messages_from_next_node,
     merge_synthetic_tool_messages,
@@ -773,7 +774,7 @@ class RunnerExecutionFlowStreamMixin:
             return repeated_no_progress is not None
         for tool_name in normalized_planned:
             tool_meta = tool_index.get(tool_name)
-            result_mode = str((tool_meta or {}).get("result_mode", "") or "").strip().lower()
+            result_mode = normalize_tool_result_mode(tool_meta or {})
             if result_mode != "tool_only_ok":
                 return False
         successful_tool_names = set()

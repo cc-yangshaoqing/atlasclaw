@@ -96,25 +96,32 @@ def create_script_wrapper(
     async def script_handler(ctx=None, **kwargs) -> dict:
         import os
 
+        runtime_kwargs = dict(kwargs)
         env = os.environ.copy()
         env.setdefault("PYTHONIOENCODING", "utf-8")
         env.setdefault("PYTHONUTF8", "1")
+        deps = getattr(ctx, "deps", None) if ctx is not None else None
 
-        if ctx is not None and hasattr(ctx, "deps") and hasattr(ctx.deps, "cookies"):
-            cookies = ctx.deps.cookies
+        user_info = getattr(deps, "user_info", None)
+        user_id = str(getattr(user_info, "user_id", "") or "").strip()
+        if user_id:
+            env.setdefault("ATLASCLAW_USER_ID", user_id)
+
+        if deps is not None and hasattr(deps, "cookies"):
+            cookies = deps.cookies
             if cookies:
                 try:
                     env["ATLASCLAW_COOKIES"] = json.dumps(cookies)
-                    if hasattr(ctx.deps, "user_info") and ctx.deps.user_info:
+                    if user_info:
                         print(
-                            f"[DEBUG] Set ATLASCLAW_COOKIES for user={ctx.deps.user_info.user_id}, "
+                            f"[DEBUG] Set ATLASCLAW_COOKIES for user={user_id}, "
                             f"cookies={list(cookies.keys())}"
                         )
                 except (TypeError, ValueError) as exc:
                     print(f"[WARNING] Failed to serialize cookies: {exc}")
 
-        if ctx is not None and hasattr(ctx, "deps") and hasattr(ctx.deps, "extra"):
-            extra = ctx.deps.extra
+        if deps is not None and hasattr(deps, "extra"):
+            extra = deps.extra
             provider_config = extra.get("provider_config", {}) if extra else {}
             # Fallback: build provider_config from provider_instances (channel path)
             if not provider_config and extra:
@@ -135,8 +142,8 @@ def create_script_wrapper(
                 except (TypeError, ValueError) as exc:
                     print(f"[WARNING] Failed to serialize provider_config: {exc}")
 
-        if ctx is not None and hasattr(ctx, "deps") and hasattr(ctx.deps, "extra"):
-            extra = ctx.deps.extra
+        if deps is not None and hasattr(deps, "extra"):
+            extra = deps.extra
             print(f"[DEBUG] Tool execution: provider_type={provider_type}")
             print(f"[DEBUG] ctx.deps.extra keys: {list(extra.keys())}")
 
@@ -171,9 +178,18 @@ def create_script_wrapper(
                                     env[key.upper()] = str(value)
                             break
 
-        for key, value in kwargs.items():
+        for key, value in runtime_kwargs.items():
             if value is not None:
                 env[key.upper()] = str(value)
+
+        # Auto-inject active internal_request_trace_id so downstream scripts
+        # can associate their metadata with the current request flow instance.
+        if deps is not None and hasattr(deps, "extra"):
+            extra = deps.extra
+            if isinstance(extra, dict):
+                _trace_id = extra.get("active_internal_request_trace_id")
+                if isinstance(_trace_id, str) and _trace_id.strip():
+                    env.setdefault("INTERNAL_REQUEST_TRACE_ID", _trace_id.strip())
 
         if py_file.suffix == ".py":
             cmd = [sys.executable, str(py_file)]
@@ -184,7 +200,7 @@ def create_script_wrapper(
         else:
             cmd = [str(py_file)]
 
-        cmd.extend(_build_script_command_arguments(kwargs=kwargs, config=config))
+        cmd.extend(_build_script_command_arguments(kwargs=runtime_kwargs, config=config))
 
         try:
             result = subprocess.run(
@@ -198,19 +214,71 @@ def create_script_wrapper(
                 cwd=str(py_file.parent),
             )
             output = result.stdout
+            _internal_meta = ""
             if result.stderr:
-                output += f"\n[STDERR] {result.stderr}"
-            return {
+                # Separate META blocks from error messages in stderr.
+                # META blocks (##xxx_META_START## ... ##xxx_META_END##) are
+                # placed in a separate "_internal" field so the LLM can
+                # read them for subsequent tool calls without displaying
+                # raw data to users (avoids <tool_meta> tag echoing).
+                import re as _re
+                _meta_blocks: list[str] = []
+                _other_stderr: list[str] = []
+                _in_meta = False
+                _meta_buf: list[str] = []
+                for _line in result.stderr.splitlines():
+                    if _re.match(r"^##\w+_META_START##$", _line.strip()):
+                        _in_meta = True
+                        _meta_buf = []
+                        continue
+                    if _re.match(r"^##\w+_META_END##$", _line.strip()):
+                        _in_meta = False
+                        if _meta_buf:
+                            _meta_blocks.append("\n".join(_meta_buf))
+                        continue
+                    if _in_meta:
+                        _meta_buf.append(_line)
+                    else:
+                        _other_stderr.append(_line)
+
+                if _meta_blocks:
+                    _internal_meta = "\n".join(_meta_blocks)
+                if _other_stderr:
+                    output += f"\n[STDERR] {''.join(_other_stderr)}"
+            result_dict = {
                 "success": result.returncode == 0,
                 "returncode": result.returncode,
                 "output": output,
             }
+            if _internal_meta:
+                result_dict["_internal"] = _internal_meta
+            result_dict = _normalize_script_result(
+                py_file=py_file,
+                provider_type=provider_type,
+                result=result_dict,
+            )
+            return result_dict
         except subprocess.TimeoutExpired:
             return {"success": False, "error": "Script execution timed out"}
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
     return script_handler
+def _normalize_script_result(
+    *,
+    py_file: Path,
+    provider_type: Optional[str],
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    """Apply generic normalization to script output before returning it to the runtime."""
+    del py_file, provider_type
+    normalized = dict(result)
+    output = normalized.get("output")
+    if not isinstance(output, str):
+        return normalized
+
+    normalized["output"] = output.replace("\r\n", "\n")
+    return normalized
 
 
 def register_executable_tools_from_md(
@@ -570,6 +638,8 @@ def _resolve_cli_flag_name(name: str, config: ScriptInvocationConfig) -> str:
 def _serialize_cli_value(*, value: Any, split: bool) -> list[str]:
     if value is None:
         return []
+    if isinstance(value, dict):
+        return [json.dumps(value, ensure_ascii=False)]
     if isinstance(value, (list, tuple, set)):
         serialized: list[str] = []
         for item in value:
