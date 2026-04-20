@@ -1230,49 +1230,36 @@ class RunnerExecutionPreparePhaseMixin:
             )
             target_md_skill = None
             # ── SKILL.md resolution ──────────────────────────────────────
-            # The skill_resolution_plan determines ONLY which SKILL.md is
-            # loaded as documentation context.  It does NOT change routing
-            # decisions or tool visibility (those are driven by
-            # tool_intent_plan which remains untouched).
+            # SKILL.md loading follows the routing plan as-is.  Runtime does
+            # NOT override skill selection based on transcript — that would
+            # violate the LLM-first principle.
             #
-            # In follow-up turns (used_follow_up_context=True), the routing
-            # system often resolves to the wrong md-skill because short user
-            # inputs like "1" or "5" lack sufficient signal.  The transcript
-            # — which records which tools were actually called in earlier
-            # turns — provides a much stronger signal about which skill flow
-            # is currently active.
+            # Transcript analysis produces a *soft hint* that is injected
+            # into the prompt as non-binding context.  The LLM decides
+            # whether the current turn continues the hinted workflow.
             #
-            # Strategy:
-            #   1. follow-up + transcript match → use transcript skill
-            #   2. follow-up + no transcript match + plan absent → metadata hint
-            #   3. first turn / non-follow-up → use routing plan as-is
+            # When routing plan is absent (short follow-up input), we fall
+            # back to the metadata hint for SKILL.md loading only.
             skill_resolution_plan = tool_intent_plan
             if used_follow_up_context:
+                # Compute transcript hint — soft prompt injection only,
+                # never used to override skill_resolution_plan.
                 transcript_active_skill = _infer_active_skill_from_transcript(
                     message_history=message_history,
                     md_skills_snapshot=list(deps.extra.get("md_skills_snapshot") or []),
                 )
                 if transcript_active_skill:
-                    base_plan = skill_resolution_plan or metadata_tool_intent_plan
-                    if base_plan is not None:
-                        original_names = list(base_plan.target_skill_names or [])
-                        reordered = [transcript_active_skill] + [
-                            n for n in original_names
-                            if n.strip().lower() != transcript_active_skill
-                        ]
-                        skill_resolution_plan = base_plan.model_copy(
-                            update={"target_skill_names": reordered}
+                    if isinstance(deps.extra, dict):
+                        deps.extra["transcript_skill_continuation_hint"] = (
+                            transcript_active_skill
                         )
-                        _log_step(
-                            "follow_up_skill_doc_hint_from_transcript",
-                            reason="transcript_tool_calls_indicate_active_skill",
-                            transcript_active_skill=transcript_active_skill,
-                            reordered_skill_names=reordered,
-                            original_plan_source=(
-                                "routing" if tool_intent_plan is not None else "metadata"
-                            ),
-                        )
-                elif (
+                    _log_step(
+                        "transcript_skill_continuation_hint_computed",
+                        reason="transcript_tool_calls_suggest_active_skill",
+                        hint_skill=transcript_active_skill,
+                    )
+                # Fall back to metadata hint when routing plan is absent.
+                if (
                     skill_resolution_plan is None
                     and metadata_tool_intent_plan is not None
                 ):

@@ -94,6 +94,22 @@ def build_user_context(user_info) -> str:
     return "\n".join(lines)
 
 
+def build_skill_continuation_hint(hint_skill: str) -> str:
+    """Build a non-binding hint about the likely active skill from transcript.
+
+    This section is purely advisory.  The LLM decides whether to continue
+    the hinted workflow based on the actual user intent.
+    """
+    lines = [
+        "## Skill Continuation Hint",
+        "",
+        f"Recent transcript analysis suggests this turn may be continuing the **{hint_skill}** workflow.",
+        "If the current user input is part of that workflow, continue within that skill's instructions.",
+        "This is a non-binding hint — evaluate the user's actual intent before deciding.",
+    ]
+    return "\n".join(lines)
+
+
 def build_identity(config) -> str:
     """Build the identity section."""
     return f"""## Identity

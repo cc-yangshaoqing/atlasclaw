@@ -131,6 +131,7 @@ class PromptBuilder:
         provider_contexts: Optional[dict[str, dict]] = None,
         context_window_tokens: Optional[int] = None,
         mode_override: Optional[PromptMode] = None,
+        transcript_skill_hint: Optional[str] = None,
     ) -> str:
         """
         Build the full system prompt for the current run.
@@ -175,6 +176,9 @@ class PromptBuilder:
         
         if target_md_skill:
             parts.append(self._build_target_md_skill(target_md_skill))
+
+        if transcript_skill_hint:
+            parts.append(self._build_skill_continuation_hint(transcript_skill_hint))
 
         if effective_mode == PromptMode.FULL:
             # 4. Markdown skill index (HIGHEST PRIORITY - check these first!)
@@ -239,6 +243,9 @@ class PromptBuilder:
 
     def _build_target_md_skill(self, target_md_skill: dict[str, str]) -> str:
         return prompt_sections.build_target_md_skill(target_md_skill)
+
+    def _build_skill_continuation_hint(self, hint_skill: str) -> str:
+        return prompt_sections.build_skill_continuation_hint(hint_skill)
     
     def _build_user_context(self, user_info: "UserInfo") -> str:
         return prompt_sections.build_user_context(user_info)
