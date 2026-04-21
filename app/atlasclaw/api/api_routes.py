@@ -69,7 +69,10 @@ from app.atlasclaw.auth.guards import (
     is_same_workspace_user,
 )
 from app.atlasclaw.auth.models import UserInfo
-from app.atlasclaw.api.service_provider_schemas import normalize_provider_config
+from app.atlasclaw.api.service_provider_schemas import (
+    get_provider_schema_definition,
+    normalize_provider_config,
+)
 from app.atlasclaw.bootstrap.startup_helpers import (
     build_provider_instances_from_db,
     merge_provider_instances,
@@ -122,6 +125,18 @@ NON_ADMIN_ASSIGNABLE_PERMISSION_PATHS = frozenset({
     "users.view",
     "roles.view",
 })
+SENSITIVE_PROVIDER_CONFIG_KEYS = frozenset(
+    {
+        "cookie",
+        "password",
+        "secret",
+        "app_secret",
+        "api_key",
+        "access_token",
+        "token",
+        "credential",
+    }
+)
 
 
 def _is_local_auth_type(auth_type: str) -> bool:
@@ -399,6 +414,7 @@ def _normalize_user_provider_config(
     provider_type: str,
     instance_name: str,
     config: dict[str, object],
+    existing_config: Optional[dict[str, object]] = None,
 ) -> dict[str, object]:
     """Validate user-owned provider config against a system template instance."""
     template_config = _get_provider_template_config(provider_type, instance_name)
@@ -409,6 +425,8 @@ def _normalize_user_provider_config(
         )
 
     merged_config = dict(template_config)
+    if isinstance(existing_config, dict):
+        merged_config.update(existing_config)
     merged_config.update(dict(config))
 
     try:
@@ -416,11 +434,83 @@ def _normalize_user_provider_config(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    definition = get_provider_schema_definition(provider_type)
+    allowed_fields = None
+    if definition is not None:
+        allowed_fields = {
+            field.name
+            for field in definition.resolve_fields(normalized_config)
+        }
+
     return {
         key: value
         for key, value in normalized_config.items()
-        if key != "base_url"
+        if key != "base_url" and (allowed_fields is None or key in allowed_fields)
     }
+
+
+def _is_sensitive_provider_config_field(provider_type: str, field_name: str) -> bool:
+    """Return True when a provider config field should never be echoed back to the UI."""
+    normalized_field_name = str(field_name or "").strip().lower()
+    if not normalized_field_name:
+        return False
+    if normalized_field_name in SENSITIVE_PROVIDER_CONFIG_KEYS:
+        return True
+
+    definition = get_provider_schema_definition(provider_type)
+    if definition is None:
+        return False
+
+    for field in definition.resolve_fields(filter_by_auth_type=False):
+        if field.name == normalized_field_name:
+            return bool(field.sensitive or field.type == "password")
+    return False
+
+
+def _redact_user_provider_config(
+    provider_type: str,
+    config: object,
+) -> dict[str, object]:
+    """Remove sensitive provider config values from user-facing responses."""
+    if not isinstance(config, dict):
+        return {}
+
+    return {
+        key: value
+        for key, value in config.items()
+        if not _is_sensitive_provider_config_field(provider_type, str(key))
+    }
+
+
+def _redact_user_provider_settings(
+    providers: object,
+) -> dict[str, dict[str, dict[str, object]]]:
+    """Build a response-safe provider settings payload without sensitive config values."""
+    if not isinstance(providers, dict):
+        return {}
+
+    redacted: dict[str, dict[str, dict[str, object]]] = {}
+    for provider_type, instances in providers.items():
+        if not isinstance(instances, dict):
+            continue
+
+        provider_bucket: dict[str, dict[str, object]] = {}
+        for instance_name, entry in instances.items():
+            if not isinstance(entry, dict):
+                continue
+
+            provider_bucket[str(instance_name)] = {
+                "configured": bool(entry.get("configured", False)),
+                "config": _redact_user_provider_config(
+                    str(provider_type),
+                    entry.get("config", {}),
+                ),
+                "updated_at": entry.get("updated_at"),
+            }
+
+        redacted[str(provider_type)] = provider_bucket
+
+    return redacted
 
 
 router = APIRouter(prefix="/api", tags=["Database API"])
@@ -1093,7 +1183,9 @@ async def get_my_provider_settings(
     workspace_path = str(Path(get_config().workspace.path).resolve())
     document = _load_user_setting_document(workspace_path, current_user.user_id)
     providers = document.get("providers", {})
-    return UserProviderSettingsResponse(providers=providers if isinstance(providers, dict) else {})
+    return UserProviderSettingsResponse(
+        providers=_redact_user_provider_settings(providers)
+    )
 
 
 @router.put("/users/me/provider-settings", response_model=UserProviderSettingsResponse, status_code=200)
@@ -1114,10 +1206,18 @@ async def update_my_provider_settings(
         provider_bucket = {}
         providers[provider_data.provider_type] = provider_bucket
 
+    existing_entry = provider_bucket.get(provider_data.instance_name)
+    existing_config = (
+        existing_entry.get("config", {})
+        if isinstance(existing_entry, dict)
+        else {}
+    )
+
     normalized_config = _normalize_user_provider_config(
         provider_data.provider_type,
         provider_data.instance_name,
         provider_data.config,
+        existing_config=existing_config if isinstance(existing_config, dict) else None,
     )
 
     provider_bucket[provider_data.instance_name] = {
@@ -1127,7 +1227,9 @@ async def update_my_provider_settings(
     }
 
     _save_user_setting_document(workspace_path, current_user.user_id, document)
-    return UserProviderSettingsResponse(providers=providers)
+    return UserProviderSettingsResponse(
+        providers=_redact_user_provider_settings(providers)
+    )
 
 
 @router.post("/users/me/avatar", response_model=UserResponse, status_code=200)

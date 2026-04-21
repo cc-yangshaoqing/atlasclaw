@@ -6,6 +6,9 @@
  * i18n 模块单元测试
  */
 
+const { readFileSync } = require('node:fs')
+const { resolve } = require('node:path')
+
 // Mock localStorage
 const localStorageMock = {
     store: {},
@@ -115,6 +118,18 @@ describe('i18n Module', () => {
             await loadLocale('invalid-locale');
             // Default locale is en-US as defined in source
             expect(global.fetch).toHaveBeenCalledWith('/locales/en-US.json');
+        });
+
+        test('should include provider secret update placeholder in bundled locale files', () => {
+            const zhCnTranslations = JSON.parse(
+                readFileSync(resolve(__dirname, '../../app/frontend/locales/zh-CN.json'), 'utf-8')
+            );
+            const enUsTranslations = JSON.parse(
+                readFileSync(resolve(__dirname, '../../app/frontend/locales/en-US.json'), 'utf-8')
+            );
+
+            expect(zhCnTranslations.provider.secretUpdatePlaceholder).toBe('如需更新请输入新值');
+            expect(enUsTranslations.provider.secretUpdatePlaceholder).toBe('Enter a new value to update');
         });
     });
 
