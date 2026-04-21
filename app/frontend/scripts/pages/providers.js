@@ -3,27 +3,16 @@
  */
 
 /**
- * providers.js - Service Provider Configuration Page
+ * providers.js - Service Provider Authentication Configuration Page
  *
- * Keep the existing page entry, but bind users to existing provider instances
- * and let them manage only their own credentials.
+ * Personal provider credentials are managed against fixed provider instances.
+ * The page groups instances by provider type and renders one table per provider.
  */
 
 import { showToast } from '../components/toast.js'
 import { translateIfExists } from '../i18n.js'
 
 const PROVIDER_ORDER = ['smartcmp', 'dingtalk']
-
-const ACTION_ICONS = {
-  eye: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-    <circle cx="12" cy="12" r="3"></circle>
-  </svg>`,
-  eyeOff: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
-    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
-    <line x1="1" y1="1" x2="23" y2="23"></line>
-  </svg>`
-}
 
 let pageContainer = null
 let clickHandler = null
@@ -37,7 +26,6 @@ function createInitialState() {
     serviceProviders: [],
     providerDefinitions: {},
     userProviderConfigs: {},
-    selectedProviderType: '',
     loading: false,
     error: '',
     modal: null
@@ -71,13 +59,6 @@ export async function unmount() {
 
 function bindEvents() {
   clickHandler = async (event) => {
-    const providerCard = event.target.closest('[data-provider-card]')
-    if (providerCard) {
-      state.selectedProviderType = providerCard.dataset.type || ''
-      render()
-      return
-    }
-
     const configureButton = event.target.closest('[data-configure-template]')
     if (configureButton) {
       openConfigureModal(
@@ -89,12 +70,6 @@ function bindEvents() {
 
     if (event.target.closest('[data-close-modal]')) {
       closeModal()
-      return
-    }
-
-    const secretToggle = event.target.closest('[data-toggle-secret]')
-    if (secretToggle) {
-      toggleSecretField(secretToggle.dataset.toggleSecret || '', secretToggle)
       return
     }
 
@@ -146,11 +121,6 @@ async function refreshData() {
     state.userProviderConfigs = typeof userProviderData?.providers === 'object' && userProviderData.providers
       ? userProviderData.providers
       : {}
-
-    const availableTypes = getProviderTypes()
-    if (!availableTypes.includes(state.selectedProviderType)) {
-      state.selectedProviderType = availableTypes[0] || ''
-    }
   } catch (error) {
     state.error = error?.message || tr('provider.loadError', 'Failed to load providers')
   } finally {
@@ -201,17 +171,25 @@ function render() {
     <div class="pv-page">
       <div class="pv-page-header">
         <h1 data-i18n="provider.pageTitle">${tr('provider.pageTitle', 'Authentication Configuration')}</h1>
-        <p data-i18n="provider.subtitle">${tr('provider.subtitle', 'Choose a built-in instance for authentication configuration here.')}</p>
+        <p data-i18n="provider.subtitle">${tr('provider.subtitle', 'Review and manage your personal provider access configuration.')}</p>
       </div>
-      ${renderProviderBand()}
-      ${renderSelectedProvider()}
+      ${renderProviderSections()}
       ${renderModal()}
     </div>
   `
 }
 
-function renderProviderBand() {
+function renderProviderSections() {
   const providerTypes = getProviderTypes()
+
+  if (state.loading) {
+    return `
+      <div class="pv-empty">
+        <strong data-i18n="provider.loadingTitle">${tr('provider.loadingTitle', 'Loading provider inventory')}</strong>
+        <span data-i18n="provider.loadingDescription">${tr('provider.loadingDescription', 'Syncing provider instances and personal credential status.')}</span>
+      </div>
+    `
+  }
 
   if (!providerTypes.length) {
     return `
@@ -223,71 +201,31 @@ function renderProviderBand() {
   }
 
   return `
-    <div class="pv-type-band-shell">
-      <div class="pv-type-band">
-        ${providerTypes.map(renderProviderCard).join('')}
-      </div>
+    <div class="pv-sections">
+      ${providerTypes.map((providerType) => renderProviderSection(providerType)).join('')}
+      ${state.error ? `<div class="pv-inline-note"><span class="pv-inline-note-label" data-i18n="provider.errorLabel">${tr('provider.errorLabel', 'Error')}</span>${escapeHtml(state.error)}</div>` : ''}
     </div>
   `
 }
 
-function renderProviderCard(providerType) {
-  const meta = getProviderMeta(providerType)
-  const selectedClass = providerType === state.selectedProviderType ? 'selected' : ''
-
-  return `
-    <button
-      type="button"
-      class="pv-type-card pv-type-card-compact ${selectedClass}"
-      data-provider-card
-      data-type="${escapeHtml(providerType)}"
-      style="--pv-accent: ${escapeHtml(meta.accent)}"
-    >
-      <div class="pv-card-header">
-        <span class="pv-card-icon">${escapeHtml(meta.icon)}</span>
-        <div class="pv-card-title-group">
-          <strong>${escapeHtml(meta.name)}</strong>
-          <span class="pv-card-badge">${escapeHtml(meta.badge)}</span>
-        </div>
-      </div>
-      <p class="pv-card-copy">${escapeHtml(meta.description)}</p>
-    </button>
-  `
-}
-
-function renderSelectedProvider() {
-  const providerType = state.selectedProviderType
-  if (!providerType) {
-    return ''
-  }
-
+function renderProviderSection(providerType) {
   const meta = getProviderMeta(providerType)
   const rows = getTemplateRows(providerType)
 
   return `
-    <section class="pv-panel">
+    <section class="pv-panel pv-provider-section" data-provider-section data-provider-type="${escapeHtml(providerType)}">
       <div class="pv-panel-header compact">
         <div>
-          <h2 class="pv-panel-title">${tr('provider.inventoryTitle', `${meta.name} Authentication Configuration`, { provider: meta.name })}</h2>
-          <p data-i18n="provider.inventoryDescription">${tr('provider.inventoryDescription', 'Choose a built-in instance for authentication configuration here.')}</p>
+          <h2 class="pv-panel-title">${escapeHtml(meta.name)}</h2>
+          <p>${escapeHtml(meta.description)}</p>
         </div>
       </div>
       ${renderTemplatesTable(rows)}
-      ${state.error ? `<div class="pv-inline-note"><span class="pv-inline-note-label" data-i18n="provider.errorLabel">${tr('provider.errorLabel', 'Error')}</span>${escapeHtml(state.error)}</div>` : ''}
     </section>
   `
 }
 
 function renderTemplatesTable(rows) {
-  if (state.loading) {
-    return `
-      <div class="pv-empty compact">
-        <strong data-i18n="provider.loadingTitle">${tr('provider.loadingTitle', 'Loading provider inventory')}</strong>
-        <span data-i18n="provider.loadingDescription">${tr('provider.loadingDescription', 'Syncing provider instances and personal credential status.')}</span>
-      </div>
-    `
-  }
-
   if (!rows.length) {
     return `
       <div class="pv-empty compact">
@@ -304,7 +242,7 @@ function renderTemplatesTable(rows) {
           <tr>
             <th>${tr('provider.tableInstance', 'Instance')}</th>
             <th>${tr('provider.tableBaseUrl', 'Base URL')}</th>
-            <th>${tr('provider.tableToken', 'Token')}</th>
+            <th>${tr('provider.tableAccessConfig', 'Access Configuration')}</th>
             <th>${tr('provider.tableUpdated', 'Updated')}</th>
             <th></th>
           </tr>
@@ -327,11 +265,10 @@ function renderTemplateRow(row) {
           <div class="pv-instance-heading">
             <strong>${escapeHtml(row.instanceName)}</strong>
           </div>
-          <span>${escapeHtml(getProviderMeta(row.providerType).name)}</span>
         </div>
       </td>
       <td>${escapeHtml(row.baseUrl || tr('provider.notConfigured', 'Not configured'))}</td>
-      <td><span class="pv-token-value">${escapeHtml(row.tokenValue)}</span></td>
+      <td>${renderAccessConfigSummary(row.providerType, row.config, row.instanceName, row.configured)}</td>
       <td><span class="${row.updatedLabel === '--' ? 'pv-cell-muted' : ''}">${escapeHtml(row.updatedLabel)}</span></td>
       <td class="pv-table-action-cell">
         <div class="pv-actions">
@@ -348,6 +285,30 @@ function renderTemplateRow(row) {
   `
 }
 
+function renderAccessConfigSummary(providerType, config = {}, instanceName = '', isConfigured = false) {
+  const visibleFields = getProviderCredentialFields(providerType, config, instanceName)
+    .filter((field) => field.type !== 'hidden')
+
+  if (!visibleFields.length) {
+    return `<span class="pv-cell-muted">${escapeHtml(tr('provider.noExtraSecret', 'No credential field'))}</span>`
+  }
+
+  return `
+    <div class="pv-config-stack">
+      ${visibleFields.map((field) => renderAccessConfigItem(field, config[field.name], isConfigured)).join('')}
+    </div>
+  `
+}
+
+function renderAccessConfigItem(field, rawValue, isConfigured) {
+  return `
+    <div class="pv-config-item">
+      <span class="pv-config-key">${escapeHtml(getSchemaFieldLabel(field))}</span>
+      <span class="pv-config-value ${String(formatConfigValue(field, rawValue, isConfigured) || '').trim() ? '' : 'is-muted'}">${escapeHtml(formatConfigValue(field, rawValue, isConfigured))}</span>
+    </div>
+  `
+}
+
 function renderModal() {
   if (!state.modal?.open) {
     return ''
@@ -356,7 +317,7 @@ function renderModal() {
   const modal = state.modal
   const meta = getProviderMeta(modal.providerType)
   const template = getTemplateByInstance(modal.providerType, modal.instanceName)
-  const credentialFields = getProviderCredentialFields(modal.providerType, modal.values)
+  const credentialFields = getProviderCredentialFields(modal.providerType, modal.values, modal.instanceName)
   const hiddenFields = credentialFields.filter((field) => field.type === 'hidden')
   const visibleFields = credentialFields.filter((field) => field.type !== 'hidden')
   const modalTitle = tr('provider.modalConfigureTitleSpecific', `Configure ${meta.name}`, { provider: meta.name })
@@ -378,12 +339,12 @@ function renderModal() {
         </div>
         <form id="providerModalForm">
           <div class="pv-modal-body">
-            ${hiddenFields.map((field) => renderSchemaField(field, modal.values[field.name] || '')).join('')}
+            ${hiddenFields.map((field) => renderSchemaField(field, modal.values[field.name] || '', modal)).join('')}
             <div class="pv-modal-primary-fields">
               <div class="pv-modal-grid">
-                ${renderReadonlyField(tr('provider.providerType', 'Provider Type'), meta.name)}
-                ${renderInstanceSelect(modal.providerType, modal.instanceName)}
-                ${renderTextField(
+                ${renderStaticField(tr('provider.providerType', 'Provider Type'), meta.name)}
+                ${renderStaticField(tr('provider.instanceName', 'Instance'), modal.instanceName)}
+                ${renderStaticField(
                   tr('provider.baseUrl', 'Base URL'),
                   template?.baseUrl || tr('provider.notConfigured', 'Not configured')
                 )}
@@ -391,7 +352,7 @@ function renderModal() {
             </div>
             <div class="pv-form-section-title">${tr('provider.connectionParameters', 'Access Configuration')}</div>
             ${visibleFields.length
-              ? `<div class="pv-modal-stack">${visibleFields.map((field) => renderSchemaField(field, modal.values[field.name] || '')).join('')}</div>`
+              ? `<div class="pv-modal-stack">${visibleFields.map((field) => renderSchemaField(field, modal.values[field.name] || '', modal)).join('')}</div>`
               : `<div class="pv-inline-note"><span class="pv-inline-note-label">${tr('provider.noExtraSecret', 'No credential field')}</span>${tr('provider.noExtraSecretDescription', 'This provider instance does not expose additional personal credential fields.')}</div>`
             }
             ${modal.error ? `<div class="pv-inline-note is-error"><span class="pv-inline-note-label">${tr('provider.saveFailedLabel', 'Save failed')}</span>${escapeHtml(modal.error)}</div>` : ''}
@@ -406,44 +367,17 @@ function renderModal() {
   `
 }
 
-function renderReadonlyField(label, value, className = '') {
-  const wrapperClass = ['pv-form-field', className].filter(Boolean).join(' ')
-  return `
-    <label class="${escapeHtml(wrapperClass)}">
-      <span>${escapeHtml(label)}</span>
-      <div class="pv-readonly-pill">${escapeHtml(value)}</div>
-    </label>
-  `
-}
-
-function renderTextField(label, value, className = '') {
+function renderStaticField(label, value, className = '') {
   const wrapperClass = ['pv-form-field', className].filter(Boolean).join(' ')
   return `
     <div class="${escapeHtml(wrapperClass)}">
-      <span>${escapeHtml(label)}</span>
-      <div class="pv-text-value">${escapeHtml(value)}</div>
+      <span class="pv-static-label">${escapeHtml(label)}</span>
+      <div class="pv-static-value">${escapeHtml(value)}</div>
     </div>
   `
 }
 
-function renderInstanceSelect(providerType, selectedInstanceName) {
-  const instances = getConfigFileTemplates(providerType)
-
-  return `
-    <label class="pv-form-field">
-      <span>${tr('provider.instanceName', 'Instance')}</span>
-      <select class="pv-form-input" name="instance_name">
-        ${instances.map((instance) => `
-          <option value="${escapeHtml(instance.instanceName)}" ${instance.instanceName === selectedInstanceName ? 'selected' : ''}>
-            ${escapeHtml(instance.instanceName)}
-          </option>
-        `).join('')}
-      </select>
-    </label>
-  `
-}
-
-function renderSchemaField(field, value) {
+function renderSchemaField(field, value, modalContext = null) {
   const fieldName = String(field?.name || '')
   if (!fieldName) {
     return ''
@@ -454,21 +388,21 @@ function renderSchemaField(field, value) {
   }
 
   const label = getSchemaFieldLabel(field)
-  const placeholder = getSchemaFieldPlaceholder(field)
-  const required = field.required ? 'required' : ''
-  const normalizedFieldName = fieldName.trim().toLowerCase()
-  const showPlainTextValue = normalizedFieldName.includes('token') && !normalizedFieldName.includes('secret')
+  const hasStoredSensitiveValue = Boolean(
+    modalContext
+    && (field?.sensitive || field?.type === 'password')
+    && getUserProviderEntry(modalContext.providerType, modalContext.instanceName)?.configured
+  )
+  const placeholder = hasStoredSensitiveValue
+    ? tr('provider.secretUpdatePlaceholder', 'Enter a new value to update')
+    : getSchemaFieldPlaceholder(field)
+  const required = field.required && !hasStoredSensitiveValue ? 'required' : ''
 
-  if (field.type === 'password' && !showPlainTextValue) {
+  if (field.type === 'password') {
     return `
       <label class="pv-form-field">
         <span>${escapeHtml(label)}</span>
-        <div class="pv-secret-field">
-          <input class="pv-form-input" type="password" name="${escapeHtml(fieldName)}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required}>
-          <button class="pv-secret-toggle" type="button" data-toggle-secret="${escapeHtml(fieldName)}" aria-label="${tr('provider.toggleSecretVisibility', 'Show or hide secret')}">
-            ${ACTION_ICONS.eye}
-          </button>
-        </div>
+        <input class="pv-form-input" type="text" name="${escapeHtml(fieldName)}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required}>
       </label>
     `
   }
@@ -476,7 +410,7 @@ function renderSchemaField(field, value) {
   return `
     <label class="pv-form-field">
       <span>${escapeHtml(label)}</span>
-      <input class="pv-form-input" type="${showPlainTextValue ? 'text' : escapeHtml(field.type || 'text')}" name="${escapeHtml(fieldName)}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required}>
+      <input class="pv-form-input" type="${escapeHtml(field.type || 'text')}" name="${escapeHtml(fieldName)}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" ${required}>
     </label>
   `
 }
@@ -512,9 +446,8 @@ function syncModalStateFromDOM() {
   }
 
   const formData = new FormData(form)
-  state.modal.instanceName = String(formData.get('instance_name') || '')
   state.modal.values = Object.fromEntries(
-    getProviderCredentialFields(state.modal.providerType, state.modal.values).map((field) => [
+    getProviderCredentialFields(state.modal.providerType, state.modal.values, state.modal.instanceName).map((field) => [
       field.name,
       String(formData.get(field.name) || '')
     ])
@@ -538,7 +471,7 @@ async function saveModal() {
     }
 
     const config = {}
-    for (const field of getProviderCredentialFields(state.modal.providerType, state.modal.values)) {
+    for (const field of getProviderCredentialFields(state.modal.providerType, state.modal.values, state.modal.instanceName)) {
       const normalizedValue = String(state.modal.values?.[field.name] ?? '').trim()
       if (normalizedValue || field.default != null) {
         config[field.name] = normalizedValue || String(field.default)
@@ -620,16 +553,6 @@ function getProviderMeta(providerType) {
   }
 }
 
-function getProviderSummary(providerType) {
-  const rows = getTemplateRows(providerType)
-
-  return {
-    totalTemplates: rows.length,
-    configuredCount: rows.filter((row) => row.configured).length,
-    pendingCount: rows.filter((row) => !row.configured).length
-  }
-}
-
 function getConfigFileTemplates(providerType) {
   return state.serviceProviders
     .filter((entry) => entry.provider_type === providerType)
@@ -663,7 +586,6 @@ function getTemplateRows(providerType) {
       instanceName: template.instanceName,
       baseUrl: template.baseUrl,
       configured: Boolean(userEntry?.configured),
-      tokenValue: getCredentialValue(providerType, userEntry?.config || {}),
       updatedLabel: formatTimestamp(userEntry?.updated_at),
       config: userEntry?.config || {}
     }
@@ -682,14 +604,36 @@ function indexProviderDefinitions(definitions) {
   )
 }
 
-function getProviderCredentialFields(providerType, values = {}) {
+function getProviderSchemaFields(providerType) {
   const fields = state.providerDefinitions[providerType]?.schema?.fields
   if (!Array.isArray(fields) || !fields.length) {
     return []
   }
 
-  const authTypeField = fields.find((field) => field?.name === 'auth_type')
-  const authType = String(values?.auth_type || authTypeField?.default || '').trim().toLowerCase()
+  return fields
+}
+
+function getEffectiveAuthType(providerType, instanceName = '', values = {}, fields = null) {
+  const schemaFields = Array.isArray(fields) ? fields : getProviderSchemaFields(providerType)
+  if (!schemaFields.length) {
+    return ''
+  }
+
+  const authTypeField = schemaFields.find((field) => field?.name === 'auth_type')
+  const templateAuthType = String(getTemplateByInstance(providerType, instanceName)?.authType || '').trim().toLowerCase()
+  const currentAuthType = String(values?.auth_type || '').trim().toLowerCase()
+  const defaultAuthType = String(authTypeField?.default || '').trim().toLowerCase()
+
+  return templateAuthType || currentAuthType || defaultAuthType
+}
+
+function getProviderCredentialFields(providerType, values = {}, instanceName = '') {
+  const fields = getProviderSchemaFields(providerType)
+  if (!fields.length) {
+    return []
+  }
+
+  const authType = getEffectiveAuthType(providerType, instanceName, values, fields)
 
   return fields.filter((field) => {
     if (field?.name === 'base_url') {
@@ -702,10 +646,18 @@ function getProviderCredentialFields(providerType, values = {}) {
 
 function getInitialCredentialValues(providerType, instanceName) {
   const savedConfig = getUserProviderEntry(providerType, instanceName)?.config || {}
+  const effectiveAuthType = getEffectiveAuthType(providerType, instanceName, savedConfig)
+  const resolvedValues = effectiveAuthType
+    ? { ...savedConfig, auth_type: effectiveAuthType }
+    : { ...savedConfig }
+
   return Object.fromEntries(
-    getProviderCredentialFields(providerType, savedConfig).map((field) => {
-      const currentValue = savedConfig?.[field.name]
+    getProviderCredentialFields(providerType, resolvedValues, instanceName).map((field) => {
+      const currentValue = resolvedValues?.[field.name]
       if (currentValue !== undefined && currentValue !== null && String(currentValue) !== '') {
+        if (field?.sensitive || field?.type === 'password') {
+          return [field.name, '']
+        }
         return [field.name, String(currentValue)]
       }
       if (field.default != null) {
@@ -716,24 +668,6 @@ function getInitialCredentialValues(providerType, instanceName) {
   )
 }
 
-function getCredentialValue(providerType, config) {
-  const definitionFields = state.providerDefinitions[providerType]?.schema?.fields
-  const sensitiveFieldNames = Array.isArray(definitionFields)
-    ? definitionFields
-      .filter((field) => field?.sensitive && field?.name)
-      .map((field) => String(field.name))
-    : []
-
-  for (const fieldName of sensitiveFieldNames) {
-    const rawValue = String(config?.[fieldName] || '').trim()
-    if (rawValue) {
-      return rawValue
-    }
-  }
-
-  return '--'
-}
-
 function getSchemaFieldLabel(field) {
   return tr(field.label_i18n_key || '', field.label || field.name || '')
 }
@@ -742,19 +676,24 @@ function getSchemaFieldPlaceholder(field) {
   return tr(field.placeholder_i18n_key || '', field.placeholder || '')
 }
 
-function toggleSecretField(fieldName, button) {
-  if (!pageContainer || !fieldName) {
-    return
+function formatConfigValue(field, rawValue, isConfigured = false) {
+  const normalizedValue = String(rawValue ?? '').trim()
+
+  if (field?.sensitive || field?.type === 'password') {
+    if (isConfigured) {
+      return tr('provider.statusConfigured', 'Configured')
+    }
+    if (!normalizedValue) {
+      return tr('provider.notConfigured', 'Not configured')
+    }
+    return tr('provider.statusConfigured', 'Configured')
   }
 
-  const input = pageContainer.querySelector(`#providerModalForm input[name="${fieldName}"]`)
-  if (!input) {
-    return
+  if (!normalizedValue) {
+    return tr('provider.notConfigured', 'Not configured')
   }
 
-  const isPassword = input.type === 'password'
-  input.type = isPassword ? 'text' : 'password'
-  button.innerHTML = isPassword ? ACTION_ICONS.eyeOff : ACTION_ICONS.eye
+  return normalizedValue
 }
 
 function formatTimestamp(value) {
