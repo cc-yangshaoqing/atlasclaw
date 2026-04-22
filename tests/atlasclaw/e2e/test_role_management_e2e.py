@@ -27,7 +27,6 @@ def _create_role_management_app(
         },
         "providers_root": "./app/atlasclaw/providers",
         "skills_root": "./app/atlasclaw/skills",
-        "channels_root": "./app/atlasclaw/channels",
         "database": {
             "type": "sqlite",
             "sqlite": {

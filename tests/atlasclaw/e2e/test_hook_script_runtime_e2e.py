@@ -58,7 +58,6 @@ print(json.dumps({
         },
         "providers_root": "./app/atlasclaw/providers",
         "skills_root": "./app/atlasclaw/skills",
-        "channels_root": "./app/atlasclaw/channels",
         "database": {
             "type": "sqlite",
             "sqlite": {

@@ -147,12 +147,10 @@ def _build_e2e_config(tmp_path: Path, db_path: Path, cmp_base_url: str) -> dict[
     project_root = Path(__file__).resolve().parent.parent.parent.parent
     providers_root = str((project_root.parent / "atlasclaw-providers" / "providers").resolve())
     skills_root = str((project_root.parent / "atlasclaw-providers" / "skills").resolve())
-    channels_root = str((project_root.parent / "atlasclaw-providers" / "channels").resolve())
     return {
         "workspace": {"path": str((tmp_path / ".atlasclaw-e2e").resolve())},
         "providers_root": providers_root,
         "skills_root": skills_root,
-        "channels_root": channels_root,
         "database": {"type": "sqlite", "sqlite": {"path": str(db_path.resolve())}},
         "auth": {
             "enabled": True,
