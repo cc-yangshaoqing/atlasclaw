@@ -419,15 +419,16 @@ class RunnerToolGateRoutingMixin:
         normalized = unicodedata.normalize("NFKC", normalized)
         parts = [
             item.strip()
-            for item in re.split(r"\s*[,;|]\s*", normalized)
+            for item in re.split(r"\s*[,，;；|]\s*", normalized)
             if item.strip()
         ]
-        if len(parts) < 2:
-            return False
-        informative_parts = [
-            item for item in parts if len(re.sub(r"\s+", "", item)) >= 2
-        ]
-        return len(informative_parts) >= 2
+        if len(parts) >= 2:
+            informative_parts = [
+                item for item in parts if len(re.sub(r"\s+", "", item)) >= 2
+            ]
+            if len(informative_parts) >= 2:
+                return True
+        return False
     @staticmethod
     def _build_classifier_history(
         *,
@@ -672,7 +673,7 @@ class RunnerToolGateRoutingMixin:
             return False
         normalized_text = unicodedata.normalize("NFKC", text)
         lowered = normalized_text.lower()
-        question_count = normalized_text.count("?")
+        question_count = normalized_text.count("?") + normalized_text.count("？")
         numbered_choices = len(
             re.findall(r"(?:^|[\s\n])(?:\[\d+\]|\d[\)\.])", normalized_text)
         )
@@ -689,16 +690,37 @@ class RunnerToolGateRoutingMixin:
             "select",
             "tell me",
             "provide",
+            "请回复",
+            "请提供",
+            "请补充",
+            "请填写",
+            "请输入",
+            "请选择",
+            "请确认",
+            "确认",
+            "提供",
+            "补充",
+            "填写",
+            "输入",
+            "选择",
+            "以下信息",
+            "以下字段",
         )
         selection_prompt_markers = (
             "enter number",
             "input number",
             "choose a number",
             "select a number",
+            "输入编号",
+            "请输入编号",
+            "选择编号",
+            "回复编号",
+            "输入序号",
+            "请选择业务组",
         )
         marker_hits = sum(1 for marker in interaction_markers if marker in lowered)
         has_selection_prompt = any(marker in lowered for marker in selection_prompt_markers)
-        has_prompt_suffix = bool(re.search(r"[:?]\s*$", normalized_text))
+        has_prompt_suffix = bool(re.search(r"[:：?？]\s*$", normalized_text))
         if numbered_choices >= 2 and enumerated_field_lines >= 2:
             return True
         if numbered_choices >= 2 and marker_hits >= 1:
@@ -1256,10 +1278,8 @@ class RunnerToolGateRoutingMixin:
         top_k_skill = max(1, int(top_k_skill or 1))
         history_text = ""
         if used_follow_up_context:
-            history_text = " ".join(
-                str(item.get("content", "") or "").strip()
-                for item in recent_history[-4:]
-                if isinstance(item, dict)
+            history_text = self._build_follow_up_metadata_history_text(
+                recent_history=recent_history
             )
         request_text = " ".join([str(user_message or "").strip(), history_text]).strip()
         request_tokens = self._tokenize_classifier_fallback_text(request_text)
@@ -1475,6 +1495,32 @@ class RunnerToolGateRoutingMixin:
             "confidence": confidence,
             "reason": reason,
         }
+
+    @staticmethod
+    def _build_follow_up_metadata_history_text(
+        *,
+        recent_history: list[dict[str, Any]],
+        max_items: int = 4,
+    ) -> str:
+        """Keep metadata recall anchored on user intent during short follow-ups.
+
+        `_resolve_contextual_tool_request()` already merges the current follow-up with the
+        previous substantive user request. Reusing assistant prose here mostly injects
+        model-generated noise into metadata recall and can cause the next turn to chase
+        hallucinated artifact or tool names from an earlier bad response.
+        """
+        safe_max_items = max(1, int(max_items or 0))
+        parts: list[str] = []
+        for item in recent_history[-safe_max_items:]:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("role", "") or "").strip().lower() != "user":
+                continue
+            content = " ".join(str(item.get("content", "") or "").split()).strip()
+            if content:
+                parts.append(content)
+        return " ".join(parts).strip()
+
     def _apply_provider_hard_prefilter(
         self,
         *,
