@@ -55,7 +55,7 @@ from app.atlasclaw.core.workspace import WorkspaceInitializer
 from app.atlasclaw.agent.agent_definition import AgentLoader
 from app.atlasclaw.channels import ChannelRegistry
 from app.atlasclaw.channels.manager import ChannelManager
-# Import channel handlers from providers
+# Import channel handlers
 from app.atlasclaw.channels.handlers.feishu import FeishuHandler
 from app.atlasclaw.channels.handlers.dingtalk import DingTalkHandler
 from app.atlasclaw.channels.handlers.wecom import WeComHandler
@@ -209,14 +209,11 @@ async def lifespan(app: FastAPI):
     config_root = config_path.parent if config_path is not None else Path.cwd()
     providers_root = (config_root / config.providers_root).resolve()
     skills_root = (config_root / config.skills_root).resolve()
-    channels_root = (config_root / config.channels_root).resolve()
 
     provider_plugins = scan_plugin_names(providers_root)
     skill_plugins = scan_plugin_names(skills_root, md_skill_mode=True)
-    channel_plugins = scan_plugin_names(channels_root)
     print_root_plugins("providers_root plugins", providers_root, provider_plugins)
     print_root_plugins("skills_root plugins", skills_root, skill_plugins)
-    print_root_plugins("channels_root plugins", channels_root, channel_plugins)
 
     # Get workspace path from config
     workspace_path = config.workspace.path
@@ -286,10 +283,9 @@ async def lifespan(app: FastAPI):
     set_channel_manager(_channel_manager)
     print(f"[AtlasClaw] Channel manager initialized")
     
-    # Scan providers for channel and auth extensions
-    providers_dir = providers_root
-    scan_results = ProviderScanner.scan_providers(providers_dir)
-    print(f"[AtlasClaw] Provider scan complete: {len(scan_results['channels'])} channels, {len(scan_results['auth'])} auth providers")
+    # Scan providers for auth extensions only.
+    scan_results = ProviderScanner.scan_providers(providers_root)
+    print(f"[AtlasClaw] Provider scan complete: {len(scan_results['auth'])} auth providers")
     
     # Load agent definitions - try database first, fallback to file-based
     agent_loader = AgentLoader(workspace_path)

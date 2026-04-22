@@ -444,15 +444,11 @@ class AtlasClawConfig(BaseModel):
     agents_dir: str = Field(default="~/.atlasclaw/agents", description="Agent directory (backward compatibility)")
     providers_root: str = Field(
         default="../providers",
-        description="Root directory for provider templates and skills, resolved relative to atlasclaw.json",
+        description="Root directory for provider packages, resolved relative to atlasclaw.json",
     )
     skills_root: str = Field(
         default="../skills",
-        description="Root directory for standalone skills (not tied to providers), resolved relative to atlasclaw.json",
-    )
-    channels_root: str = Field(
-        default="../channels",
-        description="Root directory for system-level channel configurations, resolved relative to atlasclaw.json",
+        description="Root directory for standalone skill packages outside provider packages, resolved relative to atlasclaw.json",
     )
     
     # Nested configuration sections

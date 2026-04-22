@@ -5,10 +5,7 @@
 
 from __future__ import annotations
 
-import importlib.util
-import inspect
 import logging
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Type
 
 from .handler import ChannelHandler
@@ -18,10 +15,7 @@ logger = logging.getLogger(__name__)
 
 
 class ChannelRegistry:
-    """Unified channel registry for built-in and extension channels.
-    
-    Manages channel handler classes and their instances.
-    """
+    """Registry for channel handler classes and their instances."""
     
     _handlers: Dict[str, Type[ChannelHandler]] = {}
     _instances: Dict[str, ChannelHandler] = {}
@@ -128,73 +122,3 @@ class ChannelRegistry:
             Channel connection or None if not found
         """
         return cls._connections.get(connection_id)
-    
-    @classmethod
-    def scan_providers(cls, providers_dir: Path) -> None:
-        """Scan providers directory for channel extensions.
-        
-        Args:
-            providers_dir: Path to providers directory
-        """
-        if not providers_dir.exists():
-            logger.warning(f"Providers directory not found: {providers_dir}")
-            return
-        
-        for provider_dir in providers_dir.iterdir():
-            if not provider_dir.is_dir():
-                continue
-            
-            channels_dir = provider_dir / "channels"
-            if not channels_dir.exists():
-                continue
-            
-            cls._scan_channel_extensions(channels_dir)
-    
-    @classmethod
-    def _scan_channel_extensions(cls, channels_dir: Path) -> None:
-        """Scan channel extensions in a directory.
-        
-        Args:
-            channels_dir: Path to channels directory
-        """
-        for file_path in channels_dir.glob("*.py"):
-            if file_path.name.startswith("_"):
-                continue
-            
-            try:
-                module = cls._import_module_from_path(file_path)
-                cls._register_handlers_from_module(module)
-            except Exception as e:
-                logger.error(f"Failed to load channel extension {file_path}: {e}")
-    
-    @classmethod
-    def _import_module_from_path(cls, file_path: Path) -> Any:
-        """Import a module from file path.
-        
-        Args:
-            file_path: Path to Python file
-            
-        Returns:
-            Imported module
-        """
-        spec = importlib.util.spec_from_file_location(
-            file_path.stem, file_path
-        )
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        return module
-    
-    @classmethod
-    def _register_handlers_from_module(cls, module: Any) -> None:
-        """Register channel handlers from a module.
-        
-        Args:
-            module: Imported module
-        """
-        for name, obj in inspect.getmembers(module):
-            if (inspect.isclass(obj) and 
-                issubclass(obj, ChannelHandler) and 
-                obj is not ChannelHandler and
-                hasattr(obj, 'channel_type') and
-                obj.channel_type):
-                cls.register(obj.channel_type, obj)

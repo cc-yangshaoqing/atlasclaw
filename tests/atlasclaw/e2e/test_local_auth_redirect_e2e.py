@@ -29,7 +29,6 @@ def _create_local_auth_app(
         "base_path": base_path,
         "providers_root": "./app/atlasclaw/providers",
         "skills_root": "./app/atlasclaw/skills",
-        "channels_root": "./app/atlasclaw/channels",
         "database": {
             "type": "sqlite",
             "sqlite": {

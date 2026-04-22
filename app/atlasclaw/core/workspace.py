@@ -18,8 +18,9 @@ class WorkspaceInitializer:
     """Initialize and manage workspace directory structure.
     
     The workspace directory (default: ./.atlasclaw, configurable) contains ONLY user
-    runtime data and the core configuration file. Code/config directories (providers,
-    skills, channels) are stored in sibling directories configured via *_root settings.
+    runtime data and the core configuration file. Provider packages and standalone
+    skill packages are stored outside the workspace via `providers_root` and
+    `skills_root`; channel handlers live in the application source tree.
     
     Directory structure:
     <workspace>/                 (default: ./.atlasclaw)
@@ -46,8 +47,8 @@ class WorkspaceInitializer:
         ├── agents/                  # Agent definitions
         └── users/                   # User data only
         
-        Note: skills/ and channels/ are now external directories configured via
-        skills_root and channels_root in atlasclaw.json.
+        Note: standalone skills are external via `skills_root`, while channel
+        handlers live in `app/atlasclaw/channels`.
         
         Returns:
             True if initialization was successful.
@@ -56,7 +57,7 @@ class WorkspaceInitializer:
             # Create workspace directory structure
             self.workspace_path.mkdir(parents=True, exist_ok=True)
             (self.workspace_path / "agents").mkdir(exist_ok=True)
-            # skills/ and channels/ are now external (skills_root, channels_root)
+            # Standalone skills are external; channel handlers live in the app source.
             
             # Create users directory inside workspace
             self.users_dir.mkdir(exist_ok=True)
@@ -89,7 +90,7 @@ class WorkspaceInitializer:
 
         """Check if workspace is initialized.
         
-        Note: skills/ and channels/ are no longer required as they are external.
+        Note: standalone skills are external and channel handlers live in the app source.
         """
         return (
             self.workspace_path.exists()

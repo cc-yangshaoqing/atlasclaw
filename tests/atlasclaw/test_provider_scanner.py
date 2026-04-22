@@ -8,10 +8,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from app.atlasclaw.auth import AuthRegistry
-from app.atlasclaw.channels import ChannelRegistry
 from app.atlasclaw.core.provider_scanner import ProviderScanner
 
 
@@ -20,9 +17,6 @@ class TestProviderScanner:
 
     def setup_method(self):
         """Clear registries before each test."""
-        ChannelRegistry._handlers.clear()
-        ChannelRegistry._instances.clear()
-        ChannelRegistry._connections.clear()
         AuthRegistry._providers.clear()
 
     def test_scan_providers_empty_directory(self):
@@ -43,15 +37,13 @@ class TestProviderScanner:
         assert results["channels"] == []
         assert results["skills"] == []
 
-    def test_scan_providers_with_channels(self):
-        """Test scanning providers with channel extensions."""
+    def test_scan_providers_ignores_provider_channels(self):
+        """Provider-owned channel extensions should not be loaded into core."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Create provider structure
             provider_dir = Path(temp_dir) / "test_provider"
             channels_dir = provider_dir / "channels"
             channels_dir.mkdir(parents=True)
-            
-            # Create a test channel handler file
+
             handler_file = channels_dir / "test_channel.py"
             handler_file.write_text('''
 from app.atlasclaw.channels.handler import ChannelHandler
@@ -84,11 +76,10 @@ class TestChannelHandler(ChannelHandler):
     def describe_schema(self):
         return {"type": "object"}
 ''')
-            
+
             results = ProviderScanner.scan_providers(Path(temp_dir))
-            
-            assert "test_channel" in results["channels"]
-            assert ChannelRegistry.get("test_channel") is not None
+
+            assert results["channels"] == []
 
     def test_scan_providers_with_auth(self):
         """Test scanning providers with auth extensions."""
@@ -145,102 +136,63 @@ class TestAuthProvider(AuthProvider):
         """Test that private files (starting with _) are skipped."""
         with tempfile.TemporaryDirectory() as temp_dir:
             provider_dir = Path(temp_dir) / "test_provider"
-            channels_dir = provider_dir / "channels"
-            channels_dir.mkdir(parents=True)
-            
-            # Create private file
-            private_file = channels_dir / "_private.py"
+            auth_dir = provider_dir / "auth"
+            auth_dir.mkdir(parents=True)
+
+            private_file = auth_dir / "_private.py"
             private_file.write_text("# This should be ignored")
-            
+
             results = ProviderScanner.scan_providers(Path(temp_dir))
-            
-            assert "_private" not in results["channels"]
+
+            assert "_private" not in results["auth"]
 
     def test_scan_providers_multiple_providers(self):
         """Test scanning multiple providers."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Create first provider
             provider1_dir = Path(temp_dir) / "provider1"
-            channels1_dir = provider1_dir / "channels"
-            channels1_dir.mkdir(parents=True)
-            
-            handler1_file = channels1_dir / "channel1.py"
-            handler1_file.write_text('''
-from app.atlasclaw.channels.handler import ChannelHandler
-from app.atlasclaw.channels.models import ChannelMode, SendResult
+            auth1_dir = provider1_dir / "auth"
+            auth1_dir.mkdir(parents=True)
 
-class Channel1Handler(ChannelHandler):
-    channel_type = "channel1"
-    channel_name = "Channel 1"
-    channel_mode = ChannelMode.BIDIRECTIONAL
-    
-    async def setup(self, connection_config):
-        return True
-    
-    async def start(self, context):
-        return True
-    
-    async def stop(self):
-        return True
-    
-    async def handle_inbound(self, request):
-        return None
-    
-    async def send_message(self, outbound):
-        return SendResult(success=True)
-    
-    async def validate_config(self, config):
-        from app.atlasclaw.channels.models import ChannelValidationResult
-        return ChannelValidationResult(valid=True)
-    
-    def describe_schema(self):
-        return {"type": "object"}
+            auth1_file = auth1_dir / "auth1.py"
+            auth1_file.write_text('''
+from app.atlasclaw.auth.provider import AuthProvider
+
+class AuthProviderOne(AuthProvider):
+    auth_id = "auth1"
+    auth_name = "Auth 1"
+
+    async def authenticate(self, credentials):
+        return {"id": "user-1"}
+
+    def provider_name(self):
+        return "auth1"
 ''')
-            
-            # Create second provider
+
             provider2_dir = Path(temp_dir) / "provider2"
-            channels2_dir = provider2_dir / "channels"
-            channels2_dir.mkdir(parents=True)
-            
-            handler2_file = channels2_dir / "channel2.py"
-            handler2_file.write_text('''
-from app.atlasclaw.channels.handler import ChannelHandler
-from app.atlasclaw.channels.models import ChannelMode, SendResult
+            auth2_dir = provider2_dir / "auth"
+            auth2_dir.mkdir(parents=True)
 
-class Channel2Handler(ChannelHandler):
-    channel_type = "channel2"
-    channel_name = "Channel 2"
-    channel_mode = ChannelMode.BIDIRECTIONAL
-    
-    async def setup(self, connection_config):
-        return True
-    
-    async def start(self, context):
-        return True
-    
-    async def stop(self):
-        return True
-    
-    async def handle_inbound(self, request):
-        return None
-    
-    async def send_message(self, outbound):
-        return SendResult(success=True)
-    
-    async def validate_config(self, config):
-        from app.atlasclaw.channels.models import ChannelValidationResult
-        return ChannelValidationResult(valid=True)
-    
-    def describe_schema(self):
-        return {"type": "object"}
+            auth2_file = auth2_dir / "auth2.py"
+            auth2_file.write_text('''
+from app.atlasclaw.auth.provider import AuthProvider
+
+class AuthProviderTwo(AuthProvider):
+    auth_id = "auth2"
+    auth_name = "Auth 2"
+
+    async def authenticate(self, credentials):
+        return {"id": "user-2"}
+
+    def provider_name(self):
+        return "auth2"
 ''')
-            
+
             results = ProviderScanner.scan_providers(Path(temp_dir))
-            
-            assert "channel1" in results["channels"]
-            assert "channel2" in results["channels"]
-            assert ChannelRegistry.get("channel1") is not None
-            assert ChannelRegistry.get("channel2") is not None
+
+            assert "auth1" in results["auth"]
+            assert "auth2" in results["auth"]
+            assert AuthRegistry.get("auth1") is not None
+            assert AuthRegistry.get("auth2") is not None
 
     def test_import_module_from_path(self):
         """Test importing module from file path."""

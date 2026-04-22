@@ -20,8 +20,8 @@ class TestWorkspaceInitializer:
     def test_initialize_creates_directory_structure(self, tmp_path):
         """Test: Creates workspace directory structure
         
-        Note: providers, skills, channels are now external directories
-        configured via providers_root, skills_root, channels_root.
+        Note: provider packages and standalone skills are external directories;
+        channel handlers stay in AtlasClaw core.
         """
         workspace = tmp_path / ".atlasclaw"
         initializer = WorkspaceInitializer(str(workspace))
@@ -30,7 +30,7 @@ class TestWorkspaceInitializer:
         assert result is True
         assert workspace.exists()
         assert (workspace / "agents").exists()
-        # providers, skills, channels are now external (not in workspace)
+        # Provider packages and standalone skills are external; channels are not created in workspace.
         assert (workspace / "users").exists()
 
     def test_initialize_creates_default_main_agent(self, tmp_path):

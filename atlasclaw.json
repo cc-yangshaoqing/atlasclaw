@@ -22,7 +22,6 @@
 
   "providers_root": "../atlasclaw-providers/providers",
   "skills_root": "../atlasclaw-providers/skills",
-  "channels_root": "../atlasclaw-providers/channels",
   "search_runtime": {
     "default_provider": "bing_html_fallback",
     "provider_timeout_seconds": 8.0,
@@ -161,4 +160,3 @@
     ]
   }
 }
-

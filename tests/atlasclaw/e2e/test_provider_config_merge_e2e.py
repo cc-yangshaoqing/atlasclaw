@@ -56,7 +56,6 @@ def test_provider_config_db_overrides_json_on_startup(tmp_path: Path, monkeypatc
         },
         "providers_root": "./app/atlasclaw/providers",
         "skills_root": "./app/atlasclaw/skills",
-        "channels_root": "./app/atlasclaw/channels",
         "database": {
             "type": "sqlite",
             "sqlite": {

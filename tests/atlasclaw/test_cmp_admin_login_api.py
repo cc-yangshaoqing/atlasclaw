@@ -13,14 +13,12 @@ def _build_cmp_local_admin_config(tmp_path: Path, db_path: Path) -> dict:
     project_root = Path(__file__).resolve().parents[2]
     providers_root = str((project_root.parent / "atlasclaw-providers" / "providers").resolve())
     skills_root = str((project_root.parent / "atlasclaw-providers" / "skills").resolve())
-    channels_root = str((project_root.parent / "atlasclaw-providers" / "channels").resolve())
     return {
         "workspace": {
             "path": str((tmp_path / ".atlasclaw-cmp-admin").resolve()),
         },
         "providers_root": providers_root,
         "skills_root": skills_root,
-        "channels_root": channels_root,
         "database": {
             "type": "sqlite",
             "sqlite": {

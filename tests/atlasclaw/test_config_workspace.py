@@ -149,6 +149,18 @@ class TestConfigWorkspaceLoading:
         assert config.log_level.value == "debug"
         assert config.workspace.path == "./.atlasclaw"  # default value
 
+    def test_legacy_channels_root_is_ignored(self, tmp_path):
+        """Legacy channels_root should be tolerated but not surfaced in config."""
+        config_path = tmp_path / "legacy_config.json"
+        with open(config_path, "w") as f:
+            json.dump({"channels_root": "../channels"}, f)
+
+        config_manager = ConfigManager(config_path=str(config_path))
+        config = config_manager.load()
+
+        assert isinstance(config, AtlasClawConfig)
+        assert not hasattr(config, "channels_root")
+
 
 class TestWorkspaceConfigSchema:
     """Test WorkspaceConfig schema."""
