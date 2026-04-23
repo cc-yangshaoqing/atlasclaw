@@ -68,8 +68,8 @@ function getMessageContainer() {
   const dc = document.querySelector('deep-chat')
   if (!dc?.shadowRoot) return null
   return dc.shadowRoot.querySelector('.messages-container') ||
-    dc.shadowRoot.querySelector('[class*="message-container"]') ||
-    dc.shadowRoot.querySelector('#messages')
+    dc.shadowRoot.querySelector('#messages') ||
+    dc.shadowRoot.querySelector('[class*="message-container"]')
 }
 
 /**
@@ -161,18 +161,21 @@ function scrollToBottom() {
   container.scrollTop = container.scrollHeight
 }
 
-function syncRuntimePanelState(shouldOpen) {
-  setTimeout(() => {
-    const container = getMessageContainer()
-    if (!container) return
-    const details = getLatestRuntimePanel(container)
-    if (!details) return
-    if (shouldOpen) {
-      details.setAttribute('open', '')
-    } else {
-      details.removeAttribute('open')
-    }
-  }, 0)
+function applyRuntimePanelState(details, shouldOpen) {
+  if (!details) return
+  if (shouldOpen) {
+    details.setAttribute('open', '')
+  } else {
+    details.removeAttribute('open')
+  }
+}
+
+function readRenderedRuntimePanelOpen() {
+  const container = getMessageContainer()
+  if (!container) return null
+  const details = getLatestRuntimePanel(container)
+  if (!details) return null
+  return !!details.open
 }
 
 const THINKING_STYLES = `
@@ -875,6 +878,8 @@ async function handleStreamWithSignals(runId, signals, context) {
   let hasThinkingContent = false
   let runtimePanelUserOverride = false
   let runtimePanelOpen = null
+  let runtimePanelSyncTimer = null
+  let runtimePanelSuppressClickUntil = 0
   let runtimeEntries = [{ state: 'reasoning', message: 'Starting response analysis.' }]
   let finalAnswerReady = false
   let serverRuntimeSeen = false
@@ -990,22 +995,82 @@ async function handleStreamWithSignals(runId, signals, context) {
     return autoPanelShouldOpen()
   }
 
-  function bindRuntimePanelToggle() {
-    setTimeout(() => {
+  function cancelRuntimePanelStateSync() {
+    if (runtimePanelSyncTimer) {
+      clearTimeout(runtimePanelSyncTimer)
+      runtimePanelSyncTimer = null
+    }
+  }
+
+  function scheduleRuntimePanelStateSync(shouldOpen) {
+    cancelRuntimePanelStateSync()
+    runtimePanelSyncTimer = setTimeout(() => {
+      runtimePanelSyncTimer = null
       const container = getMessageContainer()
       if (!container) return
       const details = getLatestRuntimePanel(container)
-      if (!details || details._runtimeToggleBound) return
-      details._runtimeToggleBound = true
-      details.addEventListener('toggle', () => {
-        runtimePanelUserOverride = true
-        runtimePanelOpen = !!details.open
-      })
+      applyRuntimePanelState(details, shouldOpen)
     }, 0)
+  }
+
+  function captureRenderedRuntimePanelState() {
+    const renderedPanelOpen = readRenderedRuntimePanelOpen()
+    if (typeof renderedPanelOpen !== 'boolean') return
+    if (runtimePanelUserOverride) return
+    const autoPanelOpen = autoPanelShouldOpen()
+    if (renderedPanelOpen !== autoPanelOpen) {
+      runtimePanelUserOverride = true
+      runtimePanelOpen = renderedPanelOpen
+    }
+  }
+
+  function toggleRuntimePanel(details, nextOpen) {
+    cancelRuntimePanelStateSync()
+    runtimePanelUserOverride = true
+    runtimePanelOpen = !!nextOpen
+    details.open = !!nextOpen
+  }
+
+  function bindRuntimePanelToggle() {
+    const container = getMessageContainer()
+    if (!container) return
+    const resolveRuntimePanelDetails = (event) => {
+      if (!(event.target instanceof Element)) return null
+      const summary = event.target.closest('summary')
+      if (!(summary instanceof HTMLElement)) return null
+      const details = summary.parentElement
+      if (!(details instanceof HTMLElement) || !details.matches('details.runtime-panel')) return null
+      return { summary, details }
+    }
+    if (!container._runtimeMouseDownBound) {
+      container._runtimeMouseDownBound = true
+      container.addEventListener('mousedown', (event) => {
+        if (typeof event.button === 'number' && event.button !== 0) return
+        const resolved = resolveRuntimePanelDetails(event)
+        if (!resolved) return
+        event.preventDefault()
+        runtimePanelSuppressClickUntil = Date.now() + 300
+        toggleRuntimePanel(resolved.details, !resolved.details.open)
+        resolved.summary.focus?.({ preventScroll: true })
+      }, true)
+    }
+    if (!container._runtimeClickBound) {
+      container._runtimeClickBound = true
+      container.addEventListener('click', (event) => {
+        const resolved = resolveRuntimePanelDetails(event)
+        if (!resolved) return
+        event.preventDefault()
+        if (runtimePanelSuppressClickUntil > Date.now()) {
+          return
+        }
+        toggleRuntimePanel(resolved.details, !resolved.details.open)
+      }, true)
+    }
   }
 
   function updateUI() {
     try {
+      captureRenderedRuntimePanelState()
       renderRevision += 1
       const panelShouldOpen = currentPanelShouldOpen()
       const content = buildMessageContent(
@@ -1020,7 +1085,7 @@ async function handleStreamWithSignals(runId, signals, context) {
       )
       if (content.html) {
         signals.onResponse({ html: content.html, overwrite: true })
-        syncRuntimePanelState(panelShouldOpen)
+        scheduleRuntimePanelStateSync(panelShouldOpen)
         bindRuntimePanelToggle()
       }
       setupScrollListener()
@@ -1078,6 +1143,7 @@ async function handleStreamWithSignals(runId, signals, context) {
   return new Promise((resolve) => {
     scheduleLocalEarlyRuntimePhases()
     startRunTimer()
+    bindRuntimePanelToggle()
     currentStreamHandler = createStreamHandler(runId, {
       onStart: () => {
         updateUI()
@@ -1153,6 +1219,7 @@ async function handleStreamWithSignals(runId, signals, context) {
       onEnd: () => {
         const doFinalRender = async () => {
           clearLocalRuntimeSeedTimers()
+          cancelRuntimePanelStateSync()
           assistantUpdatePending = false
           thinkingFinalized = true
           stopThinkingTimer()
@@ -1176,6 +1243,7 @@ async function handleStreamWithSignals(runId, signals, context) {
       },
       onError: async (error) => {
         clearLocalRuntimeSeedTimers()
+        cancelRuntimePanelStateSync()
         thinkingFinalized = true
         stopThinkingTimer()
         pushRuntimeEntry('failed', error?.message || 'Unknown error', { phase: 'error' })

@@ -81,6 +81,17 @@ function createMockSignals() {
     };
 }
 
+function createDomSignals(messages) {
+    return {
+        onResponse: jest.fn((payload = {}) => {
+            if (!payload.overwrite) return;
+            messages.innerHTML = payload.html || '';
+        }),
+        onClose: jest.fn(),
+        stopClicked: { listener: null }
+    };
+}
+
 /**
  * Create a mock chat element for handler mode
  */
@@ -580,6 +591,183 @@ describe('chat-ui.js handler mode', () => {
 
         stream.simulateEvent('lifecycle', { phase: 'end' });
         await handlerPromise;
+    });
+
+    test('handler preserves manual runtime panel expansion during thinking rerenders', async () => {
+        jest.useFakeTimers();
+        try {
+            const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+            const { element, messages } = createDomChatElementWithMessages();
+            const signals = createDomSignals(messages);
+
+            global.fetch.mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ session_key: 'session-123' })
+            }).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({})
+            });
+
+            await initChat(element);
+            global.fetch.mockClear();
+
+            global.fetch.mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ run_id: 'run-thinking-panel-open' })
+            });
+
+            const handlerPromise = element.handler(
+                { messages: [{ text: 'show thinking details', role: 'user' }] },
+                signals
+            );
+
+            await jest.advanceTimersByTimeAsync(100);
+
+            const stream = MockEventSource.instances[0];
+            stream.simulateEvent('thinking', { phase: 'start' });
+            stream.simulateEvent('thinking', { phase: 'delta', content: 'First thought.' });
+
+            await jest.advanceTimersByTimeAsync(160);
+
+            const panel = messages.querySelector('details.runtime-panel');
+            expect(panel).not.toBeNull();
+            expect(panel.open).toBe(false);
+
+            const summary = panel.querySelector('summary');
+            expect(summary).not.toBeNull();
+            summary.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+            stream.simulateEvent('thinking', { phase: 'delta', content: ' Second thought.' });
+            await jest.advanceTimersByTimeAsync(160);
+
+            const htmlPayload = signals.onResponse.mock.calls.at(-1)?.[0]?.html || '';
+            const rerenderedPanel = messages.querySelector('details.runtime-panel');
+            expect(htmlPayload).toContain('details class="runtime-panel" open');
+            expect(rerenderedPanel).not.toBeNull();
+            expect(rerenderedPanel.open).toBe(true);
+
+            stream.simulateEvent('lifecycle', { phase: 'end' });
+            await jest.advanceTimersByTimeAsync(300);
+            await handlerPromise;
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    test('handler keeps manual runtime panel expansion when no new thinking delta arrives', async () => {
+        jest.useFakeTimers();
+        try {
+            const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+            const { element, messages } = createDomChatElementWithMessages();
+            const signals = createDomSignals(messages);
+
+            global.fetch.mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ session_key: 'session-123' })
+            }).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({})
+            });
+
+            await initChat(element);
+            global.fetch.mockClear();
+
+            global.fetch.mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ run_id: 'run-thinking-panel-stable-open' })
+            });
+
+            const handlerPromise = element.handler(
+                { messages: [{ text: 'keep panel open', role: 'user' }] },
+                signals
+            );
+
+            await jest.advanceTimersByTimeAsync(100);
+
+            const stream = MockEventSource.instances[0];
+            stream.simulateEvent('thinking', { phase: 'start' });
+            stream.simulateEvent('thinking', { phase: 'delta', content: 'First thought.' });
+
+            await jest.advanceTimersByTimeAsync(160);
+
+            const panel = messages.querySelector('details.runtime-panel');
+            expect(panel).not.toBeNull();
+            expect(panel.open).toBe(false);
+
+            const summary = panel.querySelector('summary');
+            expect(summary).not.toBeNull();
+            summary.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+            await jest.advanceTimersByTimeAsync(250);
+
+            const stablePanel = messages.querySelector('details.runtime-panel');
+            expect(stablePanel).not.toBeNull();
+            expect(stablePanel.open).toBe(true);
+
+            stream.simulateEvent('lifecycle', { phase: 'end' });
+            await jest.advanceTimersByTimeAsync(300);
+            await handlerPromise;
+        } finally {
+            jest.useRealTimers();
+        }
+    });
+
+    test('handler opens runtime panel from mousedown before click completes', async () => {
+        jest.useFakeTimers();
+        try {
+            const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+            const { element, messages } = createDomChatElementWithMessages();
+            const signals = createDomSignals(messages);
+
+            global.fetch.mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ session_key: 'session-123' })
+            }).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({})
+            });
+
+            await initChat(element);
+            global.fetch.mockClear();
+
+            global.fetch.mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ run_id: 'run-thinking-panel-mousedown-open' })
+            });
+
+            const handlerPromise = element.handler(
+                { messages: [{ text: 'open from mousedown', role: 'user' }] },
+                signals
+            );
+
+            await jest.advanceTimersByTimeAsync(100);
+
+            const stream = MockEventSource.instances[0];
+            stream.simulateEvent('thinking', { phase: 'start' });
+            stream.simulateEvent('thinking', { phase: 'delta', content: 'First thought.' });
+
+            await jest.advanceTimersByTimeAsync(160);
+
+            const panel = messages.querySelector('details.runtime-panel');
+            expect(panel).not.toBeNull();
+            expect(panel.open).toBe(false);
+
+            const summary = panel.querySelector('summary');
+            expect(summary).not.toBeNull();
+            summary.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }));
+
+            await jest.advanceTimersByTimeAsync(250);
+
+            const stablePanel = messages.querySelector('details.runtime-panel');
+            expect(stablePanel).not.toBeNull();
+            expect(stablePanel.open).toBe(true);
+
+            stream.simulateEvent('lifecycle', { phase: 'end' });
+            await jest.advanceTimersByTimeAsync(300);
+            await handlerPromise;
+        } finally {
+            jest.useRealTimers();
+        }
     });
 
     test('handler does not reload session history immediately after stream end', async () => {
