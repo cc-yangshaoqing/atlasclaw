@@ -1227,6 +1227,15 @@ class RunnerExecutionPreparePhaseMixin:
             )
             _log_step("session_draft_title_done")
             all_available_tools = collect_tools_snapshot(agent=runtime_agent, deps=deps)
+            # Apply skill permission filtering: remove handler tools whose skill
+            # is disabled in the user's role.  The disabled tool name set is computed
+            # in deps_context.build_scoped_deps from md_skill metadata.
+            _disabled_tools = (deps.extra or {}).get("_disabled_tool_names")
+            if isinstance(_disabled_tools, set) and _disabled_tools:
+                all_available_tools = [
+                    t for t in all_available_tools
+                    if str(t.get("name", "") or "").strip() not in _disabled_tools
+                ]
             _log_step("tools_snapshot_collected", all_tools_count=len(all_available_tools))
             tool_groups_snapshot = collect_tool_groups_snapshot(deps)
             _log_step("tool_groups_snapshot_collected", group_count=len(tool_groups_snapshot))

@@ -60,8 +60,9 @@ describe('role management page', () => {
           status: 200,
           json: () => Promise.resolve({
             skills: [
-              { name: 'jira-manager', description: 'Jira integration' },
-              { name: 'confluence', description: 'Confluence integration' }
+              { name: 'jira-manager', description: 'Jira integration', runtime_enabled: true },
+              { name: 'confluence', description: 'Confluence integration', runtime_enabled: true },
+              { name: 'pdf', description: 'PDF helper', runtime_enabled: false }
             ]
           })
         })
@@ -192,8 +193,10 @@ describe('role management page', () => {
     await page.mount(container)
 
     const enabledToggles = [...container.querySelectorAll('[data-skill-toggle="enabled"]')]
-    expect(enabledToggles).toHaveLength(2)
-    expect(enabledToggles.every(toggle => toggle.checked)).toBe(true)
+    expect(enabledToggles).toHaveLength(3)
+    expect(enabledToggles.filter(toggle => toggle.checked)).toHaveLength(2)
+    expect(container.querySelector('[data-skill-id="pdf"]').checked).toBe(false)
+    expect(container.querySelector('[data-skill-id="pdf"]').disabled).toBe(true)
 
     const skillsSummary = container.querySelector('[data-module-id="skills"] .role-module-copy span:last-child')
     expect(skillsSummary.textContent.trim()).toBe('3 enabled')
@@ -264,8 +267,9 @@ describe('role management page', () => {
     masterToggle.dispatchEvent(new Event('change', { bubbles: true }))
 
     const enabledToggles = [...container.querySelectorAll('[data-skill-toggle="enabled"]')]
-    expect(enabledToggles).toHaveLength(2)
-    expect(enabledToggles.every(toggle => toggle.checked)).toBe(true)
+    expect(enabledToggles).toHaveLength(3)
+    expect(enabledToggles.filter(toggle => toggle.checked)).toHaveLength(2)
+    expect(container.querySelector('[data-skill-id="pdf"]').checked).toBe(false)
   })
 
   test('skills module summary excludes hidden internal flags from enabled count', async () => {
@@ -337,7 +341,7 @@ describe('role management page', () => {
       enable_disable: true,
       manage_permissions: true
     })
-    expect(payload.permissions.skills.skill_permissions).toEqual([
+    expect(payload.permissions.skills.skill_permissions).toEqual(expect.arrayContaining([
       expect.objectContaining({
         skill_id: 'jira-manager',
         authorized: true,
@@ -347,8 +351,13 @@ describe('role management page', () => {
         skill_id: 'confluence',
         authorized: true,
         enabled: true
+      }),
+      expect.objectContaining({
+        skill_id: 'pdf',
+        authorized: false,
+        enabled: false
       })
-    ])
+    ]))
     expect(payload.permissions.users.assign_roles).toBe(true)
     expect(payload.permissions.users.manage_permissions).toBe(true)
   })

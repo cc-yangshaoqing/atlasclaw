@@ -112,6 +112,7 @@ let editorEl = null
 let deleteModal = null
 let roles = []
 let skills = []
+let providerSkills = []
 let selectedRoleId = null
 let roleSearch = ''
 let skillSearch = ''
@@ -306,7 +307,8 @@ function shouldPersistImplicitAdminSkillAccess(role) {
   const skillPermissions = Array.isArray(role?.permissions?.skills?.skill_permissions)
     ? role.permissions.skills.skill_permissions
     : []
-  const allKnownSkillsEnabled = skillPermissions.every(skill => (
+  const runtimeSkillPermissions = skillPermissions.filter(skill => skill.runtime_enabled !== false)
+  const allKnownSkillsEnabled = runtimeSkillPermissions.every(skill => (
     skill?.authorized === true && skill?.enabled === true
   ))
 
@@ -366,14 +368,32 @@ function normalizeRole(role, skillCatalog = []) {
   )
   normalized.permissions.skills.skill_permissions = skillCatalog.map(skill => {
     const existing = storedSkillPermissions.get(skill.name) || {}
+    const runtimeEnabled = skill.runtime_enabled !== false
+    // When admin has no stored permissions, only enable executable (built-in) skills.
+    // Markdown/standalone skills (pptx, docx, pdf, etc.) default to disabled.
+    const isExecutable = skill.type === 'executable'
+    const defaultEnabled = defaultAllSkillsEnabled ? isExecutable : false
     return {
       skill_id: skill.name,
       skill_name: skill.name,
       description: skill.description || '',
-      authorized: defaultAllSkillsEnabled ? true : existing.authorized === true,
-      enabled: defaultAllSkillsEnabled ? true : existing.enabled === true
+      runtime_enabled: runtimeEnabled,
+      authorized: runtimeEnabled && (defaultAllSkillsEnabled ? defaultEnabled : existing.authorized === true),
+      enabled: runtimeEnabled && (defaultAllSkillsEnabled ? defaultEnabled : existing.enabled === true)
     }
   })
+  // Auto-include provider skills as always authorized+enabled (they auto-load from provider config)
+  for (const ps of providerSkills) {
+    normalized.permissions.skills.skill_permissions.push({
+      skill_id: ps.name,
+      skill_name: ps.name,
+      description: ps.description || '',
+      runtime_enabled: ps.runtime_enabled !== false,
+      is_provider_skill: true,
+      authorized: true,
+      enabled: true
+    })
+  }
   return normalized
 }
 
@@ -415,7 +435,7 @@ function countEnabledPermissions(role, moduleId) {
       permissions.module_permissions?.view,
       permissions.module_permissions?.manage_permissions
     ].filter(Boolean).length
-    const skillFlags = (permissions.skill_permissions || []).filter(skill => skill.enabled).length
+    const skillFlags = (permissions.skill_permissions || []).filter(skill => skill.enabled && !skill.is_provider_skill).length
     return moduleFlags + skillFlags
   }
   return Object.values(permissions).filter(Boolean).length
@@ -448,7 +468,6 @@ function canManageAnyPermissions() {
 function canSaveRole() {
   if (!draftRoleState) return false
   if (draftRoleState.isNew) return canCreateRoles()
-  if (isSystemManagedBuiltinRole(draftRoleState)) return false
   if (draftRoleState.is_builtin) return canManageAnyPermissions()
   return canEditRoleMetadata() || canManageAnyPermissions()
 }
@@ -458,7 +477,7 @@ function countModuleSummaryEnabledPermissions(role, moduleId) {
   if (!permissions) return 0
   if (moduleId === 'skills') {
     const governanceFlags = permissions.module_permissions?.manage_permissions ? 1 : 0
-    const skillFlags = (permissions.skill_permissions || []).filter(skill => skill.enabled).length
+    const skillFlags = (permissions.skill_permissions || []).filter(skill => skill.enabled && !skill.is_provider_skill).length
     return governanceFlags + skillFlags
   }
   return countEnabledPermissions(role, moduleId)
@@ -543,6 +562,7 @@ function renderPermissionCards(moduleId) {
 function getFilteredSkillRows(skillPermissions = []) {
   const search = skillSearch.trim().toLowerCase()
   return skillPermissions.filter(skill => {
+    if (skill.is_provider_skill) return false
     if (!search) return true
     const searchContent = [
       skill.skill_name,
@@ -568,8 +588,10 @@ function syncSkillModulePermissions() {
 function renderSkillsModule() {
   const permissions = draftRoleState.permissions.skills || { module_permissions: {}, skill_permissions: [] }
   const skillRows = getFilteredSkillRows(permissions.skill_permissions || [])
-  const allVisibleSkillsEnabled = skillRows.length > 0 && skillRows.every(skill => skill.enabled)
-  const canManageSkills = canManageModule('skills') && !isSystemManagedBuiltinRole(draftRoleState)
+  const runtimeSkillRows = skillRows.filter(skill => skill.runtime_enabled !== false && !skill.is_provider_skill)
+  const allVisibleSkillsEnabled = runtimeSkillRows.length > 0 && runtimeSkillRows.every(skill => skill.enabled)
+  // Allow admin to manage skill toggles (skills are now UI-controlled)
+  const canManageSkills = canManageModule('skills')
 
   return `
     <div class="role-permission-grid role-permission-grid-skills">
@@ -627,7 +649,7 @@ function renderSkillsModule() {
               <label class="role-inline-toggle">
                 <span data-i18n="roles.enableToggle">Enable</span>
                 <span class="toggle-switch compact">
-                  <input type="checkbox" data-skill-id="${escapeHtml(skill.skill_id)}" data-skill-toggle="enabled" ${skill.enabled ? 'checked' : ''} ${canManageSkills ? '' : 'disabled'}>
+                  <input type="checkbox" data-skill-id="${escapeHtml(skill.skill_id)}" data-skill-toggle="enabled" ${skill.enabled ? 'checked' : ''} ${canManageSkills && skill.runtime_enabled !== false ? '' : 'disabled'}>
                   <span></span>
                 </span>
               </label>
@@ -668,7 +690,7 @@ function renderEditor() {
   const statusDisabledAttr = draftRoleState.is_builtin || !canEditRoleMetadata() ? 'disabled' : ''
   const canDeleteCurrentRole = canDeleteRoles() && !draftRoleState.is_builtin && !draftRoleState.isNew
   const canSaveCurrentRole = canSaveRole()
-  const canManageActiveModule = canManageModule(activeModuleId) && !isSystemManagedBuiltinRole(draftRoleState)
+  const canManageActiveModule = canManageModule(activeModuleId) && (!isSystemManagedBuiltinRole(draftRoleState) || activeModuleId === 'skills')
 
   editorEl.innerHTML = `
     <div class="role-editor-shell">
@@ -761,16 +783,46 @@ function renderPage() {
 async function loadSkills() {
   try {
     const data = await fetchJson('/api/skills')
-    skills = Array.isArray(data?.skills) ? data.skills : []
+    const allSkills = Array.isArray(data?.skills) ? data.skills : []
+    skills = allSkills.filter(s => !s.provider_type)
+    providerSkills = allSkills.filter(s => !!s.provider_type)
   } catch (error) {
     skills = []
+    providerSkills = []
     console.warn('[RoleManagement] Failed to load skills:', error)
   }
 }
 
 async function loadRoles(preserveRoleId = selectedRoleId) {
   const data = await fetchJson('/api/roles?page=1&page_size=100')
-  roles = Array.isArray(data?.roles) ? data.roles.map(role => normalizeRole(role, skills)) : []
+  const rawRoles = Array.isArray(data?.roles) ? data.roles : []
+  roles = rawRoles.map(role => normalizeRole(role, skills))
+
+  // Auto-persist admin default skill permissions if not yet stored in DB.
+  // Without this, the runtime filter sees empty permissions and allows all skills,
+  // even though the UI shows markdown skills as disabled by default.
+  for (const raw of rawRoles) {
+    if (raw?.is_builtin && raw?.identifier === 'admin') {
+      const storedSkillPerms = raw.permissions?.skills?.skill_permissions
+      if (!Array.isArray(storedSkillPerms) || storedSkillPerms.length === 0) {
+        const normalized = roles.find(r => r.id === raw.id)
+        if (normalized) {
+          try {
+            const payload = { permissions: buildPermissionsPayload(normalized) }
+            await fetchJson(`/api/roles/${raw.id}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            })
+            console.log('[RoleManagement] Auto-persisted admin default skill permissions')
+          } catch (e) {
+            console.warn('[RoleManagement] Failed to auto-persist admin skill defaults:', e)
+          }
+        }
+      }
+      break
+    }
+  }
 
   if (preserveRoleId === 'new-role' && draftRoleState?.isNew) {
     selectedRoleId = 'new-role'
@@ -854,10 +906,15 @@ function toggleModulePermission(moduleId, permissionId, checked) {
 
 function toggleSkillPermission(skillId, property, checked) {
   if (!draftRoleState) return
-  if (isSystemManagedBuiltinRole(draftRoleState)) return
   if (!canManageModule('skills')) return
   const skill = draftRoleState.permissions.skills.skill_permissions.find(item => item.skill_id === skillId)
   if (!skill) return
+  if (skill.runtime_enabled === false) {
+    skill.enabled = false
+    skill.authorized = false
+    renderPage()
+    return
+  }
   if (property === 'enabled') {
     skill.enabled = checked
     skill.authorized = checked
@@ -871,12 +928,18 @@ function toggleSkillPermission(skillId, property, checked) {
 
 function toggleAllVisibleSkills(checked) {
   if (!draftRoleState) return
-  if (isSystemManagedBuiltinRole(draftRoleState)) return
   if (!canManageModule('skills')) return
   const visibleSkillIds = new Set(getFilteredSkillRows(draftRoleState.permissions.skills.skill_permissions).map(skill => skill.skill_id))
   draftRoleState.permissions.skills.skill_permissions = draftRoleState.permissions.skills.skill_permissions.map(skill => {
     if (!visibleSkillIds.has(skill.skill_id)) {
       return skill
+    }
+    if (skill.runtime_enabled === false) {
+      return {
+        ...skill,
+        authorized: false,
+        enabled: false
+      }
     }
     return {
       ...skill,
@@ -890,7 +953,7 @@ function toggleAllVisibleSkills(checked) {
 
 function applyModuleAction(action) {
   if (!draftRoleState) return
-  if (isSystemManagedBuiltinRole(draftRoleState)) return
+  if (isSystemManagedBuiltinRole(draftRoleState) && activeModuleId !== 'skills') return
   if (!canManageModule(activeModuleId)) return
   if (action === 'restore-defaults') {
     const template = getRoleTemplate(draftRoleState.identifier)
@@ -907,8 +970,8 @@ function applyModuleAction(action) {
       })
       draftRoleState.permissions.skills.skill_permissions = draftRoleState.permissions.skills.skill_permissions.map(skill => ({
         ...skill,
-        authorized: true,
-        enabled: true
+        authorized: skill.runtime_enabled !== false,
+        enabled: skill.runtime_enabled !== false
       }))
       syncSkillModulePermissions()
     } else {
@@ -965,16 +1028,6 @@ function closeDeleteModal() {
 
 async function saveRole() {
   if (!draftRoleState) return
-  if (isSystemManagedBuiltinRole(draftRoleState)) {
-    showToast(
-      translateOrFallback(
-        'roles.builtinAdminImmutable',
-        'Built-in admin permissions are managed by the system and cannot be modified.'
-      ),
-      'error'
-    )
-    return
-  }
   if (!canSaveRole()) {
     showToast(translateOrFallback('roles.accessDenied', 'Access denied. You do not have permission to manage roles.'), 'error')
     return
@@ -1167,6 +1220,7 @@ export async function unmount() {
   deleteModal = null
   roles = []
   skills = []
+  providerSkills = []
   selectedRoleId = null
   roleSearch = ''
   skillSearch = ''

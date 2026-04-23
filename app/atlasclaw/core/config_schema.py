@@ -164,6 +164,14 @@ class SecurityPolicyConfig(BaseModel):
 
 class SkillsConfig(BaseModel):
     """MD Skills configuration"""
+    enabled_skills: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Standalone markdown skill names to load from skills_root. "
+            "Provider skills are auto-loaded when their provider has configured instances "
+            "and should not be listed here."
+        ),
+    )
     md_skills_max_count: int = Field(default=20, ge=1, description="Maximum number of MD skills shown in the index section")
     md_skills_desc_max_chars: int = Field(default=200, ge=1, description="Maximum characters for a single skill description")
     md_skills_index_max_chars: int = Field(default=3000, ge=1, description="Maximum total characters for the index section")

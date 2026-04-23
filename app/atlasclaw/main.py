@@ -133,6 +133,52 @@ _heartbeat_store: Optional[HeartbeatStateStore] = None
 _heartbeat_task: Optional[asyncio.Task] = None
 
 
+def _normalize_enabled_skill_names(raw_values: Any) -> set[str]:
+    """Normalize explicitly enabled standalone markdown skill names from config."""
+    if isinstance(raw_values, str):
+        candidates = [raw_values]
+    elif isinstance(raw_values, (list, tuple, set)):
+        candidates = list(raw_values)
+    else:
+        candidates = []
+
+    return {
+        str(value or "").strip().lower()
+        for value in candidates
+        if str(value or "").strip()
+    }
+
+
+def _select_provider_skill_directories(
+    providers_root: Path,
+    provider_instances: dict[str, dict[str, dict[str, Any]]],
+) -> dict[str, Path]:
+    """Return provider skill directories only for providers with configured instances."""
+    configured_provider_types = {
+        str(provider_type or "").strip().lower()
+        for provider_type, instances in provider_instances.items()
+        if isinstance(instances, dict) and instances
+    }
+    selected: dict[str, Path] = {}
+    if not configured_provider_types or not providers_root.exists():
+        return selected
+
+    for provider_path in providers_root.iterdir():
+        if not provider_path.is_dir() or provider_path.name.startswith(("_", ".")):
+            continue
+
+        provider_dir_name = provider_path.name.strip().lower()
+        provider_namespace = derive_provider_namespace(provider_path.name).strip().lower()
+        if (
+            provider_dir_name not in configured_provider_types
+            and provider_namespace not in configured_provider_types
+        ):
+            continue
+        selected[provider_namespace] = provider_path
+
+    return selected
+
+
 def _list_workspace_runtime_user_ids(workspace_path: str | Path) -> set[str]:
     users_dir = Path(workspace_path).resolve() / "users"
     if not users_dir.exists():
@@ -388,24 +434,33 @@ async def lifespan(app: FastAPI):
     )
     print(f"[AtlasClaw] Registered {len(registered_tools)} built-in tools")
     
-    # Load skills from multiple sources (priority: workspace > global > built-in)
+    # Load markdown skills selectively. Skills not loaded here are not exposed
+    # through /api/skills and are not injected into the agent prompt context.
+    selected_provider_dirs = _select_provider_skill_directories(providers_root, provider_instances)
+    loaded_provider_skill_count = 0
+    for provider_namespace, provider_path in selected_provider_dirs.items():
+        provider_skills = provider_path / "skills"
+        if not provider_skills.exists():
+            continue
+        loaded_provider_skill_count += _skill_registry.load_from_directory(
+            str(provider_skills),
+            location="provider",
+            provider=provider_namespace,
+        )
+    print(
+        f"[AtlasClaw] Loaded {loaded_provider_skill_count} provider markdown skills "
+        f"from {len(selected_provider_dirs)} configured providers"
+    )
 
-    # 1. External provider skills (from providers_root config)
-    if providers_root.exists():
-        for provider_path in providers_root.iterdir():
-            if provider_path.is_dir() and not provider_path.name.startswith(("_", ".")):
-                provider_skills = provider_path / "skills"
-                if provider_skills.exists():
-                    provider_namespace = derive_provider_namespace(provider_path.name)
-                    _skill_registry.load_from_directory(
-                        str(provider_skills),
-                        location="provider",
-                        provider=provider_namespace
-                    )
-
-    # 2. Standalone skills (from skills_root config)
+    loaded_standalone_skill_count = 0
     if skills_root.exists():
-        _skill_registry.load_from_directory(str(skills_root), location="skills-root")
+        loaded_standalone_skill_count = _skill_registry.load_from_directory(
+            str(skills_root),
+            location="skills-root",
+        )
+    print(
+        f"[AtlasClaw] Loaded {loaded_standalone_skill_count} standalone markdown skills"
+    )
 
     from pydantic_ai import Agent
     from app.atlasclaw.core.deps import SkillDeps

@@ -10,6 +10,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request, status
 
 from ..auth.models import ANONYMOUS_USER, UserInfo
+from ..auth.guards import get_authorization_context, AuthorizationContext
 from ..session.context import SessionKey
 from .deps_context import APIContext, get_api_context
 from .schemas import AgentRunRequest, AgentRunResponse, AgentStatusResponse
@@ -56,6 +57,39 @@ def register_agent_routes(router: APIRouter) -> None:
         safe_message = normalize_user_message(request.message)
         init_run(ctx, run_id, request.session_key, safe_message, request.timeout_seconds)
 
+        # Resolve user skill permissions for agent context filtering
+        user_skill_permissions = []
+        try:
+            from app.atlasclaw.db.database import get_db_manager
+            manager = get_db_manager()
+            db_session = manager._session_factory()
+            try:
+                from ..auth.guards import resolve_authorization_context
+                authz = await resolve_authorization_context(db_session, user_info)
+                user_skill_permissions = (
+                    authz.permissions.get("skills", {}).get("skill_permissions", [])
+                )
+                import logging
+                _log = logging.getLogger("atlasclaw.agent_routes")
+                disabled_skills = [s.get("skill_id") for s in user_skill_permissions if not s.get("enabled")]
+                _log.info(f"[SkillFilter] user={user_info.user_id} total_perms={len(user_skill_permissions)} disabled={disabled_skills}")
+                await db_session.commit()
+            except Exception as exc:
+                await db_session.rollback()
+                import logging
+                logging.getLogger("atlasclaw.agent_routes").error(f"[SkillFilter] Failed to resolve permissions: {exc}")
+            finally:
+                await db_session.close()
+        except Exception:
+            pass
+
+        request_context = request.context or {}
+        if user_skill_permissions:
+            request_context = {
+                **(request_context or {}),
+                "_user_skill_permissions": user_skill_permissions,
+            }
+
         background_tasks.add_task(
             execute_agent_run,
             ctx,
@@ -66,7 +100,7 @@ def register_agent_routes(router: APIRouter) -> None:
             user_info,
             request_cookies,
             provider_config,
-            request.context,
+            request_context,
         )
 
         return AgentRunResponse(

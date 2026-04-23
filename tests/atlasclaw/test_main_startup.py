@@ -17,6 +17,23 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 
+def _write_md_skill(path: Path, *, name: str, description: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "\n".join(
+            [
+                "---",
+                f"name: {name}",
+                f"description: {description}",
+                "---",
+                "",
+                "# Body",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
 class TestMainStartup:
     """测试 main.py 启动流程"""
 
@@ -60,6 +77,101 @@ class TestMainStartup:
             resp = client.get("/api/health")
             assert resp.status_code == 200
             assert resp.json()["status"] == "healthy"
+
+    def test_startup_loads_only_configured_provider_and_enabled_standalone_skills(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Startup should not load disabled standalone skills into prompt context."""
+        import importlib
+
+        import app.atlasclaw.core.config as config_module
+        import app.atlasclaw.main as main_module
+
+        providers_root = tmp_path / "providers"
+        skills_root = tmp_path / "skills"
+        workspace_path = tmp_path / ".atlasclaw-selective-skills"
+        config_path = tmp_path / "atlasclaw.selective-skills.json"
+
+        _write_md_skill(
+            providers_root / "SmartCMP-Provider" / "skills" / "request" / "SKILL.md",
+            name="request",
+            description="SmartCMP request helper",
+        )
+        _write_md_skill(
+            providers_root / "jira" / "skills" / "jira-issue" / "SKILL.md",
+            name="jira-issue",
+            description="Jira issue helper",
+        )
+        _write_md_skill(
+            skills_root / "github-1.0.0" / "SKILL.md",
+            name="github",
+            description="GitHub helper",
+        )
+        _write_md_skill(
+            skills_root / "pptx" / "SKILL.md",
+            name="pptx",
+            description="PPTX helper",
+        )
+
+        config_path.write_text(
+            json.dumps(
+                {
+                    "workspace": {"path": str(workspace_path.resolve())},
+                    "providers_root": str(providers_root.resolve()),
+                    "skills_root": str(skills_root.resolve()),
+                    "service_providers": {
+                        "smartcmp": {
+                            "default": {
+                                "base_url": "https://smartcmp.example.com",
+                            }
+                        }
+                    },
+                    "skills": {
+                        "enabled_skills": ["github"],
+                    },
+                    "model": {
+                        "primary": "test-token",
+                        "tokens": [
+                            {
+                                "id": "test-token",
+                                "provider": "openai",
+                                "model": "gpt-4o-mini",
+                                "base_url": "https://api.openai.com/v1",
+                                "api_key": "test-key",
+                                "api_type": "openai",
+                            }
+                        ],
+                    },
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("ATLASCLAW_CONFIG", str(config_path.resolve()))
+
+        old_manager = config_module._config_manager
+        config_module._config_manager = config_module.ConfigManager(config_path=str(config_path.resolve()))
+        try:
+            importlib.reload(main_module)
+            with TestClient(main_module.app) as client:
+                resp = client.get("/api/health")
+                assert resp.status_code == 200
+
+                md_skills = {
+                    entry["qualified_name"]: entry
+                    for entry in main_module._skill_registry.md_snapshot()
+                }
+                loaded_names = {entry["name"] for entry in md_skills.values()}
+
+                assert "smartcmp:request" in md_skills
+                assert "jira:jira-issue" not in md_skills
+                assert "github" in loaded_names
+                assert "pptx" not in loaded_names
+        finally:
+            config_module._config_manager = old_manager
 
     def test_startup_initializes_heartbeat_runtime_when_enabled(self, test_config_path, tmp_path, monkeypatch):
         """Heartbeat-enabled config should bootstrap runtime during lifespan startup."""
