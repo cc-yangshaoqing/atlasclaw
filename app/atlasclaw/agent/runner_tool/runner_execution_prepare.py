@@ -8,6 +8,7 @@ import json
 from datetime import datetime
 import logging
 from pathlib import Path
+import re
 import time
 from typing import Any, AsyncIterator, Optional
 
@@ -622,6 +623,170 @@ def _extract_trace_id_from_metadata(metadata: Any) -> Optional[str]:
     return None
 
 
+def _extract_workflow_candidate_items_from_metadata(
+    metadata: Any,
+) -> tuple[Optional[str], list[dict[str, Any]]]:
+    """Return the candidate container key and candidate items when metadata is a single list payload."""
+    if isinstance(metadata, list) and all(isinstance(item, dict) for item in metadata):
+        return "__root__", [dict(item) for item in metadata]
+    if not isinstance(metadata, dict):
+        return None, []
+
+    list_keys = [
+        key
+        for key, value in metadata.items()
+        if isinstance(value, list) and all(isinstance(item, dict) for item in value)
+    ]
+    if len(list_keys) != 1:
+        return None, []
+    key = list_keys[0]
+    return key, [dict(item) for item in metadata.get(key, [])]
+
+
+def _workflow_candidate_selection_tokens(item: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    for key in ("id", "entityId", "key", "code"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            tokens.add(value)
+    return tokens
+
+
+def _normalize_workflow_candidate_text(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", text)
+
+
+def _workflow_candidate_mention_tokens(item: dict[str, Any]) -> set[str]:
+    tokens: set[str] = set()
+    for key in ("name", "nameZh", "label", "title", "displayName", "display_name"):
+        token = _normalize_workflow_candidate_text(item.get(key))
+        if len(token) >= 2 and not token.isdigit():
+            tokens.add(token)
+    return tokens
+
+
+def _collect_explicit_selection_tokens(value: Any) -> set[str]:
+    tokens: set[str] = set()
+    if value is None:
+        return tokens
+    if isinstance(value, dict):
+        for nested in value.values():
+            tokens.update(_collect_explicit_selection_tokens(nested))
+        return tokens
+    if isinstance(value, list):
+        for nested in value:
+            tokens.update(_collect_explicit_selection_tokens(nested))
+        return tokens
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return tokens
+        if text[:1] in {"{", "["}:
+            try:
+                parsed = json.loads(text)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                pass
+            else:
+                tokens.update(_collect_explicit_selection_tokens(parsed))
+                return tokens
+        tokens.add(text)
+        return tokens
+    if isinstance(value, (int, float)):
+        tokens.add(str(value))
+        return tokens
+    return tokens
+
+
+def _narrow_target_md_skill_workflow_metadata(
+    metadata: Any,
+    *,
+    following_messages: list[dict[str, Any]],
+) -> Any:
+    """Narrow candidate-list metadata to the explicitly selected item for active workflow context."""
+    if not following_messages:
+        return metadata
+
+    container_key, candidates = _extract_workflow_candidate_items_from_metadata(metadata)
+    if not container_key or len(candidates) <= 1:
+        return metadata
+
+    candidate_lookup: dict[str, dict[str, Any]] = {}
+    for candidate in candidates:
+        for token in _workflow_candidate_selection_tokens(candidate):
+            candidate_lookup.setdefault(token, candidate)
+    if not candidate_lookup:
+        return metadata
+
+    matched: list[dict[str, Any]] = []
+    seen_signatures: set[str] = set()
+    mention_candidates = [
+        (candidate, _workflow_candidate_mention_tokens(candidate)) for candidate in candidates
+    ]
+    for message in following_messages:
+        if str(message.get("role", "")).strip().lower() != "assistant":
+            continue
+        for call in message.get("tool_calls", []) or []:
+            if not isinstance(call, dict):
+                continue
+            args = call.get("args", call.get("arguments"))
+            for token in _collect_explicit_selection_tokens(args):
+                candidate = candidate_lookup.get(token)
+                if not candidate:
+                    continue
+                signature = json.dumps(candidate, ensure_ascii=False, sort_keys=True)
+                if signature in seen_signatures:
+                    continue
+                seen_signatures.add(signature)
+                matched.append(dict(candidate))
+        normalized_content = _normalize_workflow_candidate_text(message.get("content"))
+        if not normalized_content:
+            continue
+        for candidate, mention_tokens in mention_candidates:
+            if not mention_tokens or not any(token in normalized_content for token in mention_tokens):
+                continue
+            signature = json.dumps(candidate, ensure_ascii=False, sort_keys=True)
+            if signature in seen_signatures:
+                continue
+            seen_signatures.add(signature)
+            matched.append(dict(candidate))
+
+    if len(matched) != 1:
+        return metadata
+    if container_key == "__root__":
+        return matched
+    if not isinstance(metadata, dict):
+        return metadata
+
+    narrowed = dict(metadata)
+    narrowed[container_key] = matched
+    return narrowed
+
+
+def _collect_same_flow_following_messages(
+    *,
+    recent_history: list[dict[str, Any]],
+    start_index: int,
+    entry_trace_id: Optional[str],
+) -> list[dict[str, Any]]:
+    if not isinstance(recent_history, list):
+        return []
+    following_messages: list[dict[str, Any]] = []
+    for message in recent_history[start_index + 1 :]:
+        if entry_trace_id and isinstance(message, dict):
+            if str(message.get("role", "") or "").strip().lower() == "tool":
+                content = message.get("content")
+                if isinstance(content, dict) and "_internal" in content:
+                    parsed_metadata = _parse_target_md_skill_workflow_metadata(content.get("_internal"))
+                    following_trace_id = _extract_trace_id_from_metadata(parsed_metadata)
+                    if following_trace_id and following_trace_id != entry_trace_id:
+                        break
+        following_messages.append(message)
+    return following_messages
+
+
 def build_target_md_skill_workflow_context(
     *,
     recent_history: list[dict[str, Any]],
@@ -656,7 +821,8 @@ def build_target_md_skill_workflow_context(
     legacy_metadata: list[dict[str, Any]] = []
     legacy_size = 0
 
-    for message in reversed(recent_history):
+    for message_index in range(len(recent_history) - 1, -1, -1):
+        message = recent_history[message_index]
         if not isinstance(message, dict):
             continue
         if str(message.get("role", "") or "").strip().lower() != "tool":
@@ -677,6 +843,16 @@ def build_target_md_skill_workflow_context(
             if entry_trace_id and entry_trace_id != resolved_trace_id:
                 # Belongs to a different request flow instance — skip
                 continue
+
+        entry_trace_id = _extract_trace_id_from_metadata(metadata)
+        metadata = _narrow_target_md_skill_workflow_metadata(
+            metadata,
+            following_messages=_collect_same_flow_following_messages(
+                recent_history=recent_history,
+                start_index=message_index,
+                entry_trace_id=entry_trace_id,
+            ),
+        )
 
         entry = {
             "tool_name": str(message.get("tool_name", "") or message.get("name", "")).strip(),

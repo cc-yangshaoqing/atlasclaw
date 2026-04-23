@@ -146,6 +146,119 @@ class TestTraceIsolation:
         assert len(result["recent_tool_metadata"]) == 1
         assert result["recent_tool_metadata"][0]["metadata"]["data"] == "a"
 
+    def test_current_trace_narrowing_does_not_mix_other_trace_candidates(self):
+        history = [
+            _tool_msg(
+                "smartcmp_list_services",
+                {
+                    "internal_request_trace_id": "trace-aaa",
+                    "catalogs": [
+                        {"id": "cat-aaa-linux", "name": "Linux VM"},
+                        {"id": "cat-aaa-windows", "name": "Windows VM"},
+                    ],
+                },
+            ),
+            {
+                "role": "assistant",
+                "content": "old flow",
+                "tool_calls": [
+                    {
+                        "name": "smartcmp_list_available_bgs",
+                        "args": {"catalog_id": "cat-aaa-linux"},
+                    }
+                ],
+            },
+            _tool_msg(
+                "smartcmp_list_services",
+                {
+                    "internal_request_trace_id": "trace-bbb",
+                    "catalogs": [
+                        {"id": "cat-bbb-linux", "name": "Linux VM"},
+                        {"id": "cat-bbb-windows", "name": "Windows VM"},
+                    ],
+                },
+            ),
+            {
+                "role": "assistant",
+                "content": "new flow",
+                "tool_calls": [
+                    {
+                        "name": "smartcmp_list_available_bgs",
+                        "args": {"catalog_id": "cat-bbb-linux"},
+                    }
+                ],
+            },
+        ]
+
+        result = build_target_md_skill_workflow_context(recent_history=history)
+
+        assert result is not None
+        assert result["internal_request_trace_id"] == "trace-bbb"
+        assert result["recent_tool_metadata"] == [
+            {
+                "tool_name": "smartcmp_list_services",
+                "metadata": {
+                    "internal_request_trace_id": "trace-bbb",
+                    "catalogs": [{"id": "cat-bbb-linux", "name": "Linux VM"}],
+                },
+            }
+        ]
+
+    def test_explicit_trace_narrowing_ignores_later_trace_selection_signals(self):
+        history = [
+            _tool_msg(
+                "smartcmp_list_services",
+                {
+                    "internal_request_trace_id": "trace-aaa",
+                    "catalogs": [
+                        {"id": "catalog-linux", "name": "Linux VM"},
+                        {"id": "catalog-windows", "name": "Windows VM"},
+                    ],
+                },
+            ),
+            {"role": "assistant", "content": "old flow"},
+            _tool_msg(
+                "smartcmp_list_services",
+                {
+                    "internal_request_trace_id": "trace-bbb",
+                    "catalogs": [
+                        {"id": "catalog-linux", "name": "Linux VM"},
+                        {"id": "catalog-windows", "name": "Windows VM"},
+                    ],
+                },
+            ),
+            {
+                "role": "assistant",
+                "content": "Linux VM。",
+                "tool_calls": [
+                    {
+                        "name": "smartcmp_list_available_bgs",
+                        "args": {"catalog_id": "catalog-linux"},
+                    }
+                ],
+            },
+        ]
+
+        result = build_target_md_skill_workflow_context(
+            recent_history=history,
+            active_trace_id="trace-aaa",
+        )
+
+        assert result is not None
+        assert result["internal_request_trace_id"] == "trace-aaa"
+        assert result["recent_tool_metadata"] == [
+            {
+                "tool_name": "smartcmp_list_services",
+                "metadata": {
+                    "internal_request_trace_id": "trace-aaa",
+                    "catalogs": [
+                        {"id": "catalog-linux", "name": "Linux VM"},
+                        {"id": "catalog-windows", "name": "Windows VM"},
+                    ],
+                },
+            }
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Test B: No trace_id degrades gracefully (backward compatible)

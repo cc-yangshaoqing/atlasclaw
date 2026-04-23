@@ -53,6 +53,23 @@ def build_target_md_skill(target_md_skill: dict[str, Any]) -> str:
         "Do not announce intermediate tool calls or expose their internal metadata as a raw "
         "user-facing reply."
     )
+    lines.append(
+        "When answering or reasoning about a field or fact from the current workflow context, use "
+        "only that context. If the current selected item does not include the field, say it is "
+        "missing or empty instead of borrowing it from another candidate or prior alternative."
+    )
+    lines.append(
+        "Do not synthesize or merge missing workflow facts from static examples, prior drafts, or "
+        "other candidate items."
+    )
+    lines.append(
+        "Do not imply the existence of additional workflow data or documents unless the current "
+        "workflow context explicitly includes them."
+    )
+    lines.append(
+        "Do not switch to a different skill, tool family, or workflow path just because a lookup "
+        "failed; stay with the current turn context unless the user explicitly changes intent."
+    )
     if workflow_context:
         try:
             serialized_context = json.dumps(workflow_context, ensure_ascii=False, indent=2)
