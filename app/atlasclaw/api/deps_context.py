@@ -150,14 +150,12 @@ def _is_skill_enabled(skill_permissions: list[dict], skill_name: str) -> bool:
     """Check if a skill is enabled in the user's role permissions.
 
     Returns True if:
-    - skill_permissions is empty (admin default, allow all)
     - a matching entry has both authorized=True and enabled=True
     Returns False if:
+    - skill_permissions is empty (no grants = deny all)
     - a matching entry exists but is not authorized+enabled
     - no matching entry found (skill not in permissions = not allowed)
     """
-    if not skill_permissions:
-        return True
     for entry in skill_permissions:
         if not isinstance(entry, dict):
             continue
@@ -173,9 +171,10 @@ def _filter_snapshot_by_permissions(
     md_skills_snapshot: list[dict],
     skill_permissions: list[dict],
 ) -> tuple[list[dict], list[dict]]:
-    """Filter tools and md_skills snapshots based on user role permissions."""
-    if not skill_permissions:
-        return tools_snapshot, md_skills_snapshot
+    """Filter tools and md_skills snapshots based on user role permissions.
+
+    When skill_permissions is empty (no grants), returns empty lists (deny-all).
+    """
 
     filtered_tools = []
     for tool in tools_snapshot:
@@ -254,18 +253,21 @@ def build_scoped_deps(
     provider_registry = ResolvedProviderInstanceRegistry(merged_provider_instances)
     available_providers = provider_registry.get_available_providers_summary()
 
-    # Apply user skill permission filtering if provided via request context
+    # Apply user skill permission filtering if provided via request context.
+    # Sentinel: None = no RBAC (no-DB mode), list = RBAC resolved.
     _extra = extra or {}
     user_skill_permissions = _extra.get("_user_skill_permissions")
-    if not user_skill_permissions:
+    if user_skill_permissions is None:
         _ctx = _extra.get("context")
         if isinstance(_ctx, dict):
             user_skill_permissions = _ctx.get("_user_skill_permissions")
 
-    # When permissions are available, filter tools and md_skills so disabled
-    # capabilities are invisible to the agent (saves tokens, enforces RBAC).
+    # When RBAC is active (user_skill_permissions is a list, possibly empty),
+    # filter tools and md_skills.  Empty list = deny-all.
+    # When RBAC is not active (None), skip filtering entirely.
+    _rbac_active = isinstance(user_skill_permissions, list)
     disabled_tool_names: set[str] = set()
-    if isinstance(user_skill_permissions, list) and user_skill_permissions:
+    if _rbac_active:
         _all_md = ctx.skill_registry.md_snapshot()
         tools_snapshot, md_skills_snapshot = _filter_snapshot_by_permissions(
             tools_snapshot,
@@ -319,7 +321,7 @@ def build_scoped_deps(
         "provider_instances": merged_provider_instances,
         "provider_config": merged_provider_instances,
         "tools_snapshot": tools_snapshot,
-        "tools_snapshot_authoritative": bool(isinstance(user_skill_permissions, list) and user_skill_permissions),
+        "tools_snapshot_authoritative": _rbac_active,
         "tool_groups_snapshot": tool_groups_snapshot,
         "skills_snapshot": ctx.skill_registry.snapshot_builtins(),
         "md_skills_snapshot": md_skills_snapshot,
@@ -335,7 +337,7 @@ def build_scoped_deps(
     # so the runner needs both sets to exclude disabled-skill handler tools.
     if disabled_tool_names:
         deps_extra["_disabled_tool_names"] = disabled_tool_names
-    if isinstance(user_skill_permissions, list) and user_skill_permissions:
+    if isinstance(user_skill_permissions, list):
         # Also pass disabled skill IDs so the runner can filter by skill_name field
         _d_ids = set()
         for sp_entry in user_skill_permissions:

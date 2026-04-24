@@ -59,11 +59,13 @@ def register_agent_routes(router: APIRouter) -> None:
 
         # Resolve user skill permissions for agent context filtering.
         # This is fail-closed: if permission resolution fails, the run is
-        # rejected rather than falling through with an empty permission list
-        # (which downstream interprets as "allow all").
-        # When the database is not initialized (anonymous mode), skip the
-        # check entirely -- there is no RBAC layer to enforce.
-        user_skill_permissions: list[dict] = []
+        # rejected rather than falling through without permissions.
+        #
+        # Sentinel semantics:
+        #   user_skill_permissions = None  -> no RBAC (anonymous / no-DB mode)
+        #   user_skill_permissions = []    -> RBAC resolved, no grants (deny-all)
+        #   user_skill_permissions = [...]  -> RBAC resolved, per-skill grants
+        user_skill_permissions: list[dict] | None = None
         try:
             from app.atlasclaw.db.database import get_db_manager
             db_mgr = get_db_manager()
@@ -105,7 +107,10 @@ def register_agent_routes(router: APIRouter) -> None:
             ) from exc
 
         request_context = request.context or {}
-        if user_skill_permissions:
+        # Always pass RBAC result to runtime when DB is available (including
+        # empty list which means deny-all).  Only skip when RBAC is not
+        # enabled at all (None sentinel).
+        if user_skill_permissions is not None:
             request_context = {
                 **(request_context or {}),
                 "_user_skill_permissions": user_skill_permissions,
