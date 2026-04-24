@@ -306,13 +306,9 @@ def build_scoped_deps(
                         if _tname:
                             disabled_tool_names.add(_tname)
 
-        import logging as _log_mod
-        _filter_log = _log_mod.getLogger("atlasclaw.skill_filter")
-        _filter_log.info(
-            "[SkillFilter] perms=%d disabled_skills=%s disabled_tools=%s tools_after=%d md_after=%d",
-            len(user_skill_permissions), sorted(_disabled_skill_ids),
-            sorted(disabled_tool_names), len(tools_snapshot),
-            len(md_skills_snapshot),
+        print(
+            f"[SkillFilter] perms={len(user_skill_permissions)} disabled_skills={sorted(_disabled_skill_ids)}"
+            f" disabled_tools={sorted(disabled_tool_names)} tools_after={len(tools_snapshot)} md_after={len(md_skills_snapshot)}"
         )
     else:
         md_skills_snapshot = ctx.skill_registry.md_snapshot()
@@ -323,7 +319,7 @@ def build_scoped_deps(
         "provider_instances": merged_provider_instances,
         "provider_config": merged_provider_instances,
         "tools_snapshot": tools_snapshot,
-        "tools_snapshot_authoritative": False,
+        "tools_snapshot_authoritative": bool(isinstance(user_skill_permissions, list) and user_skill_permissions),
         "tool_groups_snapshot": tool_groups_snapshot,
         "skills_snapshot": ctx.skill_registry.snapshot_builtins(),
         "md_skills_snapshot": md_skills_snapshot,

@@ -63,15 +63,13 @@ def register_agent_routes(router: APIRouter) -> None:
         # (which downstream interprets as "allow all").
         # When the database is not initialized (anonymous mode), skip the
         # check entirely -- there is no RBAC layer to enforce.
-        import logging as _logging
-        _perm_log = _logging.getLogger("atlasclaw.agent_routes")
         user_skill_permissions: list[dict] = []
         try:
             from app.atlasclaw.db.database import get_db_manager
             db_mgr = get_db_manager()
             if db_mgr is None or db_mgr._session_factory is None:
                 # No database configured (anonymous / file-only mode) -- skip RBAC.
-                _perm_log.debug("[SkillFilter] No DB available, skipping permission resolution")
+                print("[SkillFilter] No DB available, skipping permission resolution")
             else:
                 db_session = db_mgr._session_factory()
                 try:
@@ -84,14 +82,13 @@ def register_agent_routes(router: APIRouter) -> None:
                         s.get("skill_id") for s in user_skill_permissions
                         if not s.get("enabled")
                     ]
-                    _perm_log.info(
-                        "[SkillFilter] user=%s total_perms=%d disabled=%s",
-                        user_info.user_id, len(user_skill_permissions), disabled_skills,
+                    print(
+                        f"[SkillFilter] user={user_info.user_id} total_perms={len(user_skill_permissions)} disabled={disabled_skills}"
                     )
                     await db_session.commit()
                 except Exception as exc:
                     await db_session.rollback()
-                    _perm_log.error("[SkillFilter] Permission resolution failed (fail-closed): %s", exc)
+                    print(f"[SkillFilter] Permission resolution failed (fail-closed): {exc}")
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                         detail="Failed to resolve skill permissions for this run.",
@@ -101,7 +98,7 @@ def register_agent_routes(router: APIRouter) -> None:
         except HTTPException:
             raise
         except Exception as exc:
-            _perm_log.error("[SkillFilter] DB access failed (fail-closed): %s", exc)
+            print(f"[SkillFilter] DB access failed (fail-closed): {exc}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to resolve skill permissions for this run.",
