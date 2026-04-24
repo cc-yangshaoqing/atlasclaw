@@ -69,8 +69,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         jwt_cfg = self._auth_config.jwt.expanded()
         oidc_cfg = self._auth_config.oidc.expanded()
+        host_cfg = self._auth_config.host.expanded()
         self._atlas_header_name = (jwt_cfg.header_name or "AtlasClaw-Authenticate").strip()
         self._atlas_cookie_name = (jwt_cfg.cookie_name or "AtlasClaw-Authenticate").strip()
+        self._host_header_name = (
+            host_cfg.header_name or "AtlasClaw-Host-Authenticate"
+        ).strip()
+        self._host_cookie_name = (
+            host_cfg.cookie_name or "AtlasClaw-Host-Authenticate"
+        ).strip()
         self._atlas_issuer = jwt_cfg.issuer
         self._atlas_secret = jwt_cfg.secret_key
         self._ocbc_enabled = bool(oidc_cfg.ocbc_enabled)
@@ -182,7 +189,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
             provider_sso_token = ""
             if provider_name not in {"local", "none", "cmp", ""}:
-                provider_sso_token = self._extract_oidc_token(request)
+                provider_sso_token = self._extract_host_token(request)
 
             jwt_user_info = self._build_user_info_from_payload(
                 payload,
@@ -193,7 +200,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 self._strategy.ensure_user_workspace(jwt_user_info.user_id)
 
             if provider_name == "oidc" and self._ocbc_enabled:
-                oidc_token = self._extract_oidc_token(request)
+                oidc_token = self._extract_host_token(request)
                 if not oidc_token:
                     return self._auth_failed_response(request)
 
@@ -312,23 +319,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         return ""
 
-    @staticmethod
-    def _extract_cmp_token(request: Request) -> str:
-        """Extract CloudChef-Authenticate token from header or cookie."""
-        token = request.headers.get("CloudChef-Authenticate", "").strip()
+    def _extract_host_token(self, request: Request) -> str:
+        token = request.headers.get(self._host_header_name, "").strip()
         if token:
             return token
-        token = request.cookies.get("CloudChef-Authenticate", "").strip()
-        if token:
-            return token
-        return ""
-
-    @staticmethod
-    def _extract_oidc_token(request: Request) -> str:
-        token = request.headers.get("CloudChef-Authenticate", "").strip()
-        if token:
-            return token
-        token = request.cookies.get("CloudChef-Authenticate", "").strip()
+        token = request.cookies.get(self._host_cookie_name, "").strip()
         if token:
             return token
         return ""
@@ -338,7 +333,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if token:
             return token
 
-        token = request.headers.get("CloudChef-Authenticate", "").strip()
+        token = request.headers.get(self._host_header_name, "").strip()
         if token:
             return token
 
@@ -350,7 +345,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if token:
             return token
 
-        token = request.cookies.get("CloudChef-Authenticate", "").strip()
+        token = request.cookies.get(self._host_cookie_name, "").strip()
         if token:
             return token
 

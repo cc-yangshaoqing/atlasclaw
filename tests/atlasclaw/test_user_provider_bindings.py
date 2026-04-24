@@ -19,13 +19,13 @@ def test_resolve_provider_instance_config_prefers_first_usable_auth_mode() -> No
         template_config={
             "base_url": "https://cmp.example.com",
             "auth_type": ["cookie", "user_token"],
-            "cookie": "CloudChef-Authenticate=session-cookie",
+            "cookie": "AtlasClaw-Host-Authenticate=session-cookie",
         },
         user_config={"user_token": "user-token-123"},
     )
 
     assert resolved["auth_type"] == "cookie"
-    assert resolved["cookie"] == "CloudChef-Authenticate=session-cookie"
+    assert resolved["cookie"] == "AtlasClaw-Host-Authenticate=session-cookie"
     assert "user_token" not in resolved
 
 
@@ -99,7 +99,7 @@ def test_resolve_provider_instance_config_uses_sso_and_strips_persisted_auth_fie
         template_config={
             "base_url": "https://cmp.example.com",
             "auth_type": ["sso", "cookie", "user_token"],
-            "cookie": "CloudChef-Authenticate=session-cookie",
+            "cookie": "AtlasClaw-Host-Authenticate=session-cookie",
         },
         user_config={"user_token": "user-token-123"},
         runtime_context={

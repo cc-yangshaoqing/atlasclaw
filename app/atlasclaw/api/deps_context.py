@@ -12,6 +12,7 @@ from fastapi import HTTPException, Request, status
 
 from ..agent.routing import AgentRouter
 from ..auth.models import UserInfo
+from ..core.config import get_config
 from ..core.deps import SkillDeps
 from ..core.security_guard import ensure_user_work_dir
 from ..core.trace import enrich_trace_metadata
@@ -33,7 +34,63 @@ from ..heartbeat.runtime import HeartbeatRuntime
 from .sse import SSEManager
 from .webhook_dispatch import WebhookDispatchManager
 
-_ATLASCLAW_AUTH_COOKIE_NAMES = frozenset({"atlasclaw-authenticate"})
+_DEFAULT_ATLASCLAW_AUTH_COOKIE_NAME = "AtlasClaw-Authenticate"
+_DEFAULT_HOST_AUTH_COOKIE_NAME = "AtlasClaw-Host-Authenticate"
+
+
+def _normalize_cookie_name(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _get_field(source: Any, field_name: str) -> Any:
+    if isinstance(source, dict):
+        return source.get(field_name)
+    return getattr(source, field_name, None)
+
+
+def _get_configured_auth_cookie_name(section_name: str) -> str:
+    try:
+        auth_config = _get_field(get_config(), "auth")
+    except Exception:
+        return ""
+
+    section_config = _get_field(auth_config, section_name)
+    if section_config is None:
+        return ""
+
+    expanded_builder = getattr(section_config, "expanded", None)
+    if callable(expanded_builder):
+        try:
+            section_config = expanded_builder()
+        except Exception:
+            pass
+
+    return str(_get_field(section_config, "cookie_name") or "").strip()
+
+
+def _get_cookie_name_candidates(*values: Any) -> tuple[str, ...]:
+    names: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized_name = _normalize_cookie_name(value)
+        if normalized_name and normalized_name not in seen:
+            names.append(normalized_name)
+            seen.add(normalized_name)
+    return tuple(names)
+
+
+def _get_atlas_auth_cookie_names() -> tuple[str, ...]:
+    # Mirror AuthMiddleware._extract_atlas_token(): the configured JWT cookie
+    # name and the default fallback are both AtlasClaw session cookies.
+    return _get_cookie_name_candidates(
+        _get_configured_auth_cookie_name("jwt"),
+        _DEFAULT_ATLASCLAW_AUTH_COOKIE_NAME,
+    )
+
+
+def _get_host_auth_cookie_names() -> tuple[str, ...]:
+    configured_name = _get_configured_auth_cookie_name("host")
+    return _get_cookie_name_candidates(configured_name or _DEFAULT_HOST_AUTH_COOKIE_NAME)
 
 
 def _extract_provider_cookie_token(request_cookies: Optional[dict[str, str]]) -> str:
@@ -41,12 +98,16 @@ def _extract_provider_cookie_token(request_cookies: Optional[dict[str, str]]) ->
     if not isinstance(request_cookies, dict):
         return ""
 
-    for cookie_name, cookie_value in request_cookies.items():
-        normalized_name = str(cookie_name or "").strip().lower()
-        token = str(cookie_value or "").strip()
-        if not token or normalized_name in _ATLASCLAW_AUTH_COOKIE_NAMES:
+    atlas_auth_cookie_names = set(_get_atlas_auth_cookie_names())
+    request_cookie_tokens = {
+        _normalize_cookie_name(cookie_name): str(cookie_value or "").strip()
+        for cookie_name, cookie_value in request_cookies.items()
+    }
+    for normalized_name in _get_host_auth_cookie_names():
+        if normalized_name in atlas_auth_cookie_names:
             continue
-        if "authenticate" in normalized_name:
+        token = request_cookie_tokens.get(normalized_name, "")
+        if token:
             return token
     return ""
 

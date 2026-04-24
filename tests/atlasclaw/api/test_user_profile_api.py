@@ -835,7 +835,7 @@ class TestUserProfileAPI:
                     "default": {
                         "base_url": "https://console.smartcmp.cloud",
                         "auth_type": ["cookie", "user_token"],
-                        "cookie": "CloudChef-Authenticate=template-cookie",
+                        "cookie": "AtlasClaw-Host-Authenticate=template-cookie",
                     }
                 }
             },

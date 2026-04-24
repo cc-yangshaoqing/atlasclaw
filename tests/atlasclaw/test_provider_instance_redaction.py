@@ -17,7 +17,7 @@ def _smartcmp_instance_config() -> dict[str, str]:
         "instance_name": "default",
         "base_url": "https://cmp.example.com/platform-api",
         "auth_type": "user_token",
-        "cookie": "CloudChef-Authenticate=session-cookie",
+        "cookie": "AtlasClaw-Host-Authenticate=session-cookie",
         "password": "super-secret-password",
         "user_token": "fake-smartcmp-user-token",
     }
