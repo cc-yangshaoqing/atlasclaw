@@ -85,6 +85,10 @@ Before making any feature changes, bug fixes, or architectural decisions, consul
 
 **Formatting:**
 - UTF-8 encoding: Include `# -*- coding: utf-8 -*-` header in Python files
+- Copyright headers: Do not blindly copy an old copyright year from another
+  file. For newly created files, use the year the file is first added. When
+  moving or splitting existing code, keep the original copyright year only if it
+  reflects the copied code's provenance.
 - 4 spaces for indentation
 - Line length: ~100 characters (be reasonable)
 - Use double quotes for strings unless single quotes avoid escaping
