@@ -565,9 +565,9 @@ Credential -> AuthProvider.authenticate() -> AuthResult
 ```
 
 **Credential Sources** (checked in order):
-1. `AtlasClaw-Host-Authenticate` header
+1. Configured host cookie auth header (`auth.host_cookie.header_name`)
 2. `Authorization: Bearer <token>` header
-3. `AtlasClaw-Host-Authenticate` cookie
+3. Configured host cookie auth cookie (`auth.host_cookie.cookie_name`)
 
 **Auth Providers** (configured in `auth.provider`):
 

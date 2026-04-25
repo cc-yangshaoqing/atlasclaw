@@ -52,13 +52,13 @@ def _delete_cookie(response: Response, request: Request, key: str) -> None:
         response.delete_cookie(key, path="/")
 
 
-def _host_auth_cookie_name(auth_config: Any) -> str:
-    host_config = getattr(auth_config, "host", None)
-    expanded_builder = getattr(host_config, "expanded", None)
+def _host_cookie_auth_cookie_name(auth_config: Any) -> str:
+    host_cookie_config = getattr(auth_config, "host_cookie", None)
+    expanded_builder = getattr(host_cookie_config, "expanded", None)
     if callable(expanded_builder):
-        host_config = expanded_builder()
+        host_cookie_config = expanded_builder()
     return str(
-        getattr(host_config, "cookie_name", "") or "AtlasClaw-Host-Authenticate"
+        getattr(host_cookie_config, "cookie_name", "") or "CloudChef-Authenticate"
     ).strip()
 
 
@@ -78,7 +78,7 @@ def _local_login_enabled_for_auth_config(auth_config) -> bool:
     provider_name = str(getattr(auth_config, "provider", "") or "").strip().lower()
     if provider_name == "local":
         return bool(getattr(auth_config.local, "enabled", False))
-    if provider_name == "cmp":
+    if provider_name == "host_cookie":
         return bool(getattr(auth_config.local, "enabled", False))
     return False
 
@@ -129,7 +129,7 @@ async def perform_local_login(request: Request, body: LocalLoginRequest) -> Resp
     from ...auth.providers.local import LocalAuthProvider
     from ...core.workspace import UserWorkspaceInitializer
 
-    auth_config = get_auth_config_or_400(request, ("local", "cmp"))
+    auth_config = get_auth_config_or_400(request, ("local", "host_cookie"))
     if not _local_login_enabled_for_auth_config(auth_config):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -354,7 +354,7 @@ async def complete_sso_login(
     )
     if auth_result.raw_token:
         response.set_cookie(
-            key=_host_auth_cookie_name(auth_config),
+            key=_host_cookie_auth_cookie_name(auth_config),
             value=auth_result.raw_token,
             path=_cookie_path(request),
             httponly=True,
@@ -509,14 +509,14 @@ async def get_current_user_payload(request: Request) -> dict[str, Any]:
         jwt_cfg.cookie_name,
     )
 
-    # CMP mode without AtlasClaw local JWT: user identity already resolved by middleware from cookies
-    if auth_config.provider == "cmp" and not token:
+    # Host cookie mode without AtlasClaw local JWT: middleware already resolved user identity.
+    if auth_config.provider == "host_cookie" and not token:
         user_info = getattr(request.state, "user_info", None)
         if user_info and user_info.user_id != "anonymous":
             return {
                 "user_id": user_info.user_id,
                 "display_name": user_info.display_name,
-                "provider": "cmp",
+                "provider": "host_cookie",
                 "auth_type": user_info.auth_type or "cookie",
                 "tenant_id": user_info.tenant_id,
             }
@@ -658,7 +658,7 @@ async def logout_user(request: Request, redirect: bool = True) -> Response:
         _delete_cookie(response, request, auth_config.jwt.expanded().cookie_name)
     _delete_cookie(response, request, "AtlasClaw-Authenticate")
     if auth_config:
-        _delete_cookie(response, request, _host_auth_cookie_name(auth_config))
+        _delete_cookie(response, request, _host_cookie_auth_cookie_name(auth_config))
     _delete_cookie(response, request, "oidc_id_token")
     _delete_cookie(response, request, "sso_state")
     _delete_cookie(response, request, "pkce_verifier")

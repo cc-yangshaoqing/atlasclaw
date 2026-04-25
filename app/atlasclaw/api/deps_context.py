@@ -35,7 +35,7 @@ from .sse import SSEManager
 from .webhook_dispatch import WebhookDispatchManager
 
 _DEFAULT_ATLASCLAW_AUTH_COOKIE_NAME = "AtlasClaw-Authenticate"
-_DEFAULT_HOST_AUTH_COOKIE_NAME = "AtlasClaw-Host-Authenticate"
+_DEFAULT_HOST_COOKIE_AUTH_COOKIE_NAME = "CloudChef-Authenticate"
 
 
 def _normalize_cookie_name(value: Any) -> str:
@@ -88,9 +88,9 @@ def _get_atlas_auth_cookie_names() -> tuple[str, ...]:
     )
 
 
-def _get_host_auth_cookie_names() -> tuple[str, ...]:
-    configured_name = _get_configured_auth_cookie_name("host")
-    return _get_cookie_name_candidates(configured_name or _DEFAULT_HOST_AUTH_COOKIE_NAME)
+def _get_host_cookie_auth_cookie_names() -> tuple[str, ...]:
+    configured_name = _get_configured_auth_cookie_name("host_cookie")
+    return _get_cookie_name_candidates(configured_name or _DEFAULT_HOST_COOKIE_AUTH_COOKIE_NAME)
 
 
 def _extract_provider_cookie_token(request_cookies: Optional[dict[str, str]]) -> str:
@@ -103,7 +103,7 @@ def _extract_provider_cookie_token(request_cookies: Optional[dict[str, str]]) ->
         _normalize_cookie_name(cookie_name): str(cookie_value or "").strip()
         for cookie_name, cookie_value in request_cookies.items()
     }
-    for normalized_name in _get_host_auth_cookie_names():
+    for normalized_name in _get_host_cookie_auth_cookie_names():
         if normalized_name in atlas_auth_cookie_names:
             continue
         token = request_cookie_tokens.get(normalized_name, "")

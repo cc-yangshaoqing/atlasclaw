@@ -1,8 +1,9 @@
+# -*- coding: utf-8 -*-
 # Copyright 2021  Qianyun, Inc. All rights reserved.
 
 
 """
-AuthMiddleware — FastAPI/Starlette middleware for request authentication.
+AuthMiddleware - FastAPI/Starlette middleware for request authentication.
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ _SSO_PATHS = frozenset({
     "/api/auth/me",
 })
 
-_CMP_PUBLIC_PATHS = frozenset({
+_HOST_COOKIE_PUBLIC_PATHS = frozenset({
     "/api/auth/login",
     "/api/auth/local/login",
     "/api/auth/callback",
@@ -69,14 +70,14 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         jwt_cfg = self._auth_config.jwt.expanded()
         oidc_cfg = self._auth_config.oidc.expanded()
-        host_cfg = self._auth_config.host.expanded()
+        host_cookie_cfg = self._auth_config.host_cookie.expanded()
         self._atlas_header_name = (jwt_cfg.header_name or "AtlasClaw-Authenticate").strip()
         self._atlas_cookie_name = (jwt_cfg.cookie_name or "AtlasClaw-Authenticate").strip()
-        self._host_header_name = (
-            host_cfg.header_name or "AtlasClaw-Host-Authenticate"
+        self._host_cookie_header_name = (
+            host_cookie_cfg.header_name or "CloudChef-Authenticate"
         ).strip()
         self._host_cookie_name = (
-            host_cfg.cookie_name or "AtlasClaw-Host-Authenticate"
+            host_cookie_cfg.cookie_name or "CloudChef-Authenticate"
         ).strip()
         self._atlas_issuer = jwt_cfg.issuer
         self._atlas_secret = jwt_cfg.secret_key
@@ -110,9 +111,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 request.state.user_info = ANONYMOUS_USER
             return await call_next(request)
 
-        # CMP mode: support both local AtlasClaw admin JWT sessions and CMP cookie auth.
+        # Host cookie mode: support both local AtlasClaw admin JWT sessions
+        # and embedded host cookie auth.
         # AtlasClaw JWT is checked first so backend management login remains available.
-        if provider_name == "cmp":
+        if provider_name == "host_cookie":
             atlas_token = self._extract_atlas_token(request)
             if atlas_token:
                 try:
@@ -122,7 +124,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                         issuer=self._atlas_issuer,
                     )
                 except AuthenticationError as exc:
-                    logger.debug("Atlas token verification failed in cmp mode: %s", exc)
+                    logger.debug("Atlas token verification failed in host_cookie mode: %s", exc)
                     return self._auth_failed_response(request)
 
                 request.state.user_info = self._build_user_info_from_payload(
@@ -131,23 +133,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 )
                 return await call_next(request)
 
-            if request.url.path in _CMP_PUBLIC_PATHS:
+            if request.url.path in _HOST_COOKIE_PUBLIC_PATHS:
                 request.state.user_info = ANONYMOUS_USER
                 return await call_next(request)
 
-            from app.atlasclaw.auth.providers.cmp import CMPAuthProvider
+            from app.atlasclaw.auth.providers.host_cookie import HostCookieAuthProvider
             cookies = dict(request.cookies)
-            logger.warning("CMP DEBUG: path=%s cookies=%s", request.url.path, list(cookies.keys()))
-            cmp_provider = self._strategy.primary_provider
-            if not isinstance(cmp_provider, CMPAuthProvider):
-                return JSONResponse(status_code=500, content={"detail": "CMP provider misconfigured"})
+            host_provider = self._strategy.primary_provider
+            if not isinstance(host_provider, HostCookieAuthProvider):
+                return JSONResponse(status_code=500, content={"detail": "Host cookie provider misconfigured"})
             try:
-                auth_result = await cmp_provider.authenticate_from_cookies(cookies)
-                logger.warning("CMP DEBUG: auth_result subject=%s", auth_result.subject)
+                auth_result = await host_provider.authenticate_from_cookies(cookies)
                 shadow = await self._strategy._shadow_store.get_or_create(
-                    provider="cmp", result=auth_result,
+                    provider=provider_name, result=auth_result,
                 )
-                logger.warning("CMP DEBUG: shadow user_id=%s", shadow.user_id)
                 self._strategy.ensure_user_workspace(shadow.user_id)
                 provider_cookie_context = {
                     "provider_cookie_available": True,
@@ -157,16 +156,15 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     raw_token=auth_result.raw_token,
                     extra={**auth_result.extra, **provider_cookie_context},
                 )
-                logger.warning("CMP DEBUG: user_info set, proceeding")
                 return await call_next(request)
             except AuthenticationError as exc:
-                logger.warning("CMP cookie auth FAILED (AuthenticationError): %s", exc)
+                logger.warning("Host cookie auth failed: %s", exc)
                 return self._auth_failed_response(request)
             except Exception as exc:
-                logger.warning("CMP cookie auth FAILED (unexpected): %s %s", type(exc).__name__, exc)
+                logger.warning("Host cookie auth failed unexpectedly: %s %s", type(exc).__name__, exc)
                 return self._auth_failed_response(request)
 
-        # SSO paths: skip auth for non-CMP providers (login, callback, etc.)
+        # SSO paths: skip auth for SSO providers (login, callback, etc.)
         if request.url.path in _SSO_PATHS:
             request.state.user_info = ANONYMOUS_USER
             return await call_next(request)
@@ -188,8 +186,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return self._auth_failed_response(request)
 
             provider_sso_token = ""
-            if provider_name not in {"local", "none", "cmp", ""}:
-                provider_sso_token = self._extract_host_token(request)
+            if provider_name not in {"local", "none", "host_cookie", ""}:
+                provider_sso_token = self._extract_host_cookie_token(request)
 
             jwt_user_info = self._build_user_info_from_payload(
                 payload,
@@ -200,7 +198,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 self._strategy.ensure_user_workspace(jwt_user_info.user_id)
 
             if provider_name == "oidc" and self._ocbc_enabled:
-                oidc_token = self._extract_host_token(request)
+                oidc_token = self._extract_host_cookie_token(request)
                 if not oidc_token:
                     return self._auth_failed_response(request)
 
@@ -287,7 +285,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # SSO providers (oidc, dingtalk, etc.) redirect to /api/auth/login
             # Use reverse exclusion pattern: all providers except local/none/empty are SSO
             # This way, new SSO providers (feishu, wecom, etc.) work without code changes
-            if provider_name not in ("local", "none", "cmp", ""):
+            if provider_name not in ("local", "none", "host_cookie", ""):
                 return RedirectResponse(
                     url=build_base_path_url(base_path, "/api/auth/login"),
                     status_code=302,
@@ -319,8 +317,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         return ""
 
-    def _extract_host_token(self, request: Request) -> str:
-        token = request.headers.get(self._host_header_name, "").strip()
+    def _extract_host_cookie_token(self, request: Request) -> str:
+        token = request.headers.get(self._host_cookie_header_name, "").strip()
         if token:
             return token
         token = request.cookies.get(self._host_cookie_name, "").strip()
@@ -333,7 +331,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if token:
             return token
 
-        token = request.headers.get(self._host_header_name, "").strip()
+        token = request.headers.get(self._host_cookie_header_name, "").strip()
         if token:
             return token
 

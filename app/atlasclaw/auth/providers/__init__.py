@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 # Copyright 2021  Qianyun, Inc. All rights reserved.
 
 
-"""Auth providers — unified authentication interface."""
+"""Auth providers - unified authentication interface."""
 
 from __future__ import annotations
 
@@ -63,6 +64,7 @@ def create_local_provider(config: AuthConfig) -> AuthProvider:
     Primary providers (choose ONE via config.provider):
       - 'none': No authentication (development/single-user mode)
       - 'local': Local username/password authentication (database-backed)
+      - 'host_cookie': Embedded host cookie authentication
       - 'oidc': OIDC SSO authentication (via external IdP)
       - 'dingtalk': DingTalk SSO authentication
       - 'feishu': Feishu/Lark SSO authentication
@@ -100,16 +102,16 @@ def create_local_provider(config: AuthConfig) -> AuthProvider:
         from app.atlasclaw.auth.providers.none import NoneProvider
         return NoneProvider(default_user_id=config.none.default_user_id)
 
-    if provider_type == "cmp":
-        from app.atlasclaw.auth.providers.cmp import CMPAuthProvider
-        cmp_config = config.cmp.expanded()
-        host_config = config.host.expanded()
-        return CMPAuthProvider(
-            token_cookie_name=cmp_config.token_cookie_name or host_config.cookie_name,
-            login_id_cookie_name=cmp_config.login_id_cookie_name,
-            username_cookie_name=cmp_config.username_cookie_name,
-            user_id_cookie_name=cmp_config.user_id_cookie_name,
-            tenant_id_cookie_name=cmp_config.tenant_id_cookie_name,
+    if provider_type == "host_cookie":
+        from app.atlasclaw.auth.providers.host_cookie import HostCookieAuthProvider
+        host_cookie_config = config.host_cookie.expanded()
+        return HostCookieAuthProvider(
+            provider_name=provider_type,
+            token_cookie_name=host_cookie_config.cookie_name,
+            subject_cookie_name=host_cookie_config.subject_cookie_name,
+            display_name_cookie_name=host_cookie_config.display_name_cookie_name,
+            user_id_cookie_name=host_cookie_config.user_id_cookie_name,
+            tenant_id_cookie_name=host_cookie_config.tenant_id_cookie_name,
         )
 
     if provider_type == "local":
@@ -122,13 +124,13 @@ def create_local_provider(config: AuthConfig) -> AuthProvider:
 
     raise ValueError(
         f"Unknown primary auth provider: {config.provider!r}. "
-        f"Supported: 'none', 'local', 'cmp', 'oidc', 'dingtalk', 'feishu', 'wecom'. "
+        f"Supported: 'none', 'local', 'host_cookie', 'oidc', 'dingtalk', 'feishu', 'wecom'. "
         f"Note: 'oidc_jwt' is available via get_jwt_validator() for API use cases."
     )
 
 
 # ============================================================================
-# Secondary providers — always available for specific use cases
+# Secondary providers - always available for specific use cases
 # These are NOT set via config.provider, but used directly when needed
 # ============================================================================
 
@@ -191,8 +193,8 @@ def get_sso_handler(
     """Get SSO login handler for browser SSO flow.
     
     Use case: Browser-based single sign-on via OAuth2 authorization code flow.
-    Handles the complete login flow: generate auth URL → handle callback → 
-    exchange code → validate tokens → return user info.
+    Handles the complete login flow: generate auth URL -> handle callback ->
+    exchange code -> validate tokens -> return user info.
     
     This is separate from primary auth and used when you want to delegate
     authentication to an external IdP (Keycloak, Auth0, Okta, DingTalk, etc.).

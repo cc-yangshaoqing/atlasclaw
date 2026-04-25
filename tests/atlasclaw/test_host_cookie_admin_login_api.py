@@ -9,13 +9,13 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 
-def _build_cmp_local_admin_config(tmp_path: Path, db_path: Path) -> dict:
+def _build_host_cookie_local_admin_config(tmp_path: Path, db_path: Path) -> dict:
     project_root = Path(__file__).resolve().parents[2]
     providers_root = str((project_root.parent / "atlasclaw-providers" / "providers").resolve())
     skills_root = str((project_root.parent / "atlasclaw-providers" / "skills").resolve())
     return {
         "workspace": {
-            "path": str((tmp_path / ".atlasclaw-cmp-admin").resolve()),
+            "path": str((tmp_path / ".atlasclaw-host-cookie-admin").resolve()),
         },
         "providers_root": providers_root,
         "skills_root": skills_root,
@@ -27,10 +27,10 @@ def _build_cmp_local_admin_config(tmp_path: Path, db_path: Path) -> dict:
         },
         "auth": {
             "enabled": True,
-            "provider": "cmp",
+            "provider": "host_cookie",
             "jwt": {
-                "secret_key": "cmp-admin-secret",
-                "issuer": "atlasclaw-cmp-admin-test",
+                "secret_key": "host-cookie-admin-secret",
+                "issuer": "atlasclaw-host-cookie-admin-test",
                 "header_name": "AtlasClaw-Authenticate",
                 "cookie_name": "AtlasClaw-Authenticate",
                 "expires_minutes": 60,
@@ -40,9 +40,13 @@ def _build_cmp_local_admin_config(tmp_path: Path, db_path: Path) -> dict:
                 "default_admin_username": "admin",
                 "default_admin_password": "Admin@123",
             },
-            "host": {
-                "header_name": "AtlasClaw-Host-Authenticate",
-                "cookie_name": "AtlasClaw-Host-Authenticate",
+            "host_cookie": {
+                "header_name": "Host-Authenticate",
+                "cookie_name": "Host-Authenticate",
+                "subject_cookie_name": "hostUser",
+                "display_name_cookie_name": "hostDisplayName",
+                "user_id_cookie_name": "hostUserId",
+                "tenant_id_cookie_name": "hostTenantId",
             },
         },
         "model": {
@@ -67,11 +71,15 @@ def _build_cmp_local_admin_config(tmp_path: Path, db_path: Path) -> dict:
     }
 
 
-def _create_cmp_app(tmp_path: Path, monkeypatch) -> tuple[object, object, object]:
-    db_path = tmp_path / "cmp-admin-login.db"
-    config_path = tmp_path / "atlasclaw.cmp-admin-login.json"
+def _create_host_cookie_app(tmp_path: Path, monkeypatch) -> tuple[object, object, object]:
+    db_path = tmp_path / "host-cookie-admin-login.db"
+    config_path = tmp_path / "atlasclaw.host-cookie-admin-login.json"
     config_path.write_text(
-        json.dumps(_build_cmp_local_admin_config(tmp_path, db_path), ensure_ascii=False, indent=2),
+        json.dumps(
+            _build_host_cookie_local_admin_config(tmp_path, db_path),
+            ensure_ascii=False,
+            indent=2,
+        ),
         encoding="utf-8",
     )
     monkeypatch.setenv("ATLASCLAW_CONFIG", str(config_path.resolve()))
@@ -87,8 +95,8 @@ def _create_cmp_app(tmp_path: Path, monkeypatch) -> tuple[object, object, object
     return app, config_module, old_config_manager
 
 
-def test_cmp_mode_allows_local_admin_login(tmp_path: Path, monkeypatch) -> None:
-    app, config_module, old_manager = _create_cmp_app(tmp_path, monkeypatch)
+def test_host_cookie_mode_allows_local_admin_login(tmp_path: Path, monkeypatch) -> None:
+    app, config_module, old_manager = _create_host_cookie_app(tmp_path, monkeypatch)
     try:
         with TestClient(app) as client:
             response = client.post(
@@ -105,8 +113,8 @@ def test_cmp_mode_allows_local_admin_login(tmp_path: Path, monkeypatch) -> None:
         config_module._config_manager = old_manager
 
 
-def test_cmp_mode_auth_me_accepts_local_admin_jwt(tmp_path: Path, monkeypatch) -> None:
-    app, config_module, old_manager = _create_cmp_app(tmp_path, monkeypatch)
+def test_host_cookie_mode_auth_me_accepts_local_admin_jwt(tmp_path: Path, monkeypatch) -> None:
+    app, config_module, old_manager = _create_host_cookie_app(tmp_path, monkeypatch)
     try:
         with TestClient(app) as client:
             login_response = client.post(
@@ -129,32 +137,32 @@ def test_cmp_mode_auth_me_accepts_local_admin_jwt(tmp_path: Path, monkeypatch) -
         config_module._config_manager = old_manager
 
 
-def test_cmp_mode_auth_me_accepts_cmp_cookies(tmp_path: Path, monkeypatch) -> None:
-    app, config_module, old_manager = _create_cmp_app(tmp_path, monkeypatch)
+def test_host_cookie_mode_auth_me_accepts_configured_host_cookies(tmp_path: Path, monkeypatch) -> None:
+    app, config_module, old_manager = _create_host_cookie_app(tmp_path, monkeypatch)
     try:
         with TestClient(app) as client:
             me_response = client.get(
                 "/api/auth/me",
                 cookies={
-                    "AtlasClaw-Host-Authenticate": "host-token",
-                    "userLoginId": "cmp-admin",
-                    "username": "CMP%20Admin",
-                    "tenant_id": "tenant-a",
+                    "Host-Authenticate": "host-token",
+                    "hostUser": "host-admin",
+                    "hostDisplayName": "Host%20Admin",
+                    "hostTenantId": "tenant-a",
                 },
             )
             assert me_response.status_code == 200
             body = me_response.json()
             assert body["user_id"]
-            assert body["display_name"] == "CMP Admin"
-            assert body["provider"] == "cmp"
+            assert body["display_name"] == "Host Admin"
+            assert body["provider"] == "host_cookie"
             assert body["auth_type"] == "cookie"
             assert body["tenant_id"] == "tenant-a"
     finally:
         config_module._config_manager = old_manager
 
 
-def test_cmp_mode_admin_api_accepts_local_admin_jwt(tmp_path: Path, monkeypatch) -> None:
-    app, config_module, old_manager = _create_cmp_app(tmp_path, monkeypatch)
+def test_host_cookie_mode_admin_api_accepts_local_admin_jwt(tmp_path: Path, monkeypatch) -> None:
+    app, config_module, old_manager = _create_host_cookie_app(tmp_path, monkeypatch)
     try:
         with TestClient(app) as client:
             login_response = client.post(
@@ -176,11 +184,11 @@ def test_cmp_mode_admin_api_accepts_local_admin_jwt(tmp_path: Path, monkeypatch)
         config_module._config_manager = old_manager
 
 
-def test_cmp_mode_admin_page_redirects_to_login_when_unauthenticated(
+def test_host_cookie_mode_admin_page_redirects_to_login_when_unauthenticated(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    app, config_module, old_manager = _create_cmp_app(tmp_path, monkeypatch)
+    app, config_module, old_manager = _create_host_cookie_app(tmp_path, monkeypatch)
     try:
         with TestClient(app) as client:
             response = client.get(

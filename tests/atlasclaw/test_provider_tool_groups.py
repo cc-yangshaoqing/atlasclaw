@@ -57,7 +57,7 @@ def _patch_auth_cookie_names(
     )
     monkeypatch.setattr(
         "app.atlasclaw.api.deps_context.get_config",
-        lambda: SimpleNamespace(auth=SimpleNamespace(jwt=jwt_config, host=host_config)),
+        lambda: SimpleNamespace(auth=SimpleNamespace(jwt=jwt_config, host_cookie=host_config)),
     )
 
 
@@ -334,7 +334,7 @@ def test_build_scoped_deps_excludes_default_atlas_auth_cookie(tmp_path, monkeypa
 def test_build_scoped_deps_excludes_configured_atlas_auth_cookie(tmp_path, monkeypatch) -> None:
     _patch_auth_cookie_names(
         monkeypatch,
-        atlas_cookie_name="CloudChef-Authenticate",
+        atlas_cookie_name="Custom-Atlas-Authenticate",
         host_cookie_name="Host-Token",
     )
     ctx = _build_provider_cookie_test_context(tmp_path)
@@ -344,7 +344,7 @@ def test_build_scoped_deps_excludes_configured_atlas_auth_cookie(tmp_path, monke
         ctx,
         user,
         "agent:main:user:u1:web:dm:peer-1:topic:thread-42",
-        request_cookies={"CloudChef-Authenticate": "atlas-session-token"},
+        request_cookies={"Custom-Atlas-Authenticate": "atlas-session-token"},
     )
 
     assert deps.extra["provider_cookie_available"] is False
@@ -361,7 +361,7 @@ def test_build_scoped_deps_uses_real_provider_cookie_with_custom_atlas_cookie(
 ) -> None:
     _patch_auth_cookie_names(
         monkeypatch,
-        atlas_cookie_name="CloudChef-Authenticate",
+        atlas_cookie_name="Custom-Atlas-Authenticate",
         host_cookie_name="Host-Token",
     )
     ctx = _build_provider_cookie_test_context(tmp_path)
@@ -372,7 +372,7 @@ def test_build_scoped_deps_uses_real_provider_cookie_with_custom_atlas_cookie(
         user,
         "agent:main:user:u1:web:dm:peer-1:topic:thread-42",
         request_cookies={
-            "CloudChef-Authenticate": "atlas-session-token",
+            "Custom-Atlas-Authenticate": "atlas-session-token",
             "Host-Token": "provider-cookie-token",
         },
     )

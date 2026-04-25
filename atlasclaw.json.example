@@ -142,10 +142,14 @@
     "provider": "none",
     "cache_ttl_seconds": 300,
 
-    "host": {
-      "_comment": "Header/cookie name used when an embedded host passes its own authenticated token into AtlasClaw.",
-      "header_name": "AtlasClaw-Host-Authenticate",
-      "cookie_name": "AtlasClaw-Host-Authenticate"
+    "host_cookie": {
+      "_comment": "Header/cookie names used when an embedded host passes authenticated identity into AtlasClaw. Set these fields to the host application's cookie names.",
+      "header_name": "CloudChef-Authenticate",
+      "cookie_name": "CloudChef-Authenticate",
+      "subject_cookie_name": "userLoginId",
+      "display_name_cookie_name": "username",
+      "user_id_cookie_name": "userId",
+      "tenant_id_cookie_name": "tenant_id"
     },
 
     "smartcmp": {

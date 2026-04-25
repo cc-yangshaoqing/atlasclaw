@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 # Copyright 2021  Qianyun, Inc. All rights reserved.
 
 
@@ -15,7 +16,7 @@ from pydantic import BaseModel
 
 _ENV_RE = re.compile(r'\$\{([^}]+)\}')
 DEFAULT_JWT_SECRET = "atlasclaw-dev-secret"
-DEFAULT_HOST_AUTH_NAME = "AtlasClaw-Host-Authenticate"
+DEFAULT_HOST_COOKIE_AUTH_NAME = "CloudChef-Authenticate"
 
 
 def expand_env(value: str) -> str:
@@ -86,33 +87,22 @@ class DingTalkAuthConfig(BaseModel):
         )
 
 
-class HostAuthConfig(BaseModel):
-    """Embedded host token names used for host system handoff."""
+class HostCookieAuthConfig(BaseModel):
+    """Embedded host token and identity cookie names."""
 
-    header_name: str = DEFAULT_HOST_AUTH_NAME
-    cookie_name: str = DEFAULT_HOST_AUTH_NAME
-
-    def expanded(self) -> "HostAuthConfig":
-        return HostAuthConfig(
-            header_name=expand_env(self.header_name),
-            cookie_name=expand_env(self.cookie_name),
-        )
-
-
-class CMPAuthConfig(BaseModel):
-    """CMP platform cookie-based authentication configuration."""
-
-    token_cookie_name: str = ""
-    login_id_cookie_name: str = "userLoginId"
-    username_cookie_name: str = "username"
+    header_name: str = DEFAULT_HOST_COOKIE_AUTH_NAME
+    cookie_name: str = DEFAULT_HOST_COOKIE_AUTH_NAME
+    subject_cookie_name: str = "userLoginId"
+    display_name_cookie_name: str = "username"
     user_id_cookie_name: str = "userId"
     tenant_id_cookie_name: str = "tenant_id"
 
-    def expanded(self) -> "CMPAuthConfig":
-        return CMPAuthConfig(
-            token_cookie_name=expand_env(self.token_cookie_name),
-            login_id_cookie_name=expand_env(self.login_id_cookie_name),
-            username_cookie_name=expand_env(self.username_cookie_name),
+    def expanded(self) -> "HostCookieAuthConfig":
+        return HostCookieAuthConfig(
+            header_name=expand_env(self.header_name),
+            cookie_name=expand_env(self.cookie_name),
+            subject_cookie_name=expand_env(self.subject_cookie_name),
+            display_name_cookie_name=expand_env(self.display_name_cookie_name),
             user_id_cookie_name=expand_env(self.user_id_cookie_name),
             tenant_id_cookie_name=expand_env(self.tenant_id_cookie_name),
         )
@@ -172,8 +162,7 @@ class AuthConfig(BaseModel):
 
     oidc: OIDCAuthConfig = OIDCAuthConfig()
     dingtalk: DingTalkAuthConfig = DingTalkAuthConfig()
-    host: HostAuthConfig = HostAuthConfig()
-    cmp: CMPAuthConfig = CMPAuthConfig()
+    host_cookie: HostCookieAuthConfig = HostCookieAuthConfig()
     none: NoneAuthConfig = NoneAuthConfig()
     local: LocalAuthConfig = LocalAuthConfig()
     jwt: JWTAuthConfig = JWTAuthConfig()
@@ -201,8 +190,16 @@ class AuthConfig(BaseModel):
                 raise ValueError(
                     "auth.local.default_admin_username is required when auth.provider='local'"
                 )
-        elif p == "cmp":
-            pass  # CMP uses browser cookies, no config validation needed
+        elif p == "host_cookie":
+            host_cookie = self.host_cookie.expanded()
+            if not host_cookie.cookie_name:
+                raise ValueError(
+                    "auth.host_cookie.cookie_name is required when auth.provider='host_cookie'"
+                )
+            if not host_cookie.subject_cookie_name:
+                raise ValueError(
+                    "auth.host_cookie.subject_cookie_name is required when auth.provider='host_cookie'"
+                )
         elif p == "dingtalk":
             dt = self.dingtalk.expanded()
             if not dt.app_key:

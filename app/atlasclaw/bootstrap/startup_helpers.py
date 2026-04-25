@@ -315,7 +315,7 @@ async def ensure_default_local_admin(config) -> None:
 
     auth_cfg = config.auth if isinstance(config.auth, AuthConfig) else AuthConfig(**config.auth)
     provider_name = auth_cfg.provider.lower()
-    if provider_name not in {"local", "cmp"} or not auth_cfg.local.enabled:
+    if provider_name not in {"local", "host_cookie"} or not auth_cfg.local.enabled:
         return
 
     username = auth_cfg.local.default_admin_username or "admin"
