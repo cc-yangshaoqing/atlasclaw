@@ -259,7 +259,9 @@ def has_skill_access(authz: AuthorizationContext, skill_name: str) -> bool:
 
     skill_permissions = authz.permissions.get("skills", {}).get("skill_permissions", [])
     if not isinstance(skill_permissions, list) or not skill_permissions:
-        return True
+        # Admin with an empty list (e.g. frontend saved a full-enable as [])
+        # retains open access; all other roles are deny-all.
+        return authz.is_admin
 
     matching_entries = [
         entry

@@ -357,6 +357,7 @@ class TestRoleCRUDAPI:
                 'permissions': {
                     'skills': {
                         'module_permissions': {
+                            'view': True,
                             'manage_permissions': True,
                         },
                         'skill_permissions': [],
@@ -437,6 +438,69 @@ class TestRoleCRUDAPI:
         )
         assert allowed_execute.status_code == 200
         assert json.loads(allowed_execute.json()['result']) == {'echo': 'hello'}
+
+        _cleanup_manager(manager)
+
+    def test_builtin_user_skill_permissions_can_be_modified_via_api(self, tmp_path):
+        manager = _init_database_sync(tmp_path)
+        client = _build_client(tmp_path, _get_auth_config())
+        token = _login_as(client, 'admin', 'adminpass123')
+        headers = {'AtlasClaw-Authenticate': token}
+
+        roles_response = client.get('/api/roles', headers=headers)
+        assert roles_response.status_code == 200
+        user_role = next(role for role in roles_response.json()['roles'] if role['identifier'] == 'user')
+
+        update_response = client.put(
+            f"/api/roles/{user_role['id']}",
+            json={
+                'permissions': {
+                    'skills': {
+                        'module_permissions': {
+                            'view': True,
+                        },
+                        'skill_permissions': [
+                            {
+                                'skill_id': 'echo-skill',
+                                'skill_name': 'echo-skill',
+                                'description': 'Echo test skill',
+                                'authorized': True,
+                                'enabled': True,
+                            },
+                        ],
+                    },
+                },
+            },
+            headers=headers,
+        )
+
+        assert update_response.status_code == 200
+        payload = update_response.json()
+        assert payload['permissions']['channels']['view'] is False
+        assert payload['permissions']['skills']['module_permissions']['view'] is True
+        assert payload['permissions']['skills']['skill_permissions'] == [
+            {
+                'skill_id': 'echo-skill',
+                'skill_name': 'echo-skill',
+                'description': 'Echo test skill',
+                'authorized': True,
+                'enabled': True,
+            },
+        ]
+
+        refreshed_roles_response = client.get('/api/roles', headers=headers)
+        refreshed_user_role = next(
+            role for role in refreshed_roles_response.json()['roles'] if role['identifier'] == 'user'
+        )
+        assert refreshed_user_role['permissions']['skills']['skill_permissions'] == [
+            {
+                'skill_id': 'echo-skill',
+                'skill_name': 'echo-skill',
+                'description': 'Echo test skill',
+                'authorized': True,
+                'enabled': True,
+            },
+        ]
 
         _cleanup_manager(manager)
 
@@ -557,6 +621,13 @@ class TestRoleCRUDAPI:
         _cleanup_manager(manager)
 
     def test_builtin_admin_permissions_cannot_be_modified_via_api(self, tmp_path):
+        """Non-skills modules on system-managed roles are silently preserved.
+
+        The frontend sends a full permissions shape.  The backend accepts it
+        (200) but force-restores non-skills modules from the stored record,
+        so the effective tokens.view value remains True even though the
+        client sent False.
+        """
         manager = _init_database_sync(tmp_path)
         client = _build_client(tmp_path, _get_auth_config())
         token = _login_as(client, 'admin', 'adminpass123')
@@ -564,6 +635,7 @@ class TestRoleCRUDAPI:
 
         roles_response = client.get('/api/roles', headers=headers)
         admin_role = next(role for role in roles_response.json()['roles'] if role['identifier'] == 'admin')
+        original_tokens_view = admin_role['permissions']['tokens']['view']
 
         update_response = client.put(
             f"/api/roles/{admin_role['id']}",
@@ -577,8 +649,9 @@ class TestRoleCRUDAPI:
             headers=headers,
         )
 
-        assert update_response.status_code == 400
-        assert 'cannot be modified' in update_response.json()['detail'].lower()
+        # Accepted, but non-skills modules are silently restored.
+        assert update_response.status_code == 200
+        assert update_response.json()['permissions']['tokens']['view'] == original_tokens_view
 
         _cleanup_manager(manager)
 
