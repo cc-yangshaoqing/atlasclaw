@@ -84,19 +84,18 @@
   },
   "service_providers": {
     "smartcmp": {
-      "default": {
+      "cmp": {
         "base_url": "${CMP_URL}",
         "auth_type": ["cookie", "user_token"],
         "username": "${CMP_USERNAME}",
         "password": "${CMP_PASSWORD}"
       }
     },
-    "jira": {
-      "jira-env": {
-        "base_url": "${CMP_URL}",
-        "auth_type": ["cookie", "user_token"],
-        "username": "${CMP_USERNAME}",
-        "password": "${CMP_PASSWORD}"
+    "github": {
+      "github": {
+        "base_url": "https://api.github.com",
+        "hostname": "github.com",
+        "auth_type": "user_token"
       }
     }
   },

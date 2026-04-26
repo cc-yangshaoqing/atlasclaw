@@ -205,7 +205,6 @@ When implementing features, see `openspec/AGENTS.md` for spec-driven development
 ## Commit and PR Messages
 
 Use Conventional Commits: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`.
-
 Format:
 - `<type>(<scope>): <summary>`
 
