@@ -2,6 +2,8 @@ name: Build and Push Docker Image
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
@@ -29,18 +31,34 @@ jobs:
       - name: Determine version tag
         id: version
         run: |
-          if [[ "${{ github.event_name }}" == "push" ]]; then
+          IMAGE_REF="${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}"
+
+          if [[ "${{ github.event_name }}" == "push" && "${GITHUB_REF}" == refs/tags/* ]]; then
             # Tag push: extract from ref (refs/tags/v0.6.1 -> v0.6.1)
             TAG="${GITHUB_REF#refs/tags/}"
+            IMAGE_TAGS="${IMAGE_REF}:${TAG}"$'\n'"${IMAGE_REF}:latest"
+          elif [[ "${{ github.event_name }}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            # Main branch push: update latest only.
+            TAG="latest"
+            IMAGE_TAGS="${IMAGE_REF}:latest"
           elif [[ -n "${{ inputs.tag }}" ]]; then
             # Manual dispatch with explicit tag
             TAG="${{ inputs.tag }}"
+            IMAGE_TAGS="${IMAGE_REF}:${TAG}"$'\n'"${IMAGE_REF}:latest"
           else
             # Manual dispatch without tag: use latest git tag
             TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
+            IMAGE_TAGS="${IMAGE_REF}:${TAG}"$'\n'"${IMAGE_REF}:latest"
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          {
+            echo "image_tags<<EOF"
+            echo "$IMAGE_TAGS"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
           echo "Resolved tag: $TAG"
+          echo "Image tags:"
+          echo "$IMAGE_TAGS"
 
       - name: Generate default config for Docker build
         run: |
@@ -78,9 +96,7 @@ jobs:
           context: .
           file: build/Dockerfile
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ steps.version.outputs.image_tags }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
