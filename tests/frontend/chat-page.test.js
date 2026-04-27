@@ -275,6 +275,35 @@ describe('chat page', () => {
     expect(activeButton.textContent).toBe('New Chat')
   })
 
+  test('activateChatSession focuses the chat input after new chat activation', async () => {
+    jest.resetModules()
+
+    const focusChatInput = jest.fn()
+    const cancelChatInputFocusRetry = jest.fn()
+    jest.unstable_mockModule('../../app/frontend/scripts/chat-ui.js', () => ({
+      initChat: jest.fn(async () => {}),
+      activateSession: jest.fn(async () => false),
+      abortCurrentStream: jest.fn(),
+      getCurrentAgentInfo: jest.fn(() => ({ name: 'AtlasClaw Enterprise AI Assistant' })),
+      focusChatInput,
+      cancelChatInputFocusRetry
+    }))
+
+    const chatPage = await import('../../app/frontend/scripts/pages/chat.js')
+    const container = document.getElementById('page-root')
+
+    await chatPage.mount(container)
+    focusChatInput.mockClear()
+
+    const activated = await chatPage.activateChatSession('session-c')
+
+    expect(activated).toBe(true)
+    expect(focusChatInput).toHaveBeenCalledTimes(1)
+
+    await chatPage.unmount()
+    expect(cancelChatInputFocusRetry).toHaveBeenCalledTimes(1)
+  })
+
   test('user turn hides empty state immediately before assistant response returns', async () => {
     jest.resetModules()
 
@@ -286,7 +315,9 @@ describe('chat page', () => {
       activateSession: jest.fn(async () => false),
       refreshActiveSessionHistory: jest.fn(async () => false),
       abortCurrentStream: jest.fn(),
-      getCurrentAgentInfo: jest.fn(() => ({ name: 'AtlasClaw Enterprise AI Assistant' }))
+      getCurrentAgentInfo: jest.fn(() => ({ name: 'AtlasClaw Enterprise AI Assistant' })),
+      focusChatInput: jest.fn(),
+      cancelChatInputFocusRetry: jest.fn()
     }))
 
     const chatPage = await import('../../app/frontend/scripts/pages/chat.js')

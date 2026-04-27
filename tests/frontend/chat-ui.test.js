@@ -280,6 +280,98 @@ describe('chat-ui.js handler mode', () => {
         expect(element.auxiliaryStyle).not.toContain('#input { background: transparent !important; }');
     });
 
+    test('initChat focuses the chat input when it is ready', async () => {
+        const { initChat } = await import('../../app/frontend/scripts/chat-ui.js');
+        const { element, input } = createDomChatElement();
+
+        global.fetch
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ session_key: 'session-123' })
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({})
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ messages: [] })
+            });
+
+        await initChat(element);
+
+        expect(document.activeElement).toBe(element);
+        expect(element.shadowRoot.activeElement).toBe(input);
+    });
+
+    test('focus retry reattaches slash picker after DeepChat replaces the input', async () => {
+        sessionStorage.setItem('atlasclaw_session_key', 'session-123');
+        sessionStorage.setItem('atlasclaw_auth_token', 'token-replaced-input');
+
+        global.fetch = jest.fn((url) => {
+            const target = String(url);
+            if (target.includes('/api/agent/capabilities')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        capabilities: [
+                            {
+                                id: 'replacement-skill',
+                                kind: 'skill',
+                                command: '/replacement-skill',
+                                label: 'replacement-skill',
+                                skill_name: 'replacement-skill',
+                                qualified_skill_name: 'replacement-skill',
+                                target_skill_names: ['replacement-skill'],
+                                target_tool_names: ['replacement_skill']
+                            }
+                        ]
+                    })
+                });
+            }
+            if (target.includes('/api/agent/info')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({})
+                });
+            }
+            if (target.includes('/history')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ messages: [] })
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve({})
+            });
+        });
+
+        const { initChat, cancelChatInputFocusRetry } = await import('../../app/frontend/scripts/chat-ui.js');
+        const { element, input } = createDomChatElement();
+
+        try {
+            await initChat(element);
+
+            const replacementInput = document.createElement('div');
+            replacementInput.setAttribute('contenteditable', 'true');
+            element.shadowRoot.replaceChild(replacementInput, input);
+
+            await new Promise(r => setTimeout(r, 160));
+
+            expect(document.activeElement).toBe(element);
+            expect(element.shadowRoot.activeElement).toBe(replacementInput);
+            expect(replacementInput._slashPickerAttached).toBe(true);
+
+            setEditableText(replacementInput, '/');
+            await new Promise(r => setTimeout(r, 80));
+
+            expect(document.querySelector('.slash-picker-row')?.textContent).toContain('/replacement-skill');
+        } finally {
+            cancelChatInputFocusRetry();
+        }
+    });
+
     test('initChat restores persisted session history for active session', async () => {
         sessionStorage.setItem('atlasclaw_session_key', 'session-123');
 
@@ -880,6 +972,40 @@ describe('chat-ui.js handler mode', () => {
         const rows = Array.from(document.querySelectorAll('.slash-picker-row'));
         expect(rows).toHaveLength(12);
         expect(rows.at(-1)?.textContent).toContain('/skill-11');
+    });
+
+    test('slash picker opens for slash text entered before listener attach', async () => {
+        const { setupSlashCapabilityPicker } = await import('../../app/frontend/scripts/slash-picker.js');
+        const { element, input } = createDomChatElement();
+
+        sessionStorage.setItem('atlasclaw_auth_token', 'token-pre-attach-slash');
+        global.fetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({
+                capabilities: [
+                    {
+                        id: 'pre-attach-skill',
+                        kind: 'skill',
+                        command: '/pre-attach-skill',
+                        label: 'pre-attach-skill',
+                        skill_name: 'pre-attach-skill',
+                        qualified_skill_name: 'pre-attach-skill',
+                        target_skill_names: ['pre-attach-skill'],
+                        target_tool_names: ['pre_attach_skill']
+                    }
+                ]
+            })
+        });
+
+        setEditableText(input, '/');
+        expect(input._slashPickerAttached).toBeUndefined();
+
+        setupSlashCapabilityPicker(element);
+        await new Promise(r => setTimeout(r, 80));
+
+        const popup = document.querySelector('.slash-picker-popup');
+        expect(popup.hidden).toBe(false);
+        expect(document.querySelector('.slash-picker-row')?.textContent).toContain('/pre-attach-skill');
     });
 
     test('handler uses signals.onResponse with overwrite for stream updates', async () => {

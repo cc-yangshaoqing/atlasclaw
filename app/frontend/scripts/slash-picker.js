@@ -189,6 +189,8 @@ class SlashCapabilityPicker {
     window.addEventListener('resize', this.onResize)
     window.addEventListener('scroll', this.onResize, true)
     this.warmCapabilities()
+    // Recover "/" typed before a delayed attach retry installed the input listener.
+    this.onInput()
     return true
   }
 
@@ -560,7 +562,14 @@ class SlashCapabilityPicker {
 export function setupSlashCapabilityPicker(chatElement) {
   if (!(chatElement instanceof HTMLElement)) return null
   if (chatElement._slashCapabilityPickerController) {
-    currentController = chatElement._slashCapabilityPickerController
+    const controller = chatElement._slashCapabilityPickerController
+    // DeepChat can replace its shadow input after history changes; rebuild the controller for the new input.
+    if (controller.input !== findInputElement(chatElement)) {
+      controller.destroy()
+      delete chatElement._slashCapabilityPickerController
+      return setupSlashCapabilityPicker(chatElement)
+    }
+    currentController = controller
     return currentController
   }
   const controller = new SlashCapabilityPicker(chatElement)

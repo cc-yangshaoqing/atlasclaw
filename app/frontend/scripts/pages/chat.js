@@ -7,7 +7,7 @@
  */
 
 import { initSession, getSessionKey, setSessionKey } from '../session-manager.js?v=19'
-import { initChat, activateSession, abortCurrentStream, getCurrentAgentInfo } from '../chat-ui.js?v=19'
+import { initChat, activateSession, abortCurrentStream, getCurrentAgentInfo, focusChatInput, cancelChatInputFocusRetry } from '../chat-ui.js?v=19'
 import { listSessions, deleteSession } from '../api-client.js?v=19'
 import { translateIfExists } from '../i18n.js'
 import { updateHeaderTitleText } from '../components/header.js?v=19'
@@ -99,9 +99,11 @@ export async function mount(container) {
   await loadSessions()
   bindDialogEvents(container)
   mounted = true
+  focusChatInput()
 }
 
 export async function unmount() {
+  cancelChatInputFocusRetry()
   abortCurrentStream()
   const sidebarContent = document.getElementById('sidebar-dynamic-content')
   if (sidebarContent) sidebarContent.innerHTML = ''
@@ -116,6 +118,7 @@ export async function unmount() {
 export async function activateChatSession(nextKey) {
   if (!mounted || !nextKey) return false
   await switchActiveSession(nextKey)
+  focusChatInput()
   return true
 }
 

@@ -26,9 +26,12 @@ let currentAgentInfo = null
 let isComposing = false // Track IME composition state for macOS/Asian input
 let blockNextEnterAfterComposition = false
 let blockNextEnterStartedAt = 0
+let focusRetryGeneration = 0
 
 const IME_ENTER_GUARD_MS = 150
 const SCROLL_THRESHOLD = 50
+const CHAT_INPUT_FOCUS_RETRY_ATTEMPTS = 100
+const CHAT_INPUT_FOCUS_RETRY_DELAY_MS = 100
 
 function clearImeEnterGuard() {
   blockNextEnterAfterComposition = false
@@ -129,6 +132,93 @@ function getMessageContainer() {
   return dc.shadowRoot.querySelector('.messages-container') ||
     dc.shadowRoot.querySelector('#messages') ||
     dc.shadowRoot.querySelector('[class*="message-container"]')
+}
+
+function getChatInputElement(element = chatElement) {
+  if (!element?.shadowRoot) return null
+  return element.shadowRoot.querySelector('textarea') ||
+    element.shadowRoot.querySelector('input[type="text"]') ||
+    element.shadowRoot.querySelector('[contenteditable="true"]')
+}
+
+function placeCaretAtEnd(inputElement) {
+  if (!inputElement || !(inputElement.isContentEditable || inputElement.getAttribute?.('contenteditable') === 'true')) {
+    return
+  }
+  const selection = window.getSelection()
+  if (!selection) return
+  const range = document.createRange()
+  range.selectNodeContents(inputElement)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+/**
+ * Focus the chat composer after route/session changes, retrying while DeepChat initializes its shadow input.
+ */
+export function focusChatInput({
+  retry = true,
+  attempts = CHAT_INPUT_FOCUS_RETRY_ATTEMPTS,
+  delayMs = CHAT_INPUT_FOCUS_RETRY_DELAY_MS
+} = {}) {
+  const generation = ++focusRetryGeneration
+  return focusChatInputWithRetry({
+    retry,
+    attempts,
+    delayMs,
+    generation,
+    hasFocused: false,
+    focusedInput: null
+  })
+}
+
+function shouldRefocusReplacementInput(inputElement, focusedInput) {
+  if (!inputElement || !focusedInput || inputElement === focusedInput) return false
+  const activeElement = document.activeElement
+  return !focusedInput.isConnected &&
+    (!activeElement || activeElement === document.body || activeElement === chatElement)
+}
+
+function focusChatInputWithRetry({ retry, attempts, delayMs, generation, hasFocused, focusedInput }) {
+  if (generation !== focusRetryGeneration) return false
+
+  const inputElement = getChatInputElement()
+  if (inputElement) {
+    setupCompositionListeners()
+    setupSlashCapabilityPicker(chatElement)
+    if (!hasFocused || shouldRefocusReplacementInput(inputElement, focusedInput)) {
+      try {
+        inputElement.focus({ preventScroll: true })
+      } catch (_error) {
+        inputElement.focus()
+      }
+      placeCaretAtEnd(inputElement)
+    }
+    hasFocused = true
+    focusedInput = inputElement
+  }
+
+  if (retry && attempts > 0) {
+    // DeepChat may replace its shadow input after history renders; keep rebinding
+    // slash picker for a bounded window without stealing focus after the first success.
+    setTimeout(() => focusChatInputWithRetry({
+      retry,
+      attempts: attempts - 1,
+      delayMs,
+      generation,
+      hasFocused,
+      focusedInput
+    }), delayMs)
+  }
+  return hasFocused
+}
+
+/**
+ * Cancel pending chat-input focus retries when leaving the chat page.
+ */
+export function cancelChatInputFocusRetry() {
+  focusRetryGeneration += 1
 }
 
 /**
@@ -273,6 +363,7 @@ export async function initChat(element, callbacks = {}) {
   setupSlashCapabilityPicker(element)
   
   await activateSession(getSessionKey())
+  focusChatInput()
 
   console.log('[ChatUI] Initialized')
 }
@@ -1301,5 +1392,7 @@ export default {
   abortCurrentStream,
   getChatElement,
   getCurrentAgentInfo,
+  focusChatInput,
+  cancelChatInputFocusRetry,
   configureI18nAttributes
 }
