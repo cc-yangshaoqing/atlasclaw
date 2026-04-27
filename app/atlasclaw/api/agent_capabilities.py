@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2026  Qianyun, Inc. All rights reserved.
+# Copyright 2026  Qianyun, Inc., www.cloudchef.io, All rights reserved.
 
 """Request-scoped chat capability catalog for slash command selection."""
 

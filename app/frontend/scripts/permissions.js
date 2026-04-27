@@ -1,5 +1,5 @@
 /*
- *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ *  Copyright 2026  Qianyun, Inc., www.cloudchef.io, All rights reserved.
  */
 
 const SKILL_MODULE_PERMISSION_KEYS = new Set(['view', 'enable_disable', 'manage_permissions'])

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2026  Qianyun, Inc., www.cloudchef.io, All rights reserved.
+
 """Helpers for interpreting runtime tool result modes."""
 
 from __future__ import annotations

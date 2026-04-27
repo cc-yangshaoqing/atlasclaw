@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Copyright 2026  Qianyun, Inc., www.cloudchef.io, All rights reserved.
+
 """Tests for internal_request_trace_id workflow context isolation.
 
 Verifies that:

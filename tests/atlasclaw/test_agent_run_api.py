@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2021  Qianyun, Inc. All rights reserved.
+# Copyright 2026  Qianyun, Inc., www.cloudchef.io, All rights reserved.
 
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements. See the NOTICE file

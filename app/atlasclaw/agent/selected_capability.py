@@ -1,4 +1,5 @@
-# Copyright 2026  Qianyun, Inc. All rights reserved.
+# -*- coding: utf-8 -*-
+# Copyright 2026  Qianyun, Inc., www.cloudchef.io, All rights reserved.
 
 """Helpers for server-validated user-selected slash capabilities."""
 

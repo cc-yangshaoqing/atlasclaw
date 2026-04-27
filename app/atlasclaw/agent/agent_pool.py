@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# Copyright 2021  Qianyun, Inc. All rights reserved.
+# Copyright 2026  Qianyun, Inc., www.cloudchef.io, All rights reserved.
 
 """Agent instance pool keyed by `(agent_id, token_id)`."""
 

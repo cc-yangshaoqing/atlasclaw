@@ -1,5 +1,5 @@
 /*
- *  Copyright 2021  Qianyun, Inc. All rights reserved.
+ *  Copyright 2026  Qianyun, Inc., www.cloudchef.io, All rights reserved.
  */
 
 const TARGET_PATH = '/admin/users'
