@@ -11,6 +11,7 @@ import { initChat, activateSession, abortCurrentStream, getCurrentAgentInfo, foc
 import { listSessions, deleteSession } from '../api-client.js?v=19'
 import { translateIfExists } from '../i18n.js'
 import { updateHeaderTitleText } from '../components/header.js?v=19'
+import { restoreInputFocus } from '../dom-utils.js?v=19'
 
 let chatElement = null
 let mounted = false
@@ -175,8 +176,11 @@ function renderSidebarContent(container) {
   const input = container.querySelector('#session-search-input')
   if (input) {
     input.addEventListener('input', (event) => {
+      const selectionStart = event.target.selectionStart
+      const selectionEnd = event.target.selectionEnd
       searchQuery = event.target.value || ''
       renderSidebarContent(container)
+      restoreInputFocus(container, '#session-search-input', selectionStart, selectionEnd)
     })
   }
 

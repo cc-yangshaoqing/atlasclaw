@@ -251,11 +251,17 @@ describe('chat page', () => {
     expect(sidebar.textContent).not.toContain('Today')
 
     const searchInput = sidebar.querySelector('#session-search-input')
+    searchInput.focus()
     searchInput.value = 'approvals'
+    searchInput.setSelectionRange(searchInput.value.length, searchInput.value.length)
     searchInput.dispatchEvent(new Event('input'))
 
     expect(sidebar.textContent).toContain('Query approvals')
     expect(sidebar.textContent).not.toContain('Create virtual machine')
+    const refreshedSearchInput = sidebar.querySelector('#session-search-input')
+    expect(document.activeElement).toBe(refreshedSearchInput)
+    expect(refreshedSearchInput.value).toBe('approvals')
+    expect(refreshedSearchInput.selectionStart).toBe('approvals'.length)
   })
 
   test('activateChatSession switches the mounted chat page to a fresh empty session', async () => {

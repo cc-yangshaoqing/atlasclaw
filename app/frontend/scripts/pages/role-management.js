@@ -7,6 +7,7 @@ import { showToast } from '../components/toast.js'
 import { checkAuth } from '../auth.js'
 import { getAuthInfo } from '../app.js'
 import { buildAssetUrl, buildAppUrl } from '../config.js'
+import { restoreInputFocus } from '../dom-utils.js'
 import {
   canAccessRoleManagement,
   canManagePermissionModule,
@@ -1346,12 +1347,19 @@ function handleEditorInput(event) {
     return
   }
   if (event.target.id === 'skillsSearchInput') {
+    const selectionStart = event.target.selectionStart
+    const selectionEnd = event.target.selectionEnd
     skillSearch = event.target.value
     renderPage()
+    restoreInputFocus(editorEl, '#skillsSearchInput', selectionStart, selectionEnd)
+    return
   }
   if (event.target.id === 'providersSearchInput') {
+    const selectionStart = event.target.selectionStart
+    const selectionEnd = event.target.selectionEnd
     providerSearch = event.target.value
     renderPage()
+    restoreInputFocus(editorEl, '#providersSearchInput', selectionStart, selectionEnd)
   }
 }
 

@@ -478,6 +478,40 @@ describe('role management page', () => {
     expect(payload.permissions.providers.provider_permissions).toHaveLength(2)
   })
 
+  test('skills and providers searches keep focus while filtering', async () => {
+    const page = await import('../../app/frontend/scripts/pages/role-management.js')
+    const container = document.getElementById('page-root')
+
+    await page.mount(container)
+
+    const skillsSearchInput = container.querySelector('#skillsSearchInput')
+    skillsSearchInput.focus()
+    skillsSearchInput.value = 'jira'
+    skillsSearchInput.setSelectionRange(skillsSearchInput.value.length, skillsSearchInput.value.length)
+    skillsSearchInput.dispatchEvent(new Event('input', { bubbles: true }))
+
+    const refreshedSkillsSearchInput = container.querySelector('#skillsSearchInput')
+    expect(document.activeElement).toBe(refreshedSkillsSearchInput)
+    expect(refreshedSkillsSearchInput.value).toBe('jira')
+    expect(refreshedSkillsSearchInput.selectionStart).toBe('jira'.length)
+    expect(container.querySelector('.role-skill-list').textContent).toContain('jira-manager')
+    expect(container.querySelector('.role-skill-list').textContent).not.toContain('confluence')
+
+    container.querySelector('[data-module-id="providers"]').click()
+    const providersSearchInput = container.querySelector('#providersSearchInput')
+    providersSearchInput.focus()
+    providersSearchInput.value = 'jira'
+    providersSearchInput.setSelectionRange(providersSearchInput.value.length, providersSearchInput.value.length)
+    providersSearchInput.dispatchEvent(new Event('input', { bubbles: true }))
+
+    const refreshedProvidersSearchInput = container.querySelector('#providersSearchInput')
+    expect(document.activeElement).toBe(refreshedProvidersSearchInput)
+    expect(refreshedProvidersSearchInput.value).toBe('jira')
+    expect(refreshedProvidersSearchInput.selectionStart).toBe('jira'.length)
+    expect(container.querySelector('.role-provider-list').textContent).toContain('Jira / prod')
+    expect(container.querySelector('.role-provider-list').textContent).not.toContain('SmartCMP / default')
+  })
+
   test('builtin user role provider access can be edited and saved', async () => {
     const page = await import('../../app/frontend/scripts/pages/role-management.js')
     const container = document.getElementById('page-root')
