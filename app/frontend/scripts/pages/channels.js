@@ -16,6 +16,7 @@
 import { t, translateIfExists, updatePageTranslations } from '../i18n.js'
 import { showToast } from '../components/toast.js'
 import { buildAssetUrl } from '../config.js'
+import { createProviderUserTokenController } from '../provider-user-token-panel.js'
 
 // ========== Module State ==========
 let mounted = false
@@ -36,6 +37,7 @@ let suppressCardClick = false
 let runtimeStatusPollTimer = null
 let runtimeStatusPollInFlight = false
 let verificationInFlight = false
+let providerTokenController = null
 const VALIDATION_REQUEST_TIMEOUT_MS = 3600
 
 // ========== Channel Type SVG Icons ==========
@@ -268,7 +270,27 @@ function getPageTemplate() {
           </button>
         </div>
         <div id="connectionsSection" style="display: none;"></div>
-        <div id="healthPanel" style="display: none;"></div>
+        <div id="providerTokenReadinessPanel" style="display: none;">
+          <div class="ch-provider-token-panel">
+            <div class="ch-provider-token-header">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M21 2l-2 2"></path>
+                <path d="M15.5 7.5l2 2"></path>
+                <circle cx="7.5" cy="16.5" r="5.5"></circle>
+                <path d="M12 12 22 2"></path>
+              </svg>
+              <div>
+                <h3 data-i18n="channel.providerUserTokensTitle">Provider User Tokens</h3>
+                <p data-i18n="channel.providerUserTokensDescription">Configure personal tokens for provider instances that can be called from channel messages.</p>
+              </div>
+            </div>
+            <p class="ch-provider-token-copy" data-i18n="channel.providerUserTokensImCopy">
+              IM messages can ask the agent to work with configured providers. Those provider calls require the current user's personal user_token for each accessible provider instance.
+            </p>
+            <div id="channelProviderTokenPanel" class="ch-provider-token-table-host"></div>
+          </div>
+        </div>
+        <div id="channelProviderTokenModalHost"></div>
       </div>
 
       <div id="channelEditView" style="display: none;"></div>
@@ -300,6 +322,19 @@ export async function mount(container, { params, route } = {}) {
 
   // Render page HTML
   container.innerHTML = getPageTemplate()
+  providerTokenController = createProviderUserTokenController({
+    container: pageContainer,
+    panelSelector: '#channelProviderTokenPanel',
+    modalHostSelector: '#channelProviderTokenModalHost',
+    idPrefix: 'channel',
+    configureAttribute: 'data-channel-provider-token-configure',
+    closeAttribute: 'data-channel-provider-token-close',
+    modalId: 'channelProviderTokenModal',
+    formId: 'channelProviderTokenForm',
+    inputId: 'channelProviderTokenInput',
+    saveButtonId: 'channelSaveProviderTokenBtn'
+  })
+  providerTokenController.bind()
   channelRailCleanup = bindChannelRailControls()
 
   // Bind delete dialog events
@@ -310,7 +345,10 @@ export async function mount(container, { params, route } = {}) {
   window.addEventListener('popstate', popstateHandler)
 
   // Load channel types
-  const channels = await fetchChannelTypes()
+  const [channels] = await Promise.all([
+    fetchChannelTypes(),
+    providerTokenController.load()
+  ])
   renderChannelTypes(channels)
 
   // Default to the first mockup channel to match the design
@@ -345,10 +383,12 @@ export async function unmount() {
   syncChannelRailState = null
   suppressCardClick = false
   stopRuntimeStatusPolling()
+  providerTokenController?.destroy()
 
   // Reset all module state
   mounted = false
   pageContainer = null
+  providerTokenController = null
   currentChannelType = null
   currentSchema = null
   allChannels = []
@@ -836,14 +876,6 @@ const MOCK_CHANNEL_SCHEMAS = {
     },
     required: ['connection_mode', 'bot_id', 'bot_secret']
   }
-}
-
-const MOCK_HEALTH = {
-  feishu: { latency: '42ms', latencyWidth: 84, uptime: '99.98%', uptimeWidth: 99.98 },
-  dingtalk: { latency: '48ms', latencyWidth: 82, uptime: '99.96%', uptimeWidth: 99.96 },
-  wecom: { latency: '51ms', latencyWidth: 79, uptime: '99.91%', uptimeWidth: 99.91 },
-  slack: { latency: '36ms', latencyWidth: 91, uptime: '99.92%', uptimeWidth: 99.92 },
-  discord: { latency: '57ms', latencyWidth: 76, uptime: '99.74%', uptimeWidth: 99.74 }
 }
 
 function createInitialMockState() {
@@ -1784,12 +1816,13 @@ async function renderActiveConnections(type) {
   // Show the section
   section.style.display = 'block'
 
-  // Render health panel
+  // Render provider user-token readiness panel
+  const providerPanel = $('#providerTokenReadinessPanel')
   if (isPlanned) {
-    const panel = $('#healthPanel')
-    if (panel) panel.style.display = 'none'
+    if (providerPanel) providerPanel.style.display = 'none'
   } else {
-    renderConnectionHealth(type)
+    if (providerPanel) providerPanel.style.display = 'block'
+    providerTokenController?.render()
   }
 
   // Bind events
@@ -1839,49 +1872,6 @@ function renderConnectionRow(conn) {
 }
 
 /**
- * Render Connection Health panel
- */
-function renderConnectionHealth(type) {
-  const panel = $('#healthPanel')
-  if (!panel) return
-  const health = MOCK_HEALTH[type] || MOCK_HEALTH.feishu
-
-  panel.innerHTML = `
-    <div class="ch-health-panel">
-      <div class="ch-health-header">
-        <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-          <path d="M12 2L4 8l8 14 8-14-8-6zM8.5 8L12 5.5 15.5 8l-3.5 6-3.5-6z"/>
-        </svg>
-        <h3 data-i18n="channel.connectionHealth">Connection Health</h3>
-      </div>
-      <div class="ch-health-metrics">
-        <div class="ch-health-metric">
-          <div class="ch-health-metric-header">
-            <span class="ch-health-metric-label" data-i18n="channel.averageLatency">Average Latency</span>
-            <span class="ch-health-metric-value">${health.latency}</span>
-          </div>
-          <div class="ch-progress-bar">
-            <div class="ch-progress-bar-fill latency" style="width: ${health.latencyWidth}%;"></div>
-          </div>
-        </div>
-        <div class="ch-health-metric">
-          <div class="ch-health-metric-header">
-            <span class="ch-health-metric-label" data-i18n="channel.uptime24h">Uptime (24h)</span>
-            <span class="ch-health-metric-value">${health.uptime}</span>
-          </div>
-          <div class="ch-progress-bar">
-            <div class="ch-progress-bar-fill uptime" style="width: ${health.uptimeWidth}%;"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `
-
-  // Show the panel
-  panel.style.display = 'block'
-}
-
-/**
  * Handle route change - render appropriate view based on URL
  */
 async function handleRouteChange() {
@@ -1919,7 +1909,7 @@ async function handleRouteChange() {
     if (channelListView) channelListView.style.display = 'block'
     if (channelEditView) channelEditView.style.display = 'none'
     const section = $('#connectionsSection')
-    const panel = $('#healthPanel')
+    const panel = $('#providerTokenReadinessPanel')
     if (section) section.style.display = 'none'
     if (panel) panel.style.display = 'none'
   }

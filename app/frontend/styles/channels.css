@@ -762,9 +762,9 @@
 }
 
 /* ===========================================
-   CONNECTION HEALTH PANEL
+   PROVIDER USER TOKEN PANEL
    =========================================== */
-.ch-health-panel {
+.ch-provider-token-panel {
     background: rgba(255, 255, 255, 0.78);
     border: 1px solid rgba(226, 232, 240, 0.82);
     border-radius: 12px;
@@ -773,80 +773,277 @@
     box-shadow: 0 18px 40px rgba(148, 163, 184, 0.08);
 }
 
-.ch-health-header {
+.ch-provider-token-header {
     display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 10px;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
 }
 
-.ch-health-header svg {
+.ch-provider-token-header svg {
+    flex: 0 0 auto;
     width: 20px;
     height: 20px;
-    color: var(--color-success);
+    color: var(--color-primary);
+    margin-top: 2px;
 }
 
-.ch-health-header h3 {
+.ch-provider-token-header h3 {
     font-size: 18px;
     font-weight: 700;
     color: var(--color-text);
     margin: 0;
 }
 
-.ch-health-copy {
+.ch-provider-token-header p,
+.ch-provider-token-copy {
     font-size: 13px;
     color: var(--color-text-secondary);
+    line-height: 1.55;
+    margin: 4px 0 0;
+}
+
+.ch-provider-token-copy {
     margin: 0 0 18px;
+    max-width: none;
 }
 
-.ch-health-metrics {
+.ch-provider-token-table-host {
+    min-height: 82px;
+}
+
+.ch-provider-token-panel .account-provider-token-empty {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 6px;
+    padding: 18px;
+    border: 1px dashed rgba(148, 163, 184, 0.45);
+    border-radius: 12px;
+    background: rgba(248, 250, 252, 0.8);
 }
 
-.ch-health-metric {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-}
-
-.ch-health-metric-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.ch-health-metric-label {
+.ch-provider-token-panel .account-provider-token-empty strong {
+    color: var(--color-text);
     font-size: 14px;
+}
+
+.ch-provider-token-panel .account-provider-token-empty span {
     color: var(--color-text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
 }
 
-.ch-health-metric-value {
-    font-size: 14px;
-    font-weight: 600;
+.ch-provider-token-panel .account-provider-token-empty.is-error {
+    border-color: rgba(239, 68, 68, 0.3);
+    background: #fff7f7;
+}
+
+.ch-provider-token-panel .account-provider-token-empty.is-error strong,
+.ch-provider-token-panel .account-provider-token-error,
+#channelProviderTokenModal .account-provider-token-error {
+    color: #dc2626;
+}
+
+.ch-provider-token-panel .account-provider-token-table-wrap {
+    overflow-x: auto;
+    border: 1px solid rgba(226, 232, 240, 0.88);
+    border-radius: 12px;
+}
+
+.ch-provider-token-panel .account-provider-token-table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 640px;
+}
+
+.ch-provider-token-panel .account-provider-token-table th,
+.ch-provider-token-panel .account-provider-token-table td {
+    padding: 13px 14px;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.74);
+    text-align: left;
+    font-size: 13px;
     color: var(--color-text);
 }
 
-.ch-progress-bar {
-    height: 6px;
-    background: var(--color-neutral-200);
-    border-radius: 3px;
+.ch-provider-token-panel .account-provider-token-table th {
+    background: #f8fafc;
+    color: var(--color-text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.ch-provider-token-panel .account-provider-token-table tr:last-child td {
+    border-bottom: none;
+}
+
+.ch-provider-token-panel .account-provider-token-status {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 4px 9px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.ch-provider-token-panel .account-provider-token-status.is-configured {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.ch-provider-token-panel .account-provider-token-status.is-missing {
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.ch-provider-token-panel .account-provider-token-action-cell {
+    text-align: right;
+}
+
+.ch-provider-token-panel .account-provider-token-configure-btn {
+    padding: 8px 12px;
+    border: 1px solid rgba(15, 118, 110, 0.26);
+    border-radius: 10px;
+    background: #f0fdfa;
+    color: #0f766e;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.ch-provider-token-panel .account-provider-token-configure-btn:hover {
+    background: #ccfbf1;
+}
+
+.ch-provider-token-panel .account-muted-cell {
+    color: #94a3b8;
+}
+
+#channelProviderTokenModal.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background: rgba(15, 23, 42, 0.46);
+    backdrop-filter: blur(3px);
+}
+
+#channelProviderTokenModal .account-provider-token-modal {
+    width: min(100%, 500px);
+    max-height: calc(100vh - 48px);
+    background: white;
+    border-radius: 20px;
+    box-shadow: 0 30px 70px rgba(15, 23, 42, 0.22);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
-.ch-progress-bar-fill {
-    height: 100%;
-    border-radius: 3px;
-    transition: width 0.3s ease;
+#channelProviderTokenModal .modal-header,
+#channelProviderTokenModal .modal-body,
+#channelProviderTokenModal .modal-footer {
+    padding: 20px 22px;
 }
 
-.ch-progress-bar-fill.latency {
-    background: var(--color-primary);
+#channelProviderTokenModal .modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.88);
 }
 
-.ch-progress-bar-fill.uptime {
-    background: var(--color-success);
+#channelProviderTokenModal .modal-header h2 {
+    margin: 0 0 6px;
+    color: var(--color-text);
+    font-size: 18px;
+}
+
+#channelProviderTokenModal .modal-description {
+    margin: 0;
+    color: var(--color-text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+#channelProviderTokenModal .modal-close {
+    border: none;
+    background: transparent;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    font-size: 24px;
+    line-height: 1;
+}
+
+#channelProviderTokenModal .modal-body {
+    overflow-y: auto;
+}
+
+#channelProviderTokenModal .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    border-top: 1px solid rgba(226, 232, 240, 0.88);
+}
+
+#channelProviderTokenModal .account-provider-token-modal-context {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 8px 12px;
+    margin-bottom: 16px;
+    padding: 12px;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid rgba(226, 232, 240, 0.88);
+}
+
+#channelProviderTokenModal .account-provider-token-modal-context span {
+    color: var(--color-text-secondary);
+    font-size: 12px;
+}
+
+#channelProviderTokenModal .account-provider-token-modal-context strong {
+    color: var(--color-text);
+    font-size: 13px;
+    word-break: break-word;
+}
+
+#channelProviderTokenModal .account-field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+#channelProviderTokenModal .account-field span {
+    color: var(--color-text);
+    font-size: 12px;
+    font-weight: 700;
+}
+
+#channelProviderTokenModal .account-field input {
+    width: 100%;
+    border: 1px solid rgba(203, 213, 225, 0.92);
+    border-radius: 10px;
+    padding: 11px 12px;
+    color: var(--color-text);
+    background: white;
+    outline: none;
+}
+
+#channelProviderTokenModal .account-field input:focus {
+    border-color: rgba(79, 70, 229, 0.54);
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+
+#channelProviderTokenModal .account-provider-token-error {
+    margin: 12px 0 0;
+    font-size: 12px;
+    line-height: 1.5;
 }
 
 /* ===========================================

@@ -2,9 +2,12 @@
  *  Copyright 2026  Qianyun, Inc., www.cloudchef.io, All rights reserved.
  */
 
+let userProviderPayloads = []
+
 beforeEach(() => {
   jest.resetModules()
   document.body.innerHTML = '<div id="page-root"></div>'
+  userProviderPayloads = []
 
   Object.defineProperty(window, 'localStorage', {
     configurable: true,
@@ -19,8 +22,9 @@ beforeEach(() => {
   window.requestAnimationFrame = jest.fn((callback) => callback())
   window.history.replaceState({}, '', '/channels')
 
-  global.fetch = jest.fn((url) => {
+  global.fetch = jest.fn((url, options = {}) => {
     const target = String(url)
+    const method = String(options.method || 'GET').toUpperCase()
 
     if (target.endsWith('/api/channels')) {
       return Promise.resolve({
@@ -43,6 +47,98 @@ beforeEach(() => {
       })
     }
 
+    if (target === '/api/service-providers/available-instances') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          providers: [
+            {
+              provider_type: 'smartcmp',
+              instance_name: 'default',
+              auth_type: ['provider_token', 'user_token'],
+              base_url: 'https://console.smartcmp.example'
+            },
+            {
+              provider_type: 'smartcmp',
+              instance_name: 'system',
+              auth_type: ['provider_token'],
+              base_url: 'https://system.smartcmp.example'
+            }
+          ]
+        })
+      })
+    }
+
+    if (target === '/api/service-providers/definitions') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          providers: [
+            {
+              provider_type: 'smartcmp',
+              display_name: 'SmartCMP',
+              schema: {
+                fields: [
+                  {
+                    name: 'user_token',
+                    label: 'User Token',
+                    placeholder: 'Enter user token',
+                    type: 'password',
+                    required: true,
+                    sensitive: true,
+                    auth_types: ['user_token']
+                  },
+                  {
+                    name: 'provider_token',
+                    label: 'Provider Token',
+                    type: 'password',
+                    sensitive: true,
+                    auth_types: ['provider_token']
+                  }
+                ]
+              }
+            }
+          ]
+        })
+      })
+    }
+
+    if (target === '/api/users/me/provider-settings' && method === 'GET') {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          providers: {
+            smartcmp: {
+              default: {
+                configured: false,
+                config: {},
+                updated_at: null
+              }
+            }
+          }
+        })
+      })
+    }
+
+    if (target === '/api/users/me/provider-settings' && method === 'PUT') {
+      const payload = JSON.parse(options.body)
+      userProviderPayloads.push(payload)
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({
+          providers: {
+            [payload.provider_type]: {
+              [payload.instance_name]: {
+                configured: true,
+                config: payload.config,
+                updated_at: '2026-04-13T10:30:00Z'
+              }
+            }
+          }
+        })
+      })
+    }
+
     return Promise.resolve({
       ok: true,
       json: () => Promise.resolve({})
@@ -51,6 +147,55 @@ beforeEach(() => {
 })
 
 describe('channels page', () => {
+  test('renders provider user-token readiness panel instead of connection health', async () => {
+    const channelsPage = await import('../../app/frontend/scripts/pages/channels.js')
+    const container = document.getElementById('page-root')
+
+    await channelsPage.mount(container)
+
+    expect(container.querySelector('#providerTokenReadinessPanel').style.display).toBe('block')
+    expect(container.textContent).toContain('Provider User Tokens')
+    expect(container.textContent).toContain('IM messages can ask the agent to work with configured providers')
+    expect(container.textContent).toContain('SmartCMP')
+    expect(container.textContent).toContain('default')
+    expect([...container.querySelectorAll('#channelProviderTokenPanel tbody tr')].map(row => row.children[1].textContent.trim())).toEqual(['default'])
+    expect(container.textContent).not.toContain('Connection Health')
+    expect(container.textContent).not.toContain('Average Latency')
+    expect(container.textContent).not.toContain('Uptime (24h)')
+
+    await channelsPage.unmount()
+  })
+
+  test('channel provider token modal saves only the current user token', async () => {
+    const channelsPage = await import('../../app/frontend/scripts/pages/channels.js')
+    const container = document.getElementById('page-root')
+
+    await channelsPage.mount(container)
+
+    document.querySelector('[data-channel-provider-token-configure]').click()
+
+    expect(document.getElementById('channelProviderTokenModal')).not.toBeNull()
+    expect(document.querySelector('#channelProviderTokenForm input[name="user_token"]')).not.toBeNull()
+    expect(document.querySelector('#channelProviderTokenForm input[name="provider_token"]')).toBeNull()
+
+    document.querySelector('#channelProviderTokenForm input[name="user_token"]').value = 'channel-user-secret'
+    document.getElementById('channelProviderTokenForm').dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(userProviderPayloads).toEqual([
+      {
+        provider_type: 'smartcmp',
+        instance_name: 'default',
+        config: {
+          user_token: 'channel-user-secret'
+        }
+      }
+    ])
+
+    await channelsPage.unmount()
+  })
+
   test('mount keeps built-in channel types visible and shows planned placeholders', async () => {
     const channelsPage = await import('../../app/frontend/scripts/pages/channels.js')
     const container = document.getElementById('page-root')
@@ -65,6 +210,7 @@ describe('channels page', () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
 
     expect(container.querySelector('#btnCreateConnection').disabled).toBe(true)
+    expect(container.querySelector('#providerTokenReadinessPanel').style.display).toBe('none')
     expect(
       global.fetch.mock.calls.some(([url]) => String(url).includes('/api/channels/slack/connections'))
     ).toBe(false)
